@@ -1,36 +1,118 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CafeLuxe QR Ordering
 
-## Getting Started
+Production-ready mobile-first QR restaurant ordering app built with Next.js + Tailwind + Appwrite.
 
-First, run the development server:
+## Working Route
+
+`/c/[client]/t/[table]`
+
+Examples:
+
+- `/c/trustfirst_demo/t/T01`
+- `/c/trustfirst_demo/t/T02`
+
+## Appwrite Config (Default)
+
+- Endpoint: `https://sgp.cloud.appwrite.io/v1`
+- Project ID: `trustfirst-core`
+- Database ID: `trustfirst-main-db`
+- Bucket ID: `restaurant-assets`
+
+Collections:
+
+- `users`
+- `tables`
+- `categories`
+- `menu_items`
+- `orders`
+- `payments`
+- `reports`
+- `settings`
+- `notifications`
+
+## Environment Variables
+
+Copy `.env.example` to `.env.local` and adjust only if needed.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+NEXT_PUBLIC_APPWRITE_ENDPOINT=https://sgp.cloud.appwrite.io/v1
+NEXT_PUBLIC_APPWRITE_PROJECT_ID=trustfirst-core
+NEXT_PUBLIC_APPWRITE_DATABASE_ID=trustfirst-main-db
+NEXT_PUBLIC_APPWRITE_BUCKET_ID=restaurant-assets
+NEXT_PUBLIC_APPWRITE_COLLECTION_USERS=users
+NEXT_PUBLIC_APPWRITE_COLLECTION_TABLES=tables
+NEXT_PUBLIC_APPWRITE_COLLECTION_CATEGORIES=categories
+NEXT_PUBLIC_APPWRITE_COLLECTION_MENU_ITEMS=menu_items
+NEXT_PUBLIC_APPWRITE_COLLECTION_ORDERS=orders
+NEXT_PUBLIC_APPWRITE_COLLECTION_PAYMENTS=payments
+NEXT_PUBLIC_APPWRITE_COLLECTION_REPORTS=reports
+NEXT_PUBLIC_APPWRITE_COLLECTION_SETTINGS=settings
+NEXT_PUBLIC_APPWRITE_COLLECTION_NOTIFICATIONS=notifications
+NEXT_PUBLIC_ENABLE_BACKEND_ORDER_SYNC=false
+
+# Server-only (used for audit script)
+APPWRITE_ENDPOINT=https://sgp.cloud.appwrite.io/v1
+APPWRITE_PROJECT_ID=trustfirst-core
+APPWRITE_DATABASE_ID=trustfirst-main-db
+APPWRITE_API_KEY=your_server_api_key
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Features
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Real table validation via `tables`
+- Restaurant branding load via `settings`
+- Categories + menu load via Appwrite
+- Session-persistent cart
+- Checkout with payment method
+- Order creation in `orders` table
+- UPI flow creates row in `payments`
+- Dark premium bilingual (Hindi + English) mobile UI
+- Invalid QR / no menu / network / order failure handling
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Run Locally
 
-## Learn More
+```bash
+npm install
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+Open: `http://localhost:3000`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Production Build
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run build
+npm run start
+```
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Push repository to GitHub.
+2. Import project in Vercel.
+3. Add same env variables from `.env.example` in Vercel Project Settings.
+4. Deploy.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Production Security + Index Audit
+
+Run Appwrite production hardening audit:
+
+```bash
+npm run audit:appwrite
+```
+
+Auto-create missing indexes (where columns exist):
+
+```bash
+npm run audit:appwrite:apply-indexes
+```
+
+Detailed checklist: [docs/appwrite-production-lockdown.md](docs/appwrite-production-lockdown.md)
+
+## QR Link Format
+
+Generate QR for each table using deployed domain:
+
+- `https://yourdomain.com/c/trustfirst_demo/t/T01`
+- `https://yourdomain.com/c/trustfirst_demo/t/T02`
+
+Print and place each QR on its matching table.
