@@ -729,6 +729,11 @@ function isRecoverableQueryFailure(error: unknown) {
   return /attribute|query|index|invalid|not found/.test(message);
 }
 
+function isUnauthorizedError(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase();
+  return message.includes("user_unauthorized") || message.includes("not authorized");
+}
+
 async function fetchClientScopedDocuments(collectionId: string, routeClient: string) {
   const candidates = buildClientCandidates(routeClient);
   const clientFields = ["client_id", "client", "clientId", "client_slug", "clientSlug"];
@@ -927,10 +932,19 @@ export default function QrOrderingExperience({
         }
 
         setLoadingMessage("Menu and categories load ho rahi hain...");
+        const settingsPromise = fetchClientScopedDocuments(
+          appwriteConfig.collections.settings,
+          routeClient,
+        ).catch((error) => {
+          if (isUnauthorizedError(error)) {
+            return [];
+          }
+          throw error;
+        });
         const [categoryDocs, menuDocs, settingsDocs] = await Promise.all([
           fetchClientScopedDocuments(appwriteConfig.collections.categories, routeClient),
           fetchClientScopedDocuments(appwriteConfig.collections.menuItems, routeClient),
-          fetchClientScopedDocuments(appwriteConfig.collections.settings, routeClient),
+          settingsPromise,
         ]);
 
         if (cancelled) {

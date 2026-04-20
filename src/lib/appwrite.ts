@@ -86,9 +86,15 @@ async function ensureSessionIfPossible() {
           sessionError && typeof sessionError === "object" && "message" in sessionError
             ? String(sessionError.message).toLowerCase()
             : "";
-        const canIgnore = message.includes("already") && message.includes("session");
+        const canIgnore =
+          (message.includes("already") && message.includes("session")) ||
+          message.includes("user_unauthorized") ||
+          message.includes("not authorized") ||
+          message.includes("origin") ||
+          message.includes("domain");
         if (!canIgnore) {
-          throw sessionError;
+          console.warn("Appwrite anonymous session init failed; continuing without session.");
+          console.warn(sessionError);
         }
       }
     }
