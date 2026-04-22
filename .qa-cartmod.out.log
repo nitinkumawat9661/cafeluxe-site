@@ -14,3 +14,9 @@ Creating turbopack project { dir: 'C:\\Users\\DELL\\Desktop\\cafeluxeQR', testMo
 
  GET / 200 in 1995ms (next.js: 1858ms, application-code: 137ms)
  GET /c/trustfirst_demo/t/T01 200 in 953ms (next.js: 883ms, application-code: 70ms)
+▲ Next.js 16.2.4 (Turbopack)
+- Local:         http://localhost:3003
+- Network:       http://localhost:3003
+✓ Ready in 3.0s
+Creating turbopack project { dir: 'C:\\Users\\DELL\\Desktop\\cafeluxeQR', testMode: true }
+
