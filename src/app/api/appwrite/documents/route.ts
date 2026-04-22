@@ -6,12 +6,73 @@ const APPWRITE_PROJECT_ID =
   process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID ?? "trustfirst-core";
 const APPWRITE_DATABASE_ID =
   process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID ?? "trustfirst-main-db";
+const APPWRITE_API_KEY = process.env.APPWRITE_API_KEY ?? "";
+const ORDERS_COLLECTION_ID =
+  process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_ORDERS ?? "orders";
+const SAFE_ORDER_PAYMENT_SWITCH_FIELDS = new Set([
+  "payment_method",
+  "payment_status",
+  "updated_at_custom",
+]);
 
-function buildAppwriteHeaders() {
-  return {
+function buildAppwriteHeaders(useApiKey = false) {
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "X-Appwrite-Project": APPWRITE_PROJECT_ID,
   };
+
+  if (useApiKey && APPWRITE_API_KEY) {
+    headers["X-Appwrite-Key"] = APPWRITE_API_KEY;
+  }
+
+  return headers;
+}
+
+function isSafeOrderPaymentSwitchPatch(
+  collectionId: string,
+  documentData: Record<string, unknown>,
+) {
+  if (collectionId !== ORDERS_COLLECTION_ID) {
+    return false;
+  }
+
+  const keys = Object.keys(documentData);
+  if (keys.length === 0) {
+    return false;
+  }
+
+  if (keys.some((key) => !SAFE_ORDER_PAYMENT_SWITCH_FIELDS.has(key))) {
+    return false;
+  }
+
+  const paymentMethod =
+    typeof documentData.payment_method === "string"
+      ? documentData.payment_method.trim().toUpperCase()
+      : "";
+  if (paymentMethod && paymentMethod !== "UPI" && paymentMethod !== "COUNTER") {
+    return false;
+  }
+
+  const paymentStatus =
+    typeof documentData.payment_status === "string"
+      ? documentData.payment_status.trim().toUpperCase()
+      : "";
+  if (
+    paymentStatus &&
+    ![
+      "UNPAID",
+      "PENDING",
+      "PAID",
+      "FAILED",
+      "REFUNDED",
+      "PARTIAL",
+      "PROCESSING",
+    ].includes(paymentStatus)
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 async function parseResponse(response: Response) {
@@ -118,9 +179,13 @@ export async function PATCH(request: NextRequest) {
     documentId,
   )}`;
 
+  const canUsePrivilegedPatch =
+    !!APPWRITE_API_KEY &&
+    isSafeOrderPaymentSwitchPatch(collectionId, documentData);
+
   const upstreamResponse = await fetch(upstreamUrl, {
     method: "PATCH",
-    headers: buildAppwriteHeaders(),
+    headers: buildAppwriteHeaders(canUsePrivilegedPatch),
     body: JSON.stringify({
       data: documentData,
     }),

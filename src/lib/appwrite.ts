@@ -107,6 +107,28 @@ function isNetworkTransportError(error: unknown) {
   );
 }
 
+function isPermissionError(error: unknown) {
+  if (!error) {
+    return false;
+  }
+
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : typeof error === "object" && "message" in error
+        ? String(error.message).toLowerCase()
+        : String(error).toLowerCase();
+
+  return (
+    message.includes("not authorized") ||
+    message.includes("user_unauthorized") ||
+    message.includes("missing scope") ||
+    message.includes("permission denied") ||
+    message.includes("code: 401") ||
+    message.includes("401")
+  );
+}
+
 async function readProxyError(response: Response) {
   try {
     const data = (await response.json()) as { message?: string; error?: string };
@@ -405,7 +427,10 @@ export async function updateDocument(
       `Update ${collectionId}`,
     );
   } catch (error) {
-    if (typeof window !== "undefined" && isNetworkTransportError(error)) {
+    if (
+      typeof window !== "undefined" &&
+      (isNetworkTransportError(error) || isPermissionError(error))
+    ) {
       return proxyUpdateDocument(collectionId, documentId, documentData, timeoutMs);
     }
     throw error;

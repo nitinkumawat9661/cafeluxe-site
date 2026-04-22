@@ -212,13 +212,37 @@ const SOFT_DARK_SURFACE = "#111827";
 const WARM_HIGHLIGHT = "#E7C98A";
 const LIGHT_TEXT = "#1E293B";
 
-const FALLBACK_MODIFIER_OPTIONS: ModifierOption[] = [
+const PIZZA_FALLBACK_MODIFIER_OPTIONS: ModifierOption[] = [
   { id: "extra_cheese", label: "Extra Cheese", price: 40, kind: "paid" },
+  { id: "extra_toppings", label: "Extra Toppings", price: 60, kind: "paid" },
+  { id: "stuffed_crust", label: "Stuffed Crust", price: 80, kind: "paid" },
+  { id: "extra_oregano", label: "Extra Oregano", price: 0, kind: "free" },
+];
+
+const BURGER_FALLBACK_MODIFIER_OPTIONS: ModifierOption[] = [
+  { id: "extra_cheese", label: "Extra Cheese", price: 30, kind: "paid" },
   { id: "extra_dip", label: "Extra Dip", price: 25, kind: "paid" },
   { id: "add_fries", label: "Add Fries", price: 65, kind: "paid" },
-  { id: "less_onion", label: "Less Onion", price: 0, kind: "free" },
   { id: "no_mayo", label: "No Mayo", price: 0, kind: "free" },
-  { id: "less_ice", label: "Less Ice", price: 0, kind: "free" },
+];
+
+const DRINK_FALLBACK_MODIFIER_OPTIONS: ModifierOption[] = [
+  { id: "large_size", label: "Large Size", price: 35, kind: "paid" },
+  { id: "whipped_cream", label: "Whipped Cream", price: 25, kind: "paid" },
+  { id: "less_sugar", label: "Less Sugar", price: 0, kind: "free" },
+  { id: "extra_ice", label: "Extra Ice", price: 0, kind: "free" },
+];
+
+const DESSERT_FALLBACK_MODIFIER_OPTIONS: ModifierOption[] = [
+  { id: "extra_scoop", label: "Extra Scoop", price: 55, kind: "paid" },
+  { id: "chocolate_sauce", label: "Chocolate Sauce", price: 30, kind: "paid" },
+  { id: "extra_nuts", label: "Extra Nuts", price: 25, kind: "paid" },
+];
+
+const PASTA_FALLBACK_MODIFIER_OPTIONS: ModifierOption[] = [
+  { id: "extra_cheese", label: "Extra Cheese", price: 35, kind: "paid" },
+  { id: "add_garlic_bread", label: "Add Garlic Bread", price: 60, kind: "paid" },
+  { id: "less_spicy", label: "Less Spicy", price: 0, kind: "free" },
 ];
 
 function getErrorMessage(error: unknown) {
@@ -493,6 +517,132 @@ function uniqueModifierOptions(options: ModifierOption[]) {
   return result;
 }
 
+function getModifierSearchHaystack(item: MenuItem) {
+  const raw = item.raw as Record<string, unknown>;
+  const tokens: string[] = [];
+
+  const pushToken = (value: unknown) => {
+    if (typeof value === "string") {
+      const trimmed = value.trim().toLowerCase();
+      if (!trimmed) {
+        return;
+      }
+      tokens.push(trimmed);
+      const splitTokens = trimmed
+        .split(/[\s|,_/-]+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+      tokens.push(...splitTokens);
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        pushToken(entry);
+      }
+      return;
+    }
+
+    if (value && typeof value === "object") {
+      const source = value as Record<string, unknown>;
+      pushToken(source.$id);
+      pushToken(source.id);
+      pushToken(source.name);
+      pushToken(source.slug);
+      pushToken(source.code);
+    }
+  };
+
+  pushToken(item.name);
+  pushToken(item.description);
+  for (const ref of item.categoryRefs) {
+    pushToken(ref);
+  }
+  pushToken(raw.category);
+  pushToken(raw.category_name);
+  pushToken(raw.category_slug);
+  pushToken(raw.categoryId);
+  pushToken(raw.category_id);
+  pushToken(raw.tags);
+  pushToken(raw.tag);
+
+  return Array.from(new Set(tokens)).join(" ");
+}
+
+function getCategorySpecificFallbackModifiers(item: MenuItem): ModifierOption[] {
+  const haystack = getModifierSearchHaystack(item);
+  const hasAny = (keywords: string[]) => keywords.some((keyword) => haystack.includes(keyword));
+
+  const isPizzaLike = hasAny([
+    "pizza",
+    "margherita",
+    "pepperoni",
+    "neapolitan",
+    "thincrust",
+    "stuffedcrust",
+  ]);
+  if (isPizzaLike) {
+    return PIZZA_FALLBACK_MODIFIER_OPTIONS;
+  }
+
+  const isBurgerLike = hasAny([
+    "burger",
+    "sandwich",
+    "wrap",
+    "sub",
+    "roll",
+    "slider",
+  ]);
+  if (isBurgerLike) {
+    return BURGER_FALLBACK_MODIFIER_OPTIONS;
+  }
+
+  const isDrinkLike = hasAny([
+    "coffee",
+    "tea",
+    "latte",
+    "cappuccino",
+    "espresso",
+    "americano",
+    "mocha",
+    "frappe",
+    "shake",
+    "smoothie",
+    "juice",
+    "mocktail",
+    "beverage",
+    "drink",
+    "soda",
+  ]);
+  if (isDrinkLike) {
+    return DRINK_FALLBACK_MODIFIER_OPTIONS;
+  }
+
+  const isDessertLike = hasAny([
+    "dessert",
+    "icecream",
+    "ice-cream",
+    "sundae",
+    "cake",
+    "brownie",
+    "pastry",
+    "sweet",
+    "waffle",
+    "mousse",
+    "kulfi",
+  ]);
+  if (isDessertLike) {
+    return DESSERT_FALLBACK_MODIFIER_OPTIONS;
+  }
+
+  const isPastaLike = hasAny(["pasta", "noodle", "macaroni"]);
+  if (isPastaLike) {
+    return PASTA_FALLBACK_MODIFIER_OPTIONS;
+  }
+
+  return [];
+}
+
 function getModifierOptionsForMenuItem(item: MenuItem): ModifierOption[] {
   const raw = item.raw as Record<string, unknown>;
   const parsed = uniqueModifierOptions(
@@ -510,7 +660,7 @@ function getModifierOptionsForMenuItem(item: MenuItem): ModifierOption[] {
     return parsed.slice(0, 12);
   }
 
-  return FALLBACK_MODIFIER_OPTIONS;
+  return getCategorySpecificFallbackModifiers(item).slice(0, 12);
 }
 
 function parseSelectedModifier(value: unknown): SelectedModifier | null {
@@ -2519,11 +2669,17 @@ export default function QrOrderingExperience({
       const permissionIssue =
         message.includes("not authorized") ||
         message.includes("user_unauthorized") ||
-        message.includes("permission") ||
         message.includes("missing scope") ||
         message.includes("401");
-      if (permissionIssue) {
-        setBillSyncMessage("Unable to update payment mode from this device. Please ask staff.");
+      const missingOrderIssue =
+        message.includes("not found") ||
+        message.includes("document with the requested id") ||
+        message.includes("document not found") ||
+        message.includes("404");
+      if (missingOrderIssue) {
+        setBillSyncMessage("This bill is not available for switching anymore. Please refresh.");
+      } else if (permissionIssue) {
+        setBillSyncMessage("This bill cannot be switched from the current session. Please ask staff.");
       } else {
         setBillSyncMessage("Unable to update bill right now. Please retry.");
       }
@@ -3756,7 +3912,7 @@ export default function QrOrderingExperience({
           />
 
           <aside
-            className="absolute bottom-0 left-0 right-0 max-h-[90vh] overflow-hidden rounded-t-3xl border text-zinc-100 shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)] md:bottom-4 md:left-auto md:right-4 md:top-4 md:w-[430px] md:max-h-[unset] md:rounded-3xl"
+            className="absolute inset-0 h-[100dvh] overflow-hidden rounded-none border-0 text-zinc-100 shadow-none md:bottom-4 md:left-auto md:right-4 md:top-4 md:h-auto md:w-[430px] md:max-h-[unset] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]"
             style={{
               borderColor: accentBorder,
               animation: "luxe-sheet-up 0.25s ease-out",
@@ -4151,7 +4307,7 @@ export default function QrOrderingExperience({
           />
 
           <aside
-            className="absolute bottom-0 left-0 right-0 max-h-[90vh] overflow-hidden rounded-t-3xl border text-zinc-100 shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)] md:bottom-4 md:left-auto md:right-4 md:top-4 md:w-[430px] md:max-h-[unset] md:rounded-3xl"
+            className="absolute inset-0 h-[100dvh] overflow-hidden rounded-none border-0 text-zinc-100 shadow-none md:bottom-4 md:left-auto md:right-4 md:top-4 md:h-auto md:w-[430px] md:max-h-[unset] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]"
             style={{
               borderColor: accentBorder,
               animation: "luxe-sheet-up 0.25s ease-out",
@@ -4159,33 +4315,47 @@ export default function QrOrderingExperience({
             }}
           >
             <div className="flex h-full flex-col">
-              <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-4">
-                <h2 className="text-lg font-semibold">{"Your Cart"}</h2>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 rounded-lg border px-3 py-1 text-xs text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-50"
-                    style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.25) }}
-                    onClick={clearCart}
-                    disabled={cartCount === 0}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Clear
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-lg border px-3 py-1 text-sm text-zinc-300 transition hover:bg-zinc-800"
-                    style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.25) }}
-                    onClick={() => setCartOpen(false)}
-                  >
-                    Close
-                  </button>
+              <div
+                className="border-b border-zinc-800/90 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+12px)] md:rounded-t-3xl md:px-4 md:pb-4 md:pt-4"
+                style={{
+                  background: isLightTheme
+                    ? "linear-gradient(180deg, rgba(255,249,238,0.96) 0%, rgba(247,236,216,0.94) 100%)"
+                    : withAlpha(SOFT_DARK_SURFACE, 0.9),
+                }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-[1.05rem] font-semibold leading-tight">{"Your Cart"}</h2>
+                    <p className="mt-1 text-[11px] text-zinc-400">
+                      {cartCount} item{cartCount === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      className="inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-50"
+                      style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.25) }}
+                      onClick={clearCart}
+                      disabled={cartCount === 0}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Clear
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-8 items-center rounded-lg border px-2.5 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800"
+                      style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.25) }}
+                      onClick={() => setCartOpen(false)}
+                    >
+                      Close
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+              <div className="flex-1 overflow-y-auto px-4 py-4 md:px-4">
                 {cartItems.length === 0 ? (
-                  <div className="space-y-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-sm text-zinc-300">
+                  <div className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 text-sm text-zinc-300">
                     <p>{"Your cart is empty."}</p>
                     <button
                       type="button"
@@ -4197,109 +4367,134 @@ export default function QrOrderingExperience({
                     </button>
                   </div>
                 ) : (
-                  cartItems.map(({ item, quantity }) => {
-                    const selected = resolvedSelectedModifiersByItem[item.id] ?? [];
-                    const modifierOptions = modifierOptionsByItem[item.id] ?? [];
-                    const modifierUnitTotal = getSelectedModifierTotal(selected);
-                    const effectiveUnit = item.price + modifierUnitTotal;
+                  <div className="space-y-3">
+                    {cartItems.map(({ item, quantity }) => {
+                      const selected = resolvedSelectedModifiersByItem[item.id] ?? [];
+                      const modifierOptions = modifierOptionsByItem[item.id] ?? [];
+                      const modifierUnitTotal = getSelectedModifierTotal(selected);
+                      const effectiveUnit = item.price + modifierUnitTotal;
+                      const secondaryLine = item.description || item.nameHi;
 
-                    return (
-                      <div
-                        key={item.id}
-                        className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-zinc-100">{item.name}</p>
-                            <p className="mt-0.5 text-xs text-zinc-400">{item.nameHi}</p>
-                            {selected.length > 0 ? (
-                              <p className="mt-1 line-clamp-2 text-[11px] text-zinc-400">
-                                {selected
-                                  .map((modifier) =>
-                                    modifier.price > 0
-                                      ? `${modifier.label} (+${formatMoney(modifier.price)})`
-                                      : modifier.label,
-                                  )
-                                  .join(", ")}
+                      return (
+                        <section
+                          key={item.id}
+                          className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3.5"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 space-y-1">
+                              <p className="truncate text-sm font-semibold text-zinc-100">{item.name}</p>
+                              {secondaryLine ? (
+                                <p className="line-clamp-2 text-xs leading-relaxed text-zinc-400">
+                                  {secondaryLine}
+                                </p>
+                              ) : null}
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-sm font-semibold" style={{ color: WARM_HIGHLIGHT }}>
+                                {formatMoney(effectiveUnit * quantity)}
                               </p>
-                            ) : null}
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-semibold" style={{ color: WARM_HIGHLIGHT }}>
-                              {formatMoney(effectiveUnit * quantity)}
-                            </p>
-                            {modifierUnitTotal > 0 ? (
-                              <p className="text-[11px] text-zinc-400">
-                                {formatMoney(effectiveUnit)} / item
+                              <p className="mt-0.5 text-[11px] text-zinc-400">
+                                {formatMoney(effectiveUnit)} each
                               </p>
-                            ) : null}
+                            </div>
                           </div>
-                        </div>
 
-                        <div className="mt-3 inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950/70">
-                          <button
-                            type="button"
-                            className="p-2 text-zinc-200 transition hover:bg-zinc-800"
-                            onClick={() => updateItemQuantity(item.id, -1)}
-                            aria-label={`Remove one ${item.name}`}
-                          >
-                            <Minus className="h-4 w-4" />
-                          </button>
-                          <span className="w-8 text-center text-sm font-semibold text-zinc-100">
-                            {quantity}
-                          </span>
-                          <button
-                            type="button"
-                            className="p-2 text-zinc-200 transition hover:bg-zinc-800"
-                            onClick={() => updateItemQuantity(item.id, 1)}
-                            aria-label={`Add one ${item.name}`}
-                          >
-                            <Plus className="h-4 w-4" />
-                          </button>
-                        </div>
-
-                        {modifierOptions.length > 0 ? (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {modifierOptions.map((option) => {
-                              const isSelected = selected.some((entry) => entry.id === option.id);
-                              return (
-                                <button
-                                  key={`${item.id}_cart_option_${option.id}`}
-                                  type="button"
-                                  className={clsx(
-                                    "rounded-full border px-2 py-1 text-[11px] font-medium transition",
-                                    isSelected ? "text-zinc-950" : "text-zinc-200",
-                                  )}
-                                  style={
-                                    isSelected
-                                      ? {
-                                          borderColor: withAlpha(WARM_HIGHLIGHT, 0.5),
-                                          background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
-                                        }
-                                      : {
-                                          borderColor: withAlpha(WARM_HIGHLIGHT, 0.25),
-                                          backgroundColor: isLightTheme
-                                            ? withAlpha("#EEDFC2", 0.95)
-                                            : withAlpha(SOFT_DARK_SURFACE, 0.7),
-                                        }
-                                  }
-                                  onClick={() => toggleModifierSelection(item.id, option)}
+                          {selected.length > 0 ? (
+                            <div className="mt-3 flex flex-wrap gap-1.5">
+                              {selected.map((modifier) => (
+                                <span
+                                  key={`${item.id}_selected_${modifier.id}`}
+                                  className="inline-flex items-center rounded-md border px-2 py-1 text-[11px] font-medium leading-none"
+                                  style={{
+                                    borderColor: withAlpha(WARM_HIGHLIGHT, 0.28),
+                                    backgroundColor: withAlpha(WARM_HIGHLIGHT, isLightTheme ? 0.22 : 0.12),
+                                    color: isLightTheme ? "#1e293b" : "#e5e7eb",
+                                  }}
                                 >
-                                  {option.label}
-                                  {option.price > 0 ? ` +${formatMoney(option.price)}` : ""}
-                                </button>
-                              );
-                            })}
+                                  {modifier.label}
+                                  {modifier.price > 0 ? ` +${formatMoney(modifier.price)}` : ""}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          <div className="mt-3 flex items-center justify-between gap-3">
+                            <div className="inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950/70">
+                              <button
+                                type="button"
+                                className="p-2 text-zinc-200 transition hover:bg-zinc-800"
+                                onClick={() => updateItemQuantity(item.id, -1)}
+                                aria-label={`Remove one ${item.name}`}
+                              >
+                                <Minus className="h-4 w-4" />
+                              </button>
+                              <span className="w-8 text-center text-sm font-semibold text-zinc-100">
+                                {quantity}
+                              </span>
+                              <button
+                                type="button"
+                                className="p-2 text-zinc-200 transition hover:bg-zinc-800"
+                                onClick={() => updateItemQuantity(item.id, 1)}
+                                aria-label={`Add one ${item.name}`}
+                              >
+                                <Plus className="h-4 w-4" />
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-zinc-400">
+                              {quantity} item{quantity === 1 ? "" : "s"}
+                            </p>
                           </div>
-                        ) : null}
-                      </div>
-                    );
-                  })
+
+                          {modifierOptions.length > 0 ? (
+                            <div className="mt-3">
+                              <p className="mb-1.5 text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                                Add-ons
+                              </p>
+                              <div className="grid grid-cols-2 gap-2">
+                                {modifierOptions.map((option) => {
+                                  const isSelected = selected.some((entry) => entry.id === option.id);
+                                  return (
+                                    <button
+                                      key={`${item.id}_cart_option_${option.id}`}
+                                      type="button"
+                                      className={clsx(
+                                        "inline-flex min-h-9 items-center justify-start rounded-lg border px-2.5 py-1.5 text-left text-[11px] font-medium leading-4 transition",
+                                        isSelected ? "text-zinc-950" : "text-zinc-200",
+                                      )}
+                                      style={
+                                        isSelected
+                                          ? {
+                                              borderColor: withAlpha(WARM_HIGHLIGHT, 0.5),
+                                              background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
+                                            }
+                                          : {
+                                              borderColor: withAlpha(WARM_HIGHLIGHT, 0.25),
+                                              backgroundColor: isLightTheme
+                                                ? withAlpha("#EEDFC2", 0.95)
+                                                : withAlpha(SOFT_DARK_SURFACE, 0.7),
+                                            }
+                                      }
+                                      onClick={() => toggleModifierSelection(item.id, option)}
+                                    >
+                                      <span className="line-clamp-2">
+                                        {option.label}
+                                        {option.price > 0 ? ` +${formatMoney(option.price)}` : ""}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : null}
+                        </section>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
 
-              <div className="space-y-4 border-t border-zinc-800 px-4 py-4">
-                <div>
+              <div className="space-y-4 border-t border-zinc-800 px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 md:px-4">
+                <section className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900/55 p-3.5">
                   <p className="mb-2 text-sm font-medium text-zinc-300">
                     {"Payment Method"}
                   </p>
@@ -4330,21 +4525,21 @@ export default function QrOrderingExperience({
                       </button>
                     ))}
                   </div>
-                </div>
+                </section>
 
                 {paymentMethod === "UPI" ? (
-                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 text-sm">
-                    <p className="text-xs uppercase tracking-[0.14em] text-zinc-400">UPI Payment</p>
-                    <p className="mt-1 font-semibold text-zinc-100">
-                      {configuredUpiName} ({configuredUpiId})
-                    </p>
-                    <p className="mt-1 text-xs text-zinc-400">
-                      Amount: <span className="font-semibold text-zinc-200">{formatMoney(total)}</span>
-                    </p>
+                  <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3.5 text-sm">
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-400">UPI Payment</p>
+                    <p className="mt-1 text-sm font-semibold text-zinc-100">{configuredUpiName}</p>
+                    <p className="mt-0.5 text-xs text-zinc-400">{configuredUpiId}</p>
+                    <div className="mt-3 flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-950/50 px-3 py-2">
+                      <span className="text-xs text-zinc-400">Payable Amount</span>
+                      <span className="text-sm font-semibold text-zinc-100">{formatMoney(total)}</span>
+                    </div>
                     {cartUpiLink ? (
                       <button
                         type="button"
-                        className="mt-3 inline-flex w-full items-center justify-center rounded-xl border px-3 py-2 text-sm font-semibold text-zinc-950 transition active:translate-y-px"
+                        className="mt-3 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold text-zinc-950 transition active:translate-y-px"
                         style={{
                           borderColor: withAlpha(WARM_HIGHLIGHT, 0.45),
                           background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
@@ -4387,13 +4582,13 @@ export default function QrOrderingExperience({
                         </div>
                       </div>
                     ) : null}
-                    <p className="mt-2 text-[11px] text-zinc-400">
+                    <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
                       {"After payment, your status stays pending until cashier confirms."}
                     </p>
-                  </div>
+                  </section>
                 ) : null}
 
-                <div>
+                <section className="rounded-2xl border border-zinc-800 bg-zinc-900/55 p-3.5">
                   <label
                     htmlFor="kitchen-instructions"
                     className="mb-2 block text-sm font-medium text-zinc-300"
@@ -4405,11 +4600,11 @@ export default function QrOrderingExperience({
                     value={kitchenInstructions}
                     onChange={(event) => setKitchenInstructions(event.target.value.slice(0, 240))}
                     placeholder={"Example: make it spicy, less onion, no mayo"}
-                    className="min-h-20 w-full resize-none rounded-xl border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-zinc-500"
+                    className="min-h-[88px] w-full resize-none rounded-xl border border-zinc-700 bg-zinc-950/70 px-3 py-2.5 text-sm leading-5 text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-zinc-500"
                   />
-                </div>
+                </section>
 
-                <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-3 text-sm">
+                <section className="space-y-2 rounded-2xl border border-zinc-800 bg-zinc-900/60 px-3.5 py-3.5 text-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-zinc-300">Subtotal</span>
                     <span className="font-semibold text-zinc-100">{formatMoney(subtotal)}</span>
@@ -4432,11 +4627,11 @@ export default function QrOrderingExperience({
                       {formatMoney(total)}
                     </span>
                   </div>
-                </div>
+                </section>
 
                 <button
                   type="button"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-zinc-950 transition disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-zinc-950 transition disabled:cursor-not-allowed disabled:opacity-50"
                   style={{
                     borderColor: withAlpha(WARM_HIGHLIGHT, 0.4),
                     background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
