@@ -1,0 +1,18 @@
+
+> cafeluxeqr@0.1.0 predev
+> node scripts/clean-next-cache.mjs
+
+
+> cafeluxeqr@0.1.0 dev
+> next dev --hostname localhost --port 3000 --port 3001
+
+▲ Next.js 16.2.4 (Turbopack)
+- Local:         http://localhost:3001
+- Network:       http://localhost:3001
+✓ Ready in 338ms
+Creating turbopack project { dir: 'C:\\Users\\DELL\\Desktop\\cafeluxeQR', testMode: true }
+
+ GET / 200 in 1923ms (next.js: 1778ms, application-code: 145ms)
+ GET /c/trustfirst_demo/t/T01 200 in 841ms (next.js: 775ms, application-code: 66ms)
+ GET /c/trustfirst_demo/t/T02 200 in 50ms (next.js: 8ms, application-code: 43ms)
+[?25h

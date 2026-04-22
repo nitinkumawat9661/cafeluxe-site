@@ -20,6 +20,20 @@ export type RestaurantBranding = {
   raw: AppwriteDocument | null;
 };
 
+export type RestaurantSettings = {
+  restaurantName: string;
+  currency: string;
+  taxPercentage: number;
+  supportPhone: string;
+  upiId: string;
+  upiName: string;
+  themeColor: string;
+  logoUrl: string;
+  heroImageUrl: string;
+  tagline: string;
+  rawDocs: AppwriteDocument[];
+};
+
 export type Category = {
   id: string;
   name: string;
@@ -97,6 +111,19 @@ const categoryRefKeys = [
 
 function toSafeString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function toSafeNumber(value: unknown, fallback = 0) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
 }
 
 function normalizeToken(value: string) {
@@ -317,12 +344,143 @@ export function findTableForRoute(tables: RestaurantTable[], tableParam: string)
 }
 
 export function parseBrandingSettings(docs: AppwriteDocument[], client: string) {
+  const normalizedSettings = parseClientSettings(docs, client);
+  if (!normalizedSettings.restaurantName && !normalizedSettings.logoUrl) {
+    return null;
+  }
+
+  const preferredRawDoc = normalizedSettings.rawDocs[0] ?? null;
+
+  return {
+    restaurantName: normalizedSettings.restaurantName,
+    tagline: normalizedSettings.tagline,
+    logoUrl: normalizedSettings.logoUrl,
+    heroImageUrl: normalizedSettings.heroImageUrl,
+    accentColor: normalizedSettings.themeColor,
+    raw: preferredRawDoc,
+  } satisfies RestaurantBranding;
+}
+
+function normalizeSettingKey(value: string) {
+  return normalizeToken(value);
+}
+
+function getDocSettingKey(doc: AppwriteDocument) {
+  return getFieldString(doc, [
+    "key",
+    "settingKey",
+    "setting_key",
+    "name",
+    "code",
+    "slug",
+  ]);
+}
+
+function getDocSettingValue(doc: AppwriteDocument) {
+  const candidates: unknown[] = [
+    doc.value,
+    doc.settingValue,
+    doc.setting_value,
+    doc.content,
+    doc.data,
+    doc.text,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string") {
+      const trimmed = candidate.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+      continue;
+    }
+    if (typeof candidate === "number" || typeof candidate === "boolean") {
+      return String(candidate);
+    }
+  }
+
+  return "";
+}
+
+function clampTaxPercent(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(100, Math.max(0, value));
+}
+
+export function parseClientSettings(docs: AppwriteDocument[], client: string): RestaurantSettings {
   const clientDocs = docs
     .filter((doc) => isClientMatch(doc, client))
     .filter((doc) => isActive(doc));
 
+  const fallbackName = toTitleCase(client);
+  const defaults: RestaurantSettings = {
+    restaurantName: fallbackName,
+    currency: "INR",
+    taxPercentage: 0,
+    supportPhone: "",
+    upiId: "",
+    upiName: "",
+    themeColor: "#34d399",
+    logoUrl: "",
+    heroImageUrl: "",
+    tagline: "",
+    rawDocs: clientDocs,
+  };
+
   if (clientDocs.length === 0) {
-    return null;
+    return defaults;
+  }
+
+  const keyValueMap = new Map<string, string>();
+  for (const doc of clientDocs) {
+    const key = normalizeSettingKey(getDocSettingKey(doc));
+    if (!key) {
+      continue;
+    }
+    const value = getDocSettingValue(doc);
+    if (!value) {
+      continue;
+    }
+    keyValueMap.set(key, value);
+  }
+
+  if (keyValueMap.size > 0) {
+    const restaurantName =
+      keyValueMap.get("restaurantname") ||
+      keyValueMap.get("name") ||
+      fallbackName;
+    const currency = (keyValueMap.get("currency") || "INR").toUpperCase();
+    const taxPercentage = clampTaxPercent(toSafeNumber(keyValueMap.get("taxpercentage"), 0));
+    const supportPhone = keyValueMap.get("supportphone") || "";
+    const upiId = keyValueMap.get("upiid") || "";
+    const upiName = keyValueMap.get("upiname") || "";
+    const themeColor =
+      keyValueMap.get("themecolor") ||
+      keyValueMap.get("accentcolor") ||
+      defaults.themeColor;
+    const logoUrl = resolveAssetUrl(
+      keyValueMap.get("logourl") || keyValueMap.get("logo") || "",
+    );
+    const heroImageUrl = resolveAssetUrl(
+      keyValueMap.get("heroimageurl") || keyValueMap.get("heroimage") || "",
+    );
+    const tagline = keyValueMap.get("tagline") || keyValueMap.get("subtitle") || "";
+
+    return {
+      restaurantName,
+      currency: currency || "INR",
+      taxPercentage,
+      supportPhone,
+      upiId,
+      upiName,
+      themeColor,
+      logoUrl,
+      heroImageUrl,
+      tagline,
+      rawDocs: clientDocs,
+    } satisfies RestaurantSettings;
   }
 
   const preferredDoc =
@@ -340,8 +498,19 @@ export function parseBrandingSettings(docs: AppwriteDocument[], client: string) 
         "name",
         "title",
         "outletName",
-      ]) || toTitleCase(client),
-    tagline: getFieldString(preferredDoc, ["tagline", "subtitle", "description"]),
+      ]) || fallbackName,
+    currency:
+      getFieldString(preferredDoc, ["currency", "currencyCode", "currency_code"]).toUpperCase() ||
+      "INR",
+    taxPercentage: clampTaxPercent(
+      toSafeNumber(preferredDoc.tax_percentage ?? preferredDoc.taxPercentage, 0),
+    ),
+    supportPhone: getFieldString(preferredDoc, ["support_phone", "supportPhone", "phone"]),
+    upiId: getFieldString(preferredDoc, ["upi_id", "upiId", "upi"]),
+    upiName: getFieldString(preferredDoc, ["upi_name", "upiName", "merchantName"]),
+    themeColor:
+      getFieldString(preferredDoc, ["theme_color", "themeColor", "accentColor", "color"]) ||
+      defaults.themeColor,
     logoUrl: resolveAssetUrl(
       preferredDoc.logo ??
         preferredDoc.logoUrl ??
@@ -354,11 +523,9 @@ export function parseBrandingSettings(docs: AppwriteDocument[], client: string) 
         preferredDoc.coverImage ??
         preferredDoc.cover_image,
     ),
-    accentColor:
-      getFieldString(preferredDoc, ["accentColor", "accent_color", "themeColor", "color"]) ||
-      "",
-    raw: preferredDoc,
-  } satisfies RestaurantBranding;
+    tagline: getFieldString(preferredDoc, ["tagline", "subtitle", "description"]),
+    rawDocs: clientDocs,
+  } satisfies RestaurantSettings;
 }
 
 export function parseCategories(docs: AppwriteDocument[], client: string) {
@@ -382,7 +549,14 @@ export function parseCategories(docs: AppwriteDocument[], client: string) {
             doc.imageId,
         ),
         slug,
-        sortOrder: getFieldNumber(doc, ["sortOrder", "sort", "position", "rank"]),
+        sortOrder: getFieldNumber(doc, [
+          "display_order",
+          "displayOrder",
+          "sortOrder",
+          "sort",
+          "position",
+          "rank",
+        ]),
         raw: doc,
       } satisfies Category;
     });
@@ -421,11 +595,17 @@ export function parseMenuItems(docs: AppwriteDocument[], client: string) {
         isVeg: getFieldBoolean(doc, ["isVeg", "is_veg", "veg", "vegetarian"], false),
         isSpicy: getFieldBoolean(doc, ["isSpicy", "spicy"], false),
         isBestseller: getFieldBoolean(doc, ["isBestseller", "bestseller", "popular"], false),
-        sortOrder: getFieldNumber(doc, ["sortOrder", "sort", "position", "rank"]),
+        sortOrder: getFieldNumber(doc, [
+          "display_order",
+          "displayOrder",
+          "sortOrder",
+          "sort",
+          "position",
+          "rank",
+        ]),
         raw: doc,
       } satisfies MenuItem;
-    })
-    .filter((item) => item.isAvailable);
+    });
 
   return [...items].sort(
     (a, b) =>
@@ -512,12 +692,21 @@ export function matchesCategory(item: MenuItem, category: Category) {
   });
 }
 
-export function formatInr(value: number) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(value);
+export function formatInr(value: number, currencyCode = "INR") {
+  const normalizedCurrency = currencyCode.trim().toUpperCase() || "INR";
+  try {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: normalizedCurrency,
+      maximumFractionDigits: 0,
+    }).format(value);
+  } catch {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 0,
+    }).format(value);
+  }
 }
 
 export function formatTableLabel(table: string) {

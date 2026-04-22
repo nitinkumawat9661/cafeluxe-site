@@ -1,0 +1,9 @@
+
+> cafeluxeqr@0.1.0 predev
+> node scripts/clean-next-cache.mjs
+
+
+> cafeluxeqr@0.1.0 dev
+> next dev --hostname localhost --port 3000 --port 3000
+
+[?25h
