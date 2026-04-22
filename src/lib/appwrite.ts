@@ -21,6 +21,11 @@ const COLLECTION_IDS = {
   notifications:
     process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_NOTIFICATIONS ?? "notifications",
 };
+const SAFE_CLIENT_CREATE_COLLECTIONS = new Set([
+  COLLECTION_IDS.orders,
+  COLLECTION_IDS.payments,
+]);
+const SAFE_CLIENT_UPDATE_COLLECTIONS = new Set([COLLECTION_IDS.orders]);
 
 let databasesInstance: Databases | null = null;
 let storageInstance: Storage | null = null;
@@ -283,10 +288,10 @@ type ListOptions = {
 };
 
 export async function fetchAllDocuments(collectionId: string, options?: ListOptions) {
-  await ensureSessionIfPossible();
   const databases = getDatabases();
   const documents: AppwriteDocument[] = [];
   let cursorAfter: string | null = null;
+  let ensuredSessionAfterAuthFailure = false;
   const pageSize = options?.pageSize ?? 100;
   const maxDocs = options?.maxDocs ?? 2000;
   const baseQueries = options?.queries ?? [];
@@ -323,6 +328,12 @@ export async function fetchAllDocuments(collectionId: string, options?: ListOpti
         break;
       }
     } catch (error) {
+      if (!ensuredSessionAfterAuthFailure && isPermissionError(error)) {
+        ensuredSessionAfterAuthFailure = true;
+        await ensureSessionIfPossible();
+        continue;
+      }
+
       if (typeof window !== "undefined" && isNetworkTransportError(error)) {
         const proxyResponse = await proxyListDocuments(collectionId, queries, timeoutMs);
         const currentDocs = proxyResponse.documents as AppwriteDocument[];
@@ -346,11 +357,18 @@ export async function fetchAllDocuments(collectionId: string, options?: ListOpti
 
       const message = error && typeof error === "object" && "message" in error ? String(error.message).toLowerCase() : "";
       const isIndexError = message.includes("index") || message.includes("attribute") || message.includes("query");
+      const canUseBroadFallback =
+        collectionId !== COLLECTION_IDS.orders &&
+        collectionId !== COLLECTION_IDS.payments;
 
-      if (isIndexError && baseQueries.length > 0) {
+      if (isIndexError && baseQueries.length > 0 && canUseBroadFallback) {
         console.warn(`Query failed for ${collectionId} due to missing index or attribute. Retrying without filters.`);
         // Fallback: try fetching without filters if the filtered query failed
         return fetchAllDocuments(collectionId, { ...options, queries: [] });
+      }
+
+      if (isIndexError && baseQueries.length > 0 && !canUseBroadFallback) {
+        throw new Error(`Filtered query failed for protected collection ${collectionId}.`);
       }
       throw error;
     }
@@ -364,6 +382,10 @@ export async function createDocument(
   documentData: Record<string, unknown>,
   timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
 ) {
+  if (!SAFE_CLIENT_CREATE_COLLECTIONS.has(collectionId)) {
+    throw new Error("Collection create is not allowed from client flow.");
+  }
+
   await ensureSessionIfPossible();
   const databases = getDatabases();
 
@@ -417,6 +439,10 @@ export async function updateDocument(
   documentData: Record<string, unknown>,
   timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
 ) {
+  if (!SAFE_CLIENT_UPDATE_COLLECTIONS.has(collectionId)) {
+    throw new Error("Collection update is not allowed from client flow.");
+  }
+
   await ensureSessionIfPossible();
   const databases = getDatabases();
 

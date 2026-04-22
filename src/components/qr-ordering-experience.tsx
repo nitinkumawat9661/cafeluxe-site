@@ -199,10 +199,15 @@ const CUSTOMER_ORDER_HISTORY_VERSION = 1;
 const MAX_LOCAL_RECENT_ORDERS = 30;
 const MAX_LOCAL_FAVORITES = 24;
 const MAX_LOCAL_HISTORY_PER_CLIENT = 40;
+const MAX_STORED_STATE_CHARS = 120_000;
 const ACTIVE_TABLE_STORAGE_VERSION = 1;
 const REQUEST_TIMEOUT_MS = 12000;
 const BILL_SYNC_TIMEOUT_MS = 10000;
 const MAX_TABLE_ORDER_RECORDS = 60;
+const MAX_ROUTE_CLIENT_LENGTH = 64;
+const MAX_ROUTE_TABLE_LENGTH = 32;
+const MAX_SEARCH_INPUT_LENGTH = 64;
+const MAX_INSTRUCTION_LENGTH = 240;
 const DEFAULT_UPI_ID = "7665853321@superyes";
 const DEFAULT_UPI_NAME = "Nitin Kumawat";
 const ROYAL_NAVY = "#0C1F37";
@@ -261,6 +266,37 @@ function normalizeRouteToken(value: string) {
 
 function toSafeString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function sanitizeRouteSegment(value: string, maxLength: number) {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > maxLength) {
+    return "";
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
+    return "";
+  }
+  return trimmed;
+}
+
+function sanitizeUserText(value: string, maxLength: number) {
+  return value
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/[<>]/g, "")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function sanitizeInstructionText(value: string) {
+  return sanitizeUserText(value, MAX_INSTRUCTION_LENGTH);
+}
+
+function sanitizeSearchInput(value: string) {
+  return sanitizeUserText(value, MAX_SEARCH_INPUT_LENGTH);
+}
+
+function isStoragePayloadTooLarge(rawValue: string | null) {
+  return typeof rawValue === "string" && rawValue.length > MAX_STORED_STATE_CHARS;
 }
 
 function toPositiveQuantity(value: unknown) {
@@ -816,13 +852,41 @@ function createBrowserCustomerId() {
   return `cust_${Date.now().toString(36)}_${randomToken}`;
 }
 
+async function hashConvenienceIdentifier(value: string) {
+  const normalized = sanitizeUserText(value, 128).replace(/\s+/g, "");
+  if (!normalized) {
+    return "";
+  }
+
+  if (typeof crypto !== "undefined" && crypto.subtle && typeof TextEncoder !== "undefined") {
+    try {
+      const encoded = new TextEncoder().encode(normalized);
+      const digest = await crypto.subtle.digest("SHA-256", encoded);
+      const bytes = Array.from(new Uint8Array(digest));
+      const hex = bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("");
+      return `h_${hex.slice(0, 48)}`;
+    } catch {
+      // Fallback below.
+    }
+  }
+
+  let hash = 5381;
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash = (hash * 33) ^ normalized.charCodeAt(index);
+  }
+  return `h_${Math.abs(hash).toString(16)}`;
+}
+
 function ensureBrowserCustomerId() {
   if (typeof window === "undefined") {
     return "";
   }
 
-  const existing = toSafeString(window.localStorage.getItem(CUSTOMER_BROWSER_ID_KEY));
-  if (existing) {
+  const existing = sanitizeUserText(
+    toSafeString(window.localStorage.getItem(CUSTOMER_BROWSER_ID_KEY)),
+    128,
+  ).replace(/\s+/g, "");
+  if (/^[a-zA-Z0-9._:-]{8,128}$/.test(existing)) {
     return existing;
   }
 
@@ -857,7 +921,7 @@ function normalizeClientHistoryKey(client: string) {
 }
 
 function parseCustomerProfile(rawValue: string | null, browserId: string) {
-  if (!rawValue) {
+  if (!rawValue || isStoragePayloadTooLarge(rawValue)) {
     return emptyCustomerProfile(browserId);
   }
 
@@ -909,7 +973,7 @@ function parseCustomerProfile(rawValue: string | null, browserId: string) {
 }
 
 function parseCustomerOrderHistory(rawValue: string | null, browserId: string) {
-  if (!rawValue) {
+  if (!rawValue || isStoragePayloadTooLarge(rawValue)) {
     return emptyCustomerOrderHistory(browserId);
   }
 
@@ -1199,10 +1263,12 @@ function parseTableOrderRecord(value: unknown) {
     createdAt,
     updatedAt,
     instructions:
-      toSafeString(source.instructions) ||
-      toSafeString(source.kitchenInstructions) ||
-      toSafeString(source.kitchen_instructions) ||
-      toSafeString(source.notes),
+      sanitizeInstructionText(
+        toSafeString(source.instructions) ||
+          toSafeString(source.kitchenInstructions) ||
+          toSafeString(source.kitchen_instructions) ||
+          toSafeString(source.notes),
+      ),
     items,
     source: sourceType,
   } satisfies TableOrderRecord;
@@ -1263,7 +1329,7 @@ function getLatestOrderContextFromRecords(records: TableOrderRecord[]) {
 }
 
 function parseLegacyPersistedSession(rawValue: string | null) {
-  if (!rawValue) {
+  if (!rawValue || isStoragePayloadTooLarge(rawValue)) {
     return null;
   }
 
@@ -1282,7 +1348,7 @@ function parseLegacyPersistedSession(rawValue: string | null) {
 }
 
 function parseActiveCartState(rawValue: string | null) {
-  if (!rawValue) {
+  if (!rawValue || isStoragePayloadTooLarge(rawValue)) {
     return null;
   }
 
@@ -1326,9 +1392,11 @@ function parseActiveCartState(rawValue: string | null) {
       cart,
       selectedModifiersByItem,
       kitchenInstructions:
-        toSafeString(parsed.kitchenInstructions) ||
-        toSafeString(parsed.kitchen_instructions) ||
-        toSafeString(parsed.orderInstructions) ||
+        sanitizeInstructionText(
+          toSafeString(parsed.kitchenInstructions) ||
+            toSafeString(parsed.kitchen_instructions) ||
+            toSafeString(parsed.orderInstructions),
+        ) ||
         "",
       updatedAt: toSafeString(parsed.updatedAt) || new Date().toISOString(),
     } satisfies ActiveTableCartState;
@@ -1338,7 +1406,7 @@ function parseActiveCartState(rawValue: string | null) {
 }
 
 function parseActiveBillState(rawValue: string | null) {
-  if (!rawValue) {
+  if (!rawValue || isStoragePayloadTooLarge(rawValue)) {
     return null;
   }
 
@@ -1367,7 +1435,7 @@ function parseActiveBillState(rawValue: string | null) {
 }
 
 function parseActiveSessionState(rawValue: string | null) {
-  if (!rawValue) {
+  if (!rawValue || isStoragePayloadTooLarge(rawValue)) {
     return null;
   }
 
@@ -1565,9 +1633,11 @@ function parseOrderRecordFromDocument(doc: Record<string, unknown>): TableOrderR
     createdAt,
     updatedAt,
     instructions:
-      toSafeString(doc.kitchen_instructions) ||
-      toSafeString(doc.instructions) ||
-      toSafeString(doc.notes),
+      sanitizeInstructionText(
+        toSafeString(doc.kitchen_instructions) ||
+          toSafeString(doc.instructions) ||
+          toSafeString(doc.notes),
+      ),
     items,
     source: "backend",
   } satisfies TableOrderRecord;
@@ -1596,7 +1666,8 @@ async function fetchTableOrderRecords(clientId: string, tableId: string) {
       message.includes("user_unauthorized") ||
       message.includes("index") ||
       message.includes("attribute") ||
-      message.includes("query");
+      message.includes("query") ||
+      message.includes("filtered query failed");
     if (!canIgnore) {
       console.error(error);
     }
@@ -1637,18 +1708,18 @@ function isUnauthorizedError(error: unknown) {
 
 async function fetchClientScopedDocuments(collectionId: string, routeClient: string) {
   const candidates = buildClientCandidates(routeClient);
-  const clientFields = ["client_id", "client", "clientId", "client_slug", "clientSlug"];
+  const clientFields = ["client_id", "client"];
 
   for (const clientField of clientFields) {
     try {
       const docs = await fetchAllDocuments(collectionId, {
-        pageSize: 80,
-        maxDocs: 600,
+        pageSize: 120,
+        maxDocs: 800,
         queries: [Query.equal(clientField, candidates)],
         timeoutMs: REQUEST_TIMEOUT_MS,
       });
 
-      if (docs.length > 0) {
+      if (docs.length > 0 || clientField === clientFields.at(-1)) {
         return docs;
       }
     } catch (queryError) {
@@ -1659,24 +1730,10 @@ async function fetchClientScopedDocuments(collectionId: string, routeClient: str
   }
 
   return fetchAllDocuments(collectionId, {
-    pageSize: 80,
-    maxDocs: 600,
+    pageSize: 120,
+    maxDocs: 800,
     timeoutMs: REQUEST_TIMEOUT_MS,
   });
-}
-
-function buildTableCandidates(routeTable: string) {
-  const cleaned = routeTable.trim();
-  const noTablePrefix = cleaned.replace(/^table[-_\s]*/i, "");
-  return uniqueNonEmpty([
-    cleaned,
-    cleaned.toLowerCase(),
-    cleaned.toUpperCase(),
-    noTablePrefix,
-    noTablePrefix.toLowerCase(),
-    noTablePrefix.toUpperCase(),
-    noTablePrefix.startsWith("T") ? noTablePrefix : `T${noTablePrefix}`,
-  ]);
 }
 
 function generateOrderNumber(clientId: string, tableNo: string) {
@@ -1738,48 +1795,27 @@ function buildTableOrderRecordFromCart(
 
 async function resolveRouteTable(clientId: string, tableParam: string) {
   const clientCandidates = buildClientCandidates(clientId);
-  const tableCandidates = buildTableCandidates(tableParam);
-  const tableQueryPairs: Array<["table_code" | "table_no", string[]]> = [
-    ["table_code", tableCandidates],
-    ["table_no", tableCandidates],
-  ];
-
-  for (const [tableField, values] of tableQueryPairs) {
-    try {
-      const queriedTables = await fetchAllDocuments(appwriteConfig.collections.tables, {
-        pageSize: 40,
-        maxDocs: 40,
-        queries: [Query.equal("client_id", clientCandidates), Query.equal(tableField, values)],
-        timeoutMs: REQUEST_TIMEOUT_MS,
-      });
-
-      const parsedTables = parseTables(queriedTables, clientId);
-      const matchedTable = findTableForRoute(parsedTables, tableParam);
-      if (matchedTable?.id) {
-        return matchedTable;
-      }
-    } catch (queryError) {
-      const message = getErrorMessage(queryError).toLowerCase();
-      const isMissingIndex = message.includes("index") || message.includes("attribute") || message.includes("query");
-
-      if (isMissingIndex) {
-        console.warn(`Query failed on ${tableField} for ${clientId}. Falling back to collection scan. Missing index suggested.`);
-      }
-
-      const canFallbackToBroadScan =
-        isMissingIndex ||
-        /not found/i.test(message) ||
-        /invalid/i.test(message);
-
-      if (!canFallbackToBroadScan) {
-        throw queryError;
-      }
+  try {
+    const clientTables = await fetchAllDocuments(appwriteConfig.collections.tables, {
+      pageSize: 120,
+      maxDocs: 500,
+      queries: [Query.equal("client_id", clientCandidates)],
+      timeoutMs: REQUEST_TIMEOUT_MS,
+    });
+    const parsedClientTables = parseTables(clientTables, clientId);
+    const matchedTable = findTableForRoute(parsedClientTables, tableParam);
+    if (matchedTable?.id) {
+      return matchedTable;
+    }
+  } catch (queryError) {
+    if (!isRecoverableQueryFailure(queryError)) {
+      throw queryError;
     }
   }
 
-  // Broad scan fallback with limited scope if possible
+  // Broad scan fallback when table indexes are missing or schema differs.
   const allTables = await fetchAllDocuments(appwriteConfig.collections.tables, {
-    pageSize: 100,
+    pageSize: 120,
     maxDocs: 1000,
     timeoutMs: REQUEST_TIMEOUT_MS,
   });
@@ -1794,8 +1830,8 @@ export default function QrOrderingExperience({
   client: string;
   table: string;
 }) {
-  const routeClient = decodeURIComponent(client).trim();
-  const routeTable = decodeURIComponent(table).trim();
+  const routeClient = sanitizeRouteSegment(client, MAX_ROUTE_CLIENT_LENGTH);
+  const routeTable = sanitizeRouteSegment(table, MAX_ROUTE_TABLE_LENGTH);
 
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [loadingMessage, setLoadingMessage] = useState("Loading menu...");
@@ -1944,6 +1980,13 @@ export default function QrOrderingExperience({
       setKitchenInstructions("");
 
       try {
+        if (!routeClient || !routeTable) {
+          setTableInfo(null);
+          setLoadState("invalid-table");
+          setErrorMessage("This table QR format is invalid. Please use a valid QR.");
+          return;
+        }
+
         setLoadingMessage("Verifying table QR...");
         const matchedTable = await withTimeout(
           resolveRouteTable(routeClient, routeTable),
@@ -1962,21 +2005,21 @@ export default function QrOrderingExperience({
           return;
         }
 
-        setLoadingMessage("Loading categories and menu...");
+        setLoadingMessage("Loading menu...");
         const settingsPromise = fetchClientScopedDocuments(
           appwriteConfig.collections.settings,
           routeClient,
         ).catch((error) => {
-          if (isUnauthorizedError(error)) {
-            return [];
+          if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
+            return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
           }
-          throw error;
+          console.warn("Settings fetch failed, continuing with defaults:", error);
+          return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
         });
-        const [categoryDocs, menuDocs, settingsDocs] = await withTimeout(
+        const [categoryDocs, menuDocs] = await withTimeout(
           Promise.all([
             fetchClientScopedDocuments(appwriteConfig.collections.categories, routeClient),
             fetchClientScopedDocuments(appwriteConfig.collections.menuItems, routeClient),
-            settingsPromise,
           ]),
           REQUEST_TIMEOUT_MS,
           "Menu load",
@@ -1993,20 +2036,15 @@ export default function QrOrderingExperience({
           parsedCategories.length > 0
             ? mergeCategorySets(parsedCategories, fallbackCategories)
             : fallbackCategories;
-        const normalizedSettings = parseClientSettings(settingsDocs, routeClient);
-        const brandingSettings = parseBrandingSettings(settingsDocs, routeClient);
-
+        const fallbackSettings = parseClientSettings([], routeClient);
         setTableInfo(matchedTable);
-        setClientSettings(normalizedSettings);
-        setBranding(brandingSettings);
+        setClientSettings(fallbackSettings);
+        setBranding(null);
         setCategories(ensuredCategories);
         setMenuItems(parsedItems);
-        setRestaurantName(normalizedSettings.restaurantName || inferRestaurantName(
-          routeClient,
-          brandingSettings,
-          ensuredCategories,
-          parsedItems,
-        ));
+        setRestaurantName(
+          inferRestaurantName(routeClient, null, ensuredCategories, parsedItems),
+        );
         setActiveCategory((current) =>
           current !== "all" && ensuredCategories.some((category) => category.id === current)
             ? current
@@ -2101,7 +2139,7 @@ export default function QrOrderingExperience({
           const validIds = new Set(parsedItems.map((item) => item.id));
           const cartSource = cartForRoute?.cart ?? legacyForRoute?.cart ?? {};
           const modifierSource = cartForRoute?.selectedModifiersByItem ?? {};
-          restoredInstructions = cartForRoute?.kitchenInstructions ?? "";
+          restoredInstructions = sanitizeInstructionText(cartForRoute?.kitchenInstructions ?? "");
 
           for (const [itemId, qtyValue] of Object.entries(cartSource)) {
               const qty = toPositiveQuantity(qtyValue);
@@ -2126,28 +2164,6 @@ export default function QrOrderingExperience({
             legacyForRoute?.activeOrder ??
             null;
           let restoredOrders = billForRoute?.orders ?? [];
-          const backendOrders = ENABLE_BACKEND_ORDER_SYNC
-            ? await fetchTableOrderRecords(
-                matchedTable.clientId || routeClient,
-                matchedTable.id,
-              )
-            : [];
-          if (cancelled) {
-            return;
-          }
-
-          if (backendOrders.length > 0) {
-            restoredOrders = mergeTableOrderRecords(restoredOrders, backendOrders);
-            const backendOrder = getLatestOrderContextFromRecords(backendOrders);
-            if (backendOrder) {
-              const useBackendOrder =
-                !restoredOrder ||
-                toTimestamp(backendOrder.updatedAt) >= toTimestamp(restoredOrder.updatedAt);
-              if (useBackendOrder) {
-                restoredOrder = backendOrder;
-              }
-            }
-          }
 
           if (!restoredOrder && restoredOrders.length > 0) {
             restoredOrder = getLatestOrderContextFromRecords(restoredOrders);
@@ -2185,6 +2201,59 @@ export default function QrOrderingExperience({
 
         setLoadState("ready");
         setIsCartHydrated(true);
+
+        // Settings are non-critical for first paint; apply them after menu is ready.
+        void settingsPromise.then((settingsDocs) => {
+          if (cancelled || settingsDocs.length === 0) {
+            return;
+          }
+
+          const normalizedSettings = parseClientSettings(settingsDocs, routeClient);
+          const brandingSettings = parseBrandingSettings(settingsDocs, routeClient);
+
+          setClientSettings(normalizedSettings);
+          setBranding(brandingSettings);
+          setRestaurantName(
+            normalizedSettings.restaurantName ||
+              inferRestaurantName(routeClient, brandingSettings, ensuredCategories, parsedItems),
+          );
+        });
+
+        // Sync backend orders in background so first load does not wait on order-history calls.
+        if (ENABLE_BACKEND_ORDER_SYNC) {
+          void (async () => {
+            try {
+              const backendOrders = await withTimeout(
+                fetchTableOrderRecords(matchedTable.clientId || routeClient, matchedTable.id),
+                BILL_SYNC_TIMEOUT_MS,
+                "Initial bill sync",
+              );
+              if (cancelled || backendOrders.length === 0) {
+                return;
+              }
+
+              setTableOrders((current) => mergeTableOrderRecords(current, backendOrders));
+              const latestBackendOrder = getLatestOrderContextFromRecords(backendOrders);
+              if (!latestBackendOrder) {
+                return;
+              }
+
+              setActiveOrderContext((current) => {
+                if (!current) {
+                  return latestBackendOrder;
+                }
+                return toTimestamp(latestBackendOrder.updatedAt) >= toTimestamp(current.updatedAt)
+                  ? latestBackendOrder
+                  : current;
+              });
+              setOrderPlacedId((current) => current || latestBackendOrder.id);
+            } catch (syncError) {
+              if (!cancelled) {
+                console.warn("Initial bill sync failed:", syncError);
+              }
+            }
+          })();
+        }
       } catch (error) {
         if (cancelled) {
           return;
@@ -2384,22 +2453,21 @@ export default function QrOrderingExperience({
       const options = modifierOptionsByItem[item.id] ?? [];
       const optionLookup = new Map(options.map((option) => [option.id, option]));
 
+      const seen = new Set<string>();
       const sanitized = selected
         .map((entry) => {
           const matched = optionLookup.get(entry.id);
-          if (matched) {
-            return {
-              id: matched.id,
-              label: matched.label,
-              price: matched.price,
-            } satisfies SelectedModifier;
+          if (!matched || seen.has(matched.id)) {
+            return null;
           }
+          seen.add(matched.id);
           return {
-            id: entry.id,
-            label: entry.label,
-            price: toAmount(entry.price),
+            id: matched.id,
+            label: matched.label,
+            price: matched.price,
           } satisfies SelectedModifier;
         })
+        .filter((entry): entry is SelectedModifier => !!entry)
         .slice(0, 12);
 
       if (sanitized.length > 0) {
@@ -2715,7 +2783,11 @@ export default function QrOrderingExperience({
       return;
     }
 
-    const amount = order.totalAmount > 0 ? order.totalAmount : order.subtotal;
+    const amount = toAmount(order.totalAmount > 0 ? order.totalAmount : order.subtotal);
+    if (amount <= 0) {
+      setBillSyncMessage("This bill amount is invalid. Please refresh bill details.");
+      return;
+    }
     const paymentPayloadCandidates: Record<string, unknown>[] = [
       {
         client_id: tableInfo.clientId || routeClient,
@@ -2860,10 +2932,13 @@ export default function QrOrderingExperience({
     const orderNumber = generateOrderNumber(clientId, tableInfo.tableNo);
     const browserIdForOrder =
       customerBrowserId || (typeof window !== "undefined" ? ensureBrowserCustomerId() : "");
+    const hashedBrowserIdForOrder = browserIdForOrder
+      ? await hashConvenienceIdentifier(browserIdForOrder)
+      : "";
     if (!customerBrowserId && browserIdForOrder) {
       setCustomerBrowserId(browserIdForOrder);
     }
-    const trimmedInstructions = kitchenInstructions.trim();
+    const trimmedInstructions = sanitizeInstructionText(kitchenInstructions);
     const compactItems = cartItems.map((cartItem) => ({
       ...(() => {
         const selectedModifiers = resolvedSelectedModifiersByItem[cartItem.item.id] ?? [];
@@ -2871,8 +2946,8 @@ export default function QrOrderingExperience({
         const unitPrice = cartItem.item.price + modifierTotalPerUnit;
         return {
           item_id: cartItem.item.id,
-          item_name: cartItem.item.name,
-          item_name_hi: cartItem.item.nameHi,
+          item_name: sanitizeUserText(cartItem.item.name, 120),
+          item_name_hi: sanitizeUserText(cartItem.item.nameHi, 120),
           base_unit_price: cartItem.item.price,
           unit_price: unitPrice,
           quantity: cartItem.quantity,
@@ -2882,6 +2957,17 @@ export default function QrOrderingExperience({
         };
       })(),
     }));
+    const computedSubtotal = Math.round(
+      compactItems.reduce((sum, entry) => sum + toAmount(entry.line_total), 0) * 100,
+    ) / 100;
+    const computedTaxAmount = Math.round((computedSubtotal * taxPercentage) / 100 * 100) / 100;
+    const computedTotal = Math.round((computedSubtotal + computedTaxAmount) * 100) / 100;
+    if (computedSubtotal <= 0 || computedTotal <= 0) {
+      setErrorMessage("Cart total is invalid. Please refresh menu and try again.");
+      setPlacingOrder(false);
+      placeOrderLockRef.current = false;
+      return;
+    }
 
     const orderBasePayload = {
       client_id: clientId,
@@ -2889,8 +2975,8 @@ export default function QrOrderingExperience({
       order_number: orderNumber,
       status: "PLACED",
       payment_status: "UNPAID",
-      subtotal,
-      total_amount: total,
+      subtotal: computedSubtotal,
+      total_amount: computedTotal,
     };
     const orderPayloadCandidates: Record<string, unknown>[] = [];
     const seenOrderPayloads = new Set<string>();
@@ -2910,8 +2996,8 @@ export default function QrOrderingExperience({
       instructionField?: "kitchen_instructions" | "instructions" | "notes",
     ) => {
       const composed: Record<string, unknown> = { ...payload };
-      if (includeBrowserId && browserIdForOrder) {
-        composed.customer_browser_id = browserIdForOrder;
+      if (includeBrowserId && hashedBrowserIdForOrder) {
+        composed.customer_browser_id = hashedBrowserIdForOrder;
       }
       if (instructionField && trimmedInstructions) {
         composed[instructionField] = trimmedInstructions;
@@ -2956,26 +3042,26 @@ export default function QrOrderingExperience({
             order_id: createdOrder.$id,
             table_id: tableInfo.id,
             table_no: tableInfo.tableNo,
-            amount: total,
+            amount: computedTotal,
             payment_method: "UPI",
             status: "PENDING",
             payment_status: "UNPAID",
             created_at: nowIso,
           },
-          {
-            order_id: createdOrder.$id,
-            amount: total,
-            payment_method: "UPI",
-            payment_status: "UNPAID",
-            status: "PENDING",
+            {
+              order_id: createdOrder.$id,
+              amount: computedTotal,
+              payment_method: "UPI",
+              payment_status: "UNPAID",
+              status: "PENDING",
           },
-          {
-            order_id: createdOrder.$id,
-            table_id: tableInfo.id,
-            amount: total,
-            payment_method: "UPI",
-            status: "PENDING",
-          },
+            {
+              order_id: createdOrder.$id,
+              table_id: tableInfo.id,
+              amount: computedTotal,
+              payment_method: "UPI",
+              status: "PENDING",
+            },
         ];
 
         try {
@@ -3003,8 +3089,8 @@ export default function QrOrderingExperience({
         orderNumber,
         tableInfo.tableNo,
         paymentMethod,
-        subtotal,
-        total,
+        computedSubtotal,
+        computedTotal,
         nowIso,
         cartItems,
         resolvedSelectedModifiersByItem,
@@ -3022,7 +3108,7 @@ export default function QrOrderingExperience({
           orderId: createdOrder.$id,
           client: clientId,
           table: tableInfo.tableNo,
-          totalAmount: total,
+          totalAmount: computedTotal,
           itemCount: cartCount,
           paymentMethod,
           status: "PLACED",
@@ -3531,7 +3617,7 @@ export default function QrOrderingExperience({
             <input
               id="menu-search"
               value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
+              onChange={(event) => setSearchText(sanitizeSearchInput(event.target.value))}
               placeholder={"Search dishes"}
               className={clsx(
                 "w-full bg-transparent text-sm outline-none placeholder:text-zinc-500",
@@ -4598,7 +4684,9 @@ export default function QrOrderingExperience({
                   <textarea
                     id="kitchen-instructions"
                     value={kitchenInstructions}
-                    onChange={(event) => setKitchenInstructions(event.target.value.slice(0, 240))}
+                    onChange={(event) =>
+                      setKitchenInstructions(sanitizeInstructionText(event.target.value))
+                    }
                     placeholder={"Example: make it spicy, less onion, no mayo"}
                     className="min-h-[88px] w-full resize-none rounded-xl border border-zinc-700 bg-zinc-950/70 px-3 py-2.5 text-sm leading-5 text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-zinc-500"
                   />

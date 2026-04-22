@@ -7,20 +7,44 @@ type RouteParams = Promise<{
   table: string;
 }>;
 
+function safeDecodeParam(value: string) {
+  try {
+    return decodeURIComponent(value).trim();
+  } catch {
+    return value.trim();
+  }
+}
+
+function sanitizeRouteParam(value: string, maxLength: number) {
+  const decoded = safeDecodeParam(value);
+  if (!decoded) {
+    return "";
+  }
+  if (decoded.length > maxLength) {
+    return "";
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(decoded)) {
+    return "";
+  }
+  return decoded;
+}
+
 export async function generateMetadata({
   params,
 }: {
   params: RouteParams;
 }): Promise<Metadata> {
   const { client, table } = await params;
-  const prettyClient = client
+  const safeClient = sanitizeRouteParam(client, 64) || "Cafe Luxe";
+  const safeTable = sanitizeRouteParam(table, 32) || "Table";
+  const prettyClient = safeClient
     .split(/[-_\s]+/)
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 
   return {
-    title: `${prettyClient} - Table ${table}`,
+    title: `${prettyClient} - Table ${safeTable}`,
     description: "Scan, browse menu, and place your order instantly.",
   };
 }
@@ -31,12 +55,14 @@ export default async function TableOrderingPage({
   params: RouteParams;
 }) {
   const { client, table } = await params;
+  const safeClient = sanitizeRouteParam(client, 64) || safeDecodeParam(client);
+  const safeTable = sanitizeRouteParam(table, 32) || safeDecodeParam(table);
 
   return (
     <QrOrderingExperience
-      key={`${client}__${table}`}
-      client={decodeURIComponent(client)}
-      table={decodeURIComponent(table)}
+      key={`${safeClient}__${safeTable}`}
+      client={safeClient}
+      table={safeTable}
     />
   );
 }
