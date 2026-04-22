@@ -18,7 +18,7 @@ const contentSecurityPolicy = [
   `connect-src 'self' ${appwriteOrigin}`,
   "img-src 'self' https: data: blob:",
   "font-src 'self' data:",
-  "script-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
 ].join("; ");
 

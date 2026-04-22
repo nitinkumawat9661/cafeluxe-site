@@ -1,0 +1,6 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.CafeLuxe" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">#18181b</item>
+        <item name="android:statusBarColor">?attr/colorPrimary</item>
+    </style>
+</resources>
