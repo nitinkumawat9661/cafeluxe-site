@@ -1,3 +1,1 @@
-# Cafe Luxe
-
-Premium QR-based restaurant ordering website.
+# Cafe Luxe Site
