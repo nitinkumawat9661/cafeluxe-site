@@ -1,12 +1,16 @@
 import type { NextConfig } from "next";
 
-const appwriteEndpoint =
-  process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT ?? "https://sgp.cloud.appwrite.io/v1";
-let appwriteOrigin = "https://sgp.cloud.appwrite.io";
+const appwriteEndpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT ?? "";
+let appwriteOrigin = "";
 try {
-  appwriteOrigin = new URL(appwriteEndpoint).origin;
+  appwriteOrigin = appwriteEndpoint ? new URL(appwriteEndpoint).origin : "";
 } catch {
-  appwriteOrigin = "https://sgp.cloud.appwrite.io";
+  appwriteOrigin = "";
+}
+
+const connectSrcParts = ["'self'"];
+if (appwriteOrigin) {
+  connectSrcParts.push(appwriteOrigin);
 }
 
 const contentSecurityPolicy = [
@@ -15,7 +19,7 @@ const contentSecurityPolicy = [
   "frame-ancestors 'none'",
   "object-src 'none'",
   "form-action 'self'",
-  `connect-src 'self' ${appwriteOrigin}`,
+  `connect-src ${connectSrcParts.join(" ")}`,
   "img-src 'self' https: data: blob:",
   "font-src 'self' data:",
   "script-src 'self' 'unsafe-inline'",

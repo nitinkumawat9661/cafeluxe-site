@@ -4,10 +4,10 @@ This document defines the production security and indexing baseline for CafeLuxe
 
 ## 1) Required Appwrite identifiers
 
-- Endpoint: `https://sgp.cloud.appwrite.io/v1`
-- Project ID: `trustfirst-core`
-- Database ID: `trustfirst-main-db`
-- Bucket ID: `restaurant-assets`
+- Endpoint: `APPWRITE_ENDPOINT` (from environment)
+- Project ID: `APPWRITE_PROJECT_ID` (from environment)
+- Database ID: `APPWRITE_DATABASE_ID` (from environment)
+- Bucket ID: `NEXT_PUBLIC_APPWRITE_BUCKET_ID` (from environment)
 
 Tables:
 
@@ -56,10 +56,7 @@ Create (or verify) at least these indexes:
 3. `menu_items`
    - key: `[client_id]`
    - optional key for category filtering, one of:
-     - `[client_id, category_id]`
-     - `[client_id, categoryId]`
-     - `[client_id, catogries_id]`
-     - `[client_id, categories_id]`
+     - `[client_id, catogry_id]`
 4. `orders`
    - key: `[client_id, table_id]`
    - optional: unique/key `[client_id, order_number]`
@@ -67,15 +64,16 @@ Create (or verify) at least these indexes:
    - key: `[client_id]`
 6. `payments`
    - optional key: `[order_id]`
+   - optional key: `[client_id, order_id]`
 
 ## 4) Run automated audit
 
 Set server-only env vars (never expose API key to browser):
 
 ```bash
-APPWRITE_ENDPOINT=https://sgp.cloud.appwrite.io/v1
-APPWRITE_PROJECT_ID=trustfirst-core
-APPWRITE_DATABASE_ID=trustfirst-main-db
+APPWRITE_ENDPOINT=https://<region>.cloud.appwrite.io/v1
+APPWRITE_PROJECT_ID=your_appwrite_project_id
+APPWRITE_DATABASE_ID=your_appwrite_database_id
 APPWRITE_API_KEY=your_server_api_key
 ```
 
@@ -100,4 +98,3 @@ The app now supports a secure default:
 When false, customer client does **not** query backend orders to restore state, reducing accidental order visibility risk.
 
 Set to `true` only if you intentionally allow and audit order read behavior.
-

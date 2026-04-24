@@ -1,34 +1,18 @@
-import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const APPWRITE_ENDPOINT =
-  process.env.APPWRITE_ENDPOINT ??
-  process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT ??
-  "https://sgp.cloud.appwrite.io/v1";
-const APPWRITE_PROJECT_ID =
-  process.env.APPWRITE_PROJECT_ID ??
-  process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID ??
-  "trustfirst-core";
-const APPWRITE_DATABASE_ID =
-  process.env.APPWRITE_DATABASE_ID ??
-  process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID ??
-  "trustfirst-main-db";
+const APPWRITE_ENDPOINT = process.env.APPWRITE_ENDPOINT ?? "";
+const APPWRITE_PROJECT_ID = process.env.APPWRITE_PROJECT_ID ?? "";
+const APPWRITE_DATABASE_ID = process.env.APPWRITE_DATABASE_ID ?? "";
 const APPWRITE_API_KEY = process.env.APPWRITE_API_KEY ?? "";
 
-const TABLES_COLLECTION_ID =
-  process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_TABLES ?? "tables";
-const CATEGORIES_COLLECTION_ID =
-  process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_CATEGORIES ?? "categories";
-const MENU_ITEMS_COLLECTION_ID =
-  process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_MENU_ITEMS ?? "menu_items";
-const SETTINGS_COLLECTION_ID =
-  process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_SETTINGS ?? "settings";
-const ORDERS_COLLECTION_ID =
-  process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_ORDERS ?? "orders";
-const PAYMENTS_COLLECTION_ID =
-  process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_PAYMENTS ?? "payments";
+const TABLES_COLLECTION_ID = "tables";
+const CATEGORIES_COLLECTION_ID = "categories";
+const MENU_ITEMS_COLLECTION_ID = "menu_items";
+const SETTINGS_COLLECTION_ID = "settings";
+const ORDERS_COLLECTION_ID = "orders";
+const PAYMENTS_COLLECTION_ID = "payments";
 
 const READ_ALLOWED_COLLECTIONS = new Set([
   TABLES_COLLECTION_ID,
@@ -42,7 +26,6 @@ const CREATE_ALLOWED_COLLECTIONS = new Set([ORDERS_COLLECTION_ID, PAYMENTS_COLLE
 const SAFE_ORDER_PAYMENT_SWITCH_FIELDS = new Set([
   "payment_method",
   "payment_status",
-  "updated_at_custom",
 ]);
 
 const ALLOWED_PAYMENT_METHODS = new Set(["UPI", "COUNTER"]);
@@ -51,13 +34,11 @@ const ALLOWED_PENDING_PAYMENT_STATUSES = new Set(["UNPAID", "PENDING"]);
 const MAX_BODY_SIZE_BYTES = 48 * 1024;
 const MAX_QUERY_COUNT = 10;
 const MAX_QUERY_LENGTH = 240;
-const MAX_ORDER_ITEMS = 40;
-const MAX_ORDER_MODIFIERS = 16;
 
 function buildAppwriteHeaders(useApiKey = false) {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "X-Appwrite-Project": APPWRITE_PROJECT_ID,
+    "X-Appwrite-Project": APPWRITE_PROJECT_ID ?? "",
   };
 
   if (useApiKey && APPWRITE_API_KEY) {
@@ -69,6 +50,19 @@ function buildAppwriteHeaders(useApiKey = false) {
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ message }, { status });
+}
+
+function ensureServerConfig() {
+  if (!APPWRITE_ENDPOINT || !APPWRITE_PROJECT_ID || !APPWRITE_DATABASE_ID) {
+    return jsonError(
+      "Server Appwrite configuration is missing (APPWRITE_ENDPOINT / APPWRITE_PROJECT_ID / APPWRITE_DATABASE_ID).",
+      500,
+    );
+  }
+  if (!APPWRITE_API_KEY) {
+    return jsonError("Server Appwrite API key is missing (APPWRITE_API_KEY).", 500);
+  }
+  return null;
 }
 
 function normalizeCollectionId(value: unknown) {
@@ -140,21 +134,29 @@ function sanitizeAmount(value: unknown, min: number, max: number) {
   return rounded;
 }
 
-function sanitizeQuantity(value: unknown, min: number, max: number) {
-  const parsed =
-    typeof value === "number"
-      ? value
-      : typeof value === "string"
-        ? Number(value)
-        : Number.NaN;
-  if (!Number.isFinite(parsed)) {
+function sanitizeBoolean(value: unknown) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    if (value === 1) {
+      return true;
+    }
+    if (value === 0) {
+      return false;
+    }
     return null;
   }
-  const integer = Math.floor(parsed);
-  if (integer < min || integer > max) {
-    return null;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "y"].includes(normalized)) {
+      return true;
+    }
+    if (["false", "0", "no", "n"].includes(normalized)) {
+      return false;
+    }
   }
-  return integer;
+  return null;
 }
 
 function sanitizeIsoTimestamp(value: unknown) {
@@ -167,11 +169,6 @@ function sanitizeIsoTimestamp(value: unknown) {
   }
   const parsed = Date.parse(trimmed);
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : "";
-}
-
-function hashConvenienceIdentifier(value: string) {
-  const digest = createHash("sha256").update(value).digest("hex");
-  return `h_${digest.slice(0, 48)}`;
 }
 
 function isSameOriginRequest(request: NextRequest) {
@@ -292,74 +289,6 @@ async function parseResponse(response: Response) {
   }
 }
 
-function sanitizeOrderItems(itemsValue: unknown) {
-  if (!Array.isArray(itemsValue)) {
-    return [];
-  }
-
-  const sanitizedItems: Record<string, unknown>[] = [];
-  for (const entry of itemsValue.slice(0, MAX_ORDER_ITEMS)) {
-    if (!entry || typeof entry !== "object") {
-      continue;
-    }
-    const source = entry as Record<string, unknown>;
-    const itemId = sanitizeIdentifier(source.item_id, 72);
-    const quantity = sanitizeQuantity(source.quantity, 1, 25);
-    const baseUnitPrice = sanitizeAmount(source.base_unit_price, 0, 1_000_000);
-    const unitPrice = sanitizeAmount(source.unit_price, 0, 1_000_000);
-    const modifiersTotalPerUnit = sanitizeAmount(source.modifiers_total_per_unit, 0, 1_000_000);
-    const itemName = sanitizeText(source.item_name, 120);
-    const itemNameHi = sanitizeText(source.item_name_hi, 120);
-
-    if (!itemId || !quantity || unitPrice === null) {
-      continue;
-    }
-
-    const modifiers: Record<string, unknown>[] = [];
-    if (Array.isArray(source.modifiers)) {
-      for (const modifier of source.modifiers.slice(0, MAX_ORDER_MODIFIERS)) {
-        if (!modifier || typeof modifier !== "object") {
-          continue;
-        }
-        const rawModifier = modifier as Record<string, unknown>;
-        const modifierId = sanitizeIdentifier(rawModifier.id, 64);
-        const modifierLabel = sanitizeText(rawModifier.label, 100);
-        const modifierPrice = sanitizeAmount(rawModifier.price, 0, 1_000_000);
-        if (!modifierId || !modifierLabel || modifierPrice === null) {
-          continue;
-        }
-        modifiers.push({
-          id: modifierId,
-          label: modifierLabel,
-          price: modifierPrice,
-        });
-      }
-    }
-
-    const computedLineTotal = Math.round(unitPrice * quantity * 100) / 100;
-    const sanitizedItem: Record<string, unknown> = {
-      item_id: itemId,
-      quantity,
-      unit_price: unitPrice,
-      line_total: computedLineTotal,
-      modifiers_total_per_unit: modifiersTotalPerUnit ?? 0,
-      modifiers,
-    };
-    if (itemName) {
-      sanitizedItem.item_name = itemName;
-    }
-    if (itemNameHi) {
-      sanitizedItem.item_name_hi = itemNameHi;
-    }
-    if (baseUnitPrice !== null) {
-      sanitizedItem.base_unit_price = baseUnitPrice;
-    }
-    sanitizedItems.push(sanitizedItem);
-  }
-
-  return sanitizedItems;
-}
-
 function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
   const clientId = sanitizeIdentifier(documentData.client_id, 64);
   const tableId = sanitizeIdentifier(documentData.table_id, 64);
@@ -373,16 +302,10 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
 
   const paymentMethod =
     sanitizeEnum(documentData.payment_method, ALLOWED_PAYMENT_METHODS) || "COUNTER";
-  const tableNo = sanitizeIdentifier(documentData.table_no, 48);
-  const createdAtCustom = sanitizeIsoTimestamp(documentData.created_at_custom);
-  const instructions = sanitizeText(
-    documentData.kitchen_instructions ?? documentData.instructions ?? documentData.notes,
-    240,
-  );
-  const customerBrowserId = sanitizeIdentifier(documentData.customer_browser_id, 128);
-  const items = sanitizeOrderItems(documentData.items);
+  const createdAtCustom =
+    sanitizeIsoTimestamp(documentData.created_at_custom) || new Date().toISOString();
 
-  const sanitized: Record<string, unknown> = {
+  return {
     client_id: clientId,
     table_id: tableId,
     order_number: orderNumber,
@@ -391,61 +314,35 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
     payment_method: paymentMethod,
     subtotal,
     total_amount: totalAmount,
-  };
-  if (tableNo) {
-    sanitized.table_no = tableNo;
-  }
-  if (createdAtCustom) {
-    sanitized.created_at_custom = createdAtCustom;
-  }
-  if (instructions) {
-    sanitized.kitchen_instructions = instructions;
-  }
-  if (customerBrowserId) {
-    sanitized.customer_browser_id = hashConvenienceIdentifier(customerBrowserId);
-  }
-  if (items.length > 0) {
-    sanitized.items = items;
-  }
-
-  return sanitized;
+    created_at_custom: createdAtCustom,
+  } satisfies Record<string, unknown>;
 }
 
 function sanitizePaymentCreatePayload(documentData: Record<string, unknown>) {
+  const clientId = sanitizeIdentifier(documentData.client_id, 64);
   const orderId = sanitizeIdentifier(documentData.order_id, 64);
   const amount = sanitizeAmount(documentData.amount, 0.01, 1_000_000);
-  if (!orderId || amount === null) {
+  if (!clientId || !orderId || amount === null) {
     return null;
   }
 
   const paymentMethod =
     sanitizeEnum(documentData.payment_method, ALLOWED_PAYMENT_METHODS) || "UPI";
-  const clientId = sanitizeIdentifier(documentData.client_id, 64);
-  const tableId = sanitizeIdentifier(documentData.table_id, 64);
-  const tableNo = sanitizeIdentifier(documentData.table_no, 48);
-  const createdAt = sanitizeIsoTimestamp(documentData.created_at);
+  const paymentStatus =
+    sanitizeEnum(documentData.payment_status, ALLOWED_PENDING_PAYMENT_STATUSES) || "PENDING";
+  const customerMarkedPaid = sanitizeBoolean(documentData.customer_marked_paid) ?? false;
+  const verifiedBy =
+    sanitizeIdentifier(documentData.verified_by, 64) || "PENDING_CASHIER_CONFIRMATION";
 
-  const sanitized: Record<string, unknown> = {
+  return {
+    client_id: clientId,
     order_id: orderId,
-    amount,
     payment_method: paymentMethod,
-    status: "PENDING",
-    payment_status: "UNPAID",
-  };
-  if (clientId) {
-    sanitized.client_id = clientId;
-  }
-  if (tableId) {
-    sanitized.table_id = tableId;
-  }
-  if (tableNo) {
-    sanitized.table_no = tableNo;
-  }
-  if (createdAt) {
-    sanitized.created_at = createdAt;
-  }
-
-  return sanitized;
+    payment_status: paymentStatus,
+    customer_marked_paid: customerMarkedPaid,
+    verified_by: verifiedBy,
+    amount,
+  } satisfies Record<string, unknown>;
 }
 
 function sanitizeOrderPaymentSwitchPatch(documentData: Record<string, unknown>) {
@@ -464,13 +361,10 @@ function sanitizeOrderPaymentSwitchPatch(documentData: Record<string, unknown>) 
 
   const paymentStatus =
     sanitizeEnum(documentData.payment_status, ALLOWED_PENDING_PAYMENT_STATUSES) || "UNPAID";
-  const updatedAtCustom =
-    sanitizeIsoTimestamp(documentData.updated_at_custom) || new Date().toISOString();
 
   return {
     payment_method: paymentMethod,
     payment_status: paymentStatus,
-    updated_at_custom: updatedAtCustom,
   } satisfies Record<string, unknown>;
 }
 
@@ -488,6 +382,11 @@ function sanitizeCreatePayload(
 }
 
 export async function GET(request: NextRequest) {
+  const configError = ensureServerConfig();
+  if (configError) {
+    return configError;
+  }
+
   const collectionId = normalizeCollectionId(request.nextUrl.searchParams.get("collectionId"));
   if (!collectionId || !READ_ALLOWED_COLLECTIONS.has(collectionId)) {
     return jsonError("Collection is not allowed.", 403);
@@ -524,9 +423,7 @@ export async function GET(request: NextRequest) {
 
   const upstreamResponse = await fetch(upstreamUrl, {
     method: "GET",
-    headers: {
-      "X-Appwrite-Project": APPWRITE_PROJECT_ID,
-    },
+    headers: buildAppwriteHeaders(true),
     cache: "no-store",
   });
 
@@ -542,6 +439,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const configError = ensureServerConfig();
+  if (configError) {
+    return configError;
+  }
+
   if (!isSameOriginRequest(request)) {
     return jsonError("Cross-origin requests are not allowed.", 403);
   }
@@ -579,7 +481,7 @@ export async function POST(request: NextRequest) {
 
   const upstreamResponse = await fetch(upstreamUrl, {
     method: "POST",
-    headers: buildAppwriteHeaders(),
+    headers: buildAppwriteHeaders(true),
     body: JSON.stringify({
       documentId: "unique()",
       data: sanitizedData,
@@ -599,6 +501,11 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const configError = ensureServerConfig();
+  if (configError) {
+    return configError;
+  }
+
   if (!isSameOriginRequest(request)) {
     return jsonError("Cross-origin requests are not allowed.", 403);
   }
@@ -642,10 +549,9 @@ export async function PATCH(request: NextRequest) {
     documentId,
   )}`;
 
-  const canUsePrivilegedPatch = !!APPWRITE_API_KEY;
   const upstreamResponse = await fetch(upstreamUrl, {
     method: "PATCH",
-    headers: buildAppwriteHeaders(canUsePrivilegedPatch),
+    headers: buildAppwriteHeaders(true),
     body: JSON.stringify({
       data: sanitizedData,
     }),

@@ -6,15 +6,14 @@ const args = new Set(process.argv.slice(2));
 const applyIndexes = args.has("--apply-indexes");
 const strict = args.has("--strict");
 
-const endpoint =
-  process.env.APPWRITE_ENDPOINT ?? "https://sgp.cloud.appwrite.io/v1";
-const projectId = process.env.APPWRITE_PROJECT_ID ?? "trustfirst-core";
-const databaseId = process.env.APPWRITE_DATABASE_ID ?? "trustfirst-main-db";
+const endpoint = process.env.APPWRITE_ENDPOINT ?? "";
+const projectId = process.env.APPWRITE_PROJECT_ID ?? "";
+const databaseId = process.env.APPWRITE_DATABASE_ID ?? "";
 const apiKey = process.env.APPWRITE_API_KEY ?? "";
 
-if (!apiKey) {
+if (!endpoint || !projectId || !databaseId || !apiKey) {
   console.error(
-    "Missing APPWRITE_API_KEY. Set a server API key with Tables/Databases read permissions.",
+    "Missing required env vars. Set APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, APPWRITE_DATABASE_ID, and APPWRITE_API_KEY.",
   );
   process.exit(1);
 }
@@ -53,8 +52,8 @@ const SPECS = [
     id: "tables",
     access: ACCESS.clientReadable,
     recommendedRowSecurity: false,
-    requiredColumns: ["client_id"],
-    requiredAnyColumns: [["table_no", "table_code"]],
+    requiredColumns: ["client_id", "table_no", "table_code", "active"],
+    requiredAnyColumns: [],
     indexGroups: [
       {
         key: "idx_tables_client_table_no",
@@ -74,8 +73,8 @@ const SPECS = [
     id: "categories",
     access: ACCESS.clientReadable,
     recommendedRowSecurity: false,
-    requiredColumns: ["client_id"],
-    requiredAnyColumns: [["name", "title", "categoryName"]],
+    requiredColumns: ["client_id", "name", "display_order", "active"],
+    requiredAnyColumns: [],
     indexGroups: [
       {
         key: "idx_categories_client",
@@ -89,8 +88,8 @@ const SPECS = [
     id: "menu_items",
     access: ACCESS.clientReadable,
     recommendedRowSecurity: false,
-    requiredColumns: ["client_id"],
-    requiredAnyColumns: [["name", "title", "itemName"], ["price", "amount", "rate"]],
+    requiredColumns: ["client_id", "catogry_id", "price"],
+    requiredAnyColumns: [],
     indexGroups: [
       {
         key: "idx_menu_items_client",
@@ -103,10 +102,7 @@ const SPECS = [
         label: "Client + category filtering",
         required: false,
         options: [
-          { type: "key", columns: ["client_id", "category_id"] },
-          { type: "key", columns: ["client_id", "categoryId"] },
-          { type: "key", columns: ["client_id", "catogries_id"] },
-          { type: "key", columns: ["client_id", "categories_id"] },
+          { type: "key", columns: ["client_id", "catogry_id"] },
         ],
       },
     ],
@@ -147,7 +143,15 @@ const SPECS = [
     id: "payments",
     access: ACCESS.clientCreateOnly,
     recommendedRowSecurity: true,
-    requiredColumns: ["order_id", "amount", "method", "status"],
+    requiredColumns: [
+      "client_id",
+      "order_id",
+      "payment_method",
+      "payment_status",
+      "customer_marked_paid",
+      "verified_by",
+      "amount",
+    ],
     requiredAnyColumns: [],
     indexGroups: [
       {
@@ -155,6 +159,12 @@ const SPECS = [
         label: "Payment lookup by order",
         required: false,
         options: [{ type: "key", columns: ["order_id"] }],
+      },
+      {
+        key: "idx_payments_client_order",
+        label: "Payment lookup by client + order",
+        required: false,
+        options: [{ type: "key", columns: ["client_id", "order_id"] }],
       },
     ],
   },
@@ -170,7 +180,7 @@ const SPECS = [
     id: "settings",
     access: ACCESS.clientReadable,
     recommendedRowSecurity: false,
-    requiredColumns: ["client_id"],
+    requiredColumns: ["client_id", "key", "value"],
     requiredAnyColumns: [],
     indexGroups: [
       {
@@ -448,4 +458,3 @@ main().catch((error) => {
   console.error(`FAIL: unexpected audit crash: ${error.message}`);
   process.exit(1);
 });
-

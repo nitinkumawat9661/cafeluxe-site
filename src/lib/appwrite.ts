@@ -1,78 +1,34 @@
-import { Account, Client, Databases, ID, Query, Storage } from "appwrite";
+import { ID, Query } from "appwrite";
 
-const APPWRITE_ENDPOINT =
-  process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT ?? "https://sgp.cloud.appwrite.io/v1";
-const APPWRITE_PROJECT_ID =
-  process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID ?? "trustfirst-core";
-const APPWRITE_DATABASE_ID =
-  process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID ?? "trustfirst-main-db";
-const APPWRITE_BUCKET_ID =
-  process.env.NEXT_PUBLIC_APPWRITE_BUCKET_ID ?? "restaurant-assets";
+const APPWRITE_ENDPOINT = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT ?? "";
+const APPWRITE_PROJECT_ID = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID ?? "";
+const APPWRITE_DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID ?? "";
+const APPWRITE_BUCKET_ID = process.env.NEXT_PUBLIC_APPWRITE_BUCKET_ID ?? "";
 
 const COLLECTION_IDS = {
-  users: process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_USERS ?? "users",
-  tables: process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_TABLES ?? "tables",
-  categories: process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_CATEGORIES ?? "categories",
-  menuItems: process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_MENU_ITEMS ?? "menu_items",
-  orders: process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_ORDERS ?? "orders",
-  payments: process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_PAYMENTS ?? "payments",
-  reports: process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_REPORTS ?? "reports",
-  settings: process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_SETTINGS ?? "settings",
-  notifications:
-    process.env.NEXT_PUBLIC_APPWRITE_COLLECTION_NOTIFICATIONS ?? "notifications",
+  users: "users",
+  tables: "tables",
+  categories: "categories",
+  menuItems: "menu_items",
+  orders: "orders",
+  payments: "payments",
+  reports: "reports",
+  settings: "settings",
+  notifications: "notifications",
 };
+
 const SAFE_CLIENT_CREATE_COLLECTIONS = new Set([
   COLLECTION_IDS.orders,
   COLLECTION_IDS.payments,
 ]);
 const SAFE_CLIENT_UPDATE_COLLECTIONS = new Set([COLLECTION_IDS.orders]);
 
-let databasesInstance: Databases | null = null;
-let storageInstance: Storage | null = null;
-let accountInstance: Account | null = null;
-let sessionReadyPromise: Promise<void> | null = null;
 const DEFAULT_REQUEST_TIMEOUT_MS = 12000;
-
-function getClient() {
-  return new Client().setEndpoint(APPWRITE_ENDPOINT).setProject(APPWRITE_PROJECT_ID);
-}
-
-function getDatabases() {
-  if (databasesInstance) {
-    return databasesInstance;
-  }
-
-  const client = getClient();
-
-  databasesInstance = new Databases(client);
-  return databasesInstance;
-}
-
-function getStorage() {
-  if (storageInstance) {
-    return storageInstance;
-  }
-
-  const client = getClient();
-
-  storageInstance = new Storage(client);
-  return storageInstance;
-}
-
-function getAccount() {
-  if (accountInstance) {
-    return accountInstance;
-  }
-
-  const client = getClient();
-  accountInstance = new Account(client);
-  return accountInstance;
-}
 
 function withTimeout<T>(
   operation: Promise<T>,
   timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
-  label = "Appwrite request",
+  label = "Appwrite proxy request",
 ) {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -89,49 +45,6 @@ function withTimeout<T>(
         reject(error);
       });
   });
-}
-
-function isNetworkTransportError(error: unknown) {
-  if (!error) {
-    return false;
-  }
-
-  const message =
-    error instanceof Error
-      ? error.message.toLowerCase()
-      : typeof error === "object" && "message" in error
-        ? String(error.message).toLowerCase()
-        : String(error).toLowerCase();
-
-  return (
-    message.includes("failed to fetch") ||
-    message.includes("network") ||
-    message.includes("cors") ||
-    message.includes("fetch failed") ||
-    message.includes("load failed")
-  );
-}
-
-function isPermissionError(error: unknown) {
-  if (!error) {
-    return false;
-  }
-
-  const message =
-    error instanceof Error
-      ? error.message.toLowerCase()
-      : typeof error === "object" && "message" in error
-        ? String(error.message).toLowerCase()
-        : String(error).toLowerCase();
-
-  return (
-    message.includes("not authorized") ||
-    message.includes("user_unauthorized") ||
-    message.includes("missing scope") ||
-    message.includes("permission denied") ||
-    message.includes("code: 401") ||
-    message.includes("401")
-  );
 }
 
 async function readProxyError(response: Response) {
@@ -158,6 +71,7 @@ async function proxyListDocuments(
     fetch(`/api/appwrite/documents?${params.toString()}`, {
       method: "GET",
       cache: "no-store",
+      credentials: "same-origin",
     }),
     timeoutMs,
     `Proxy list ${collectionId}`,
@@ -184,6 +98,7 @@ async function proxyCreateDocument(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ collectionId, documentData }),
       cache: "no-store",
+      credentials: "same-origin",
     }),
     timeoutMs,
     `Proxy create ${collectionId}`,
@@ -208,6 +123,7 @@ async function proxyUpdateDocument(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ collectionId, documentId, documentData }),
       cache: "no-store",
+      credentials: "same-origin",
     }),
     timeoutMs,
     `Proxy update ${collectionId}`,
@@ -220,59 +136,19 @@ async function proxyUpdateDocument(
   return response.json() as Promise<AppwriteDocument>;
 }
 
-async function ensureSessionIfPossible() {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  if (sessionReadyPromise) {
-    return sessionReadyPromise;
-  }
-
-  sessionReadyPromise = (async () => {
-    const account = getAccount();
-
-    try {
-      await withTimeout(account.get(), 8000, "Session check");
-      return;
-    } catch (error) {
-      const isTimeout =
-        error instanceof Error && error.message.toLowerCase().includes("session check timed out");
-      if (isTimeout) {
-        console.warn("Appwrite session check timed out; attempting to continue...");
-        return;
-      }
-
-      try {
-        await withTimeout(
-          account.createAnonymousSession(),
-          8000,
-          "Anonymous session creation",
-        );
-      } catch (sessionError) {
-        const message =
-          sessionError && typeof sessionError === "object" && "message" in sessionError
-            ? String(sessionError.message).toLowerCase()
-            : "";
-        const canIgnore =
-          (message.includes("already") && message.includes("session")) ||
-          message.includes("user_unauthorized") ||
-          message.includes("not authorized") ||
-          message.includes("origin") ||
-          message.includes("domain") ||
-          message.includes("timed out") ||
-          message.includes("failed to fetch") ||
-          message.includes("network") ||
-          message.includes("cors");
-
-        if (!canIgnore) {
-          console.error("Appwrite anonymous session creation failed:", sessionError);
-        }
-      }
-    }
-  })();
-
-  return sessionReadyPromise;
+function isIndexOrQueryFailure(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : typeof error === "object" && error && "message" in error
+        ? String(error.message).toLowerCase()
+        : String(error).toLowerCase();
+  return (
+    message.includes("index") ||
+    message.includes("attribute") ||
+    message.includes("query") ||
+    message.includes("invalid query")
+  );
 }
 
 export type AppwriteDocument = {
@@ -288,10 +164,8 @@ type ListOptions = {
 };
 
 export async function fetchAllDocuments(collectionId: string, options?: ListOptions) {
-  const databases = getDatabases();
   const documents: AppwriteDocument[] = [];
   let cursorAfter: string | null = null;
-  let ensuredSessionAfterAuthFailure = false;
   const pageSize = options?.pageSize ?? 100;
   const maxDocs = options?.maxDocs ?? 2000;
   const baseQueries = options?.queries ?? [];
@@ -304,12 +178,7 @@ export async function fetchAllDocuments(collectionId: string, options?: ListOpti
     }
 
     try {
-      const response = await withTimeout(
-        databases.listDocuments(APPWRITE_DATABASE_ID, collectionId, queries),
-        timeoutMs,
-        `List ${collectionId}`,
-      );
-
+      const response = await proxyListDocuments(collectionId, queries, timeoutMs);
       const currentDocs = response.documents as AppwriteDocument[];
       documents.push(...currentDocs);
 
@@ -323,52 +192,15 @@ export async function fetchAllDocuments(collectionId: string, options?: ListOpti
       }
 
       cursorAfter = lastDoc.$id;
-
       if (documents.length >= maxDocs) {
         break;
       }
     } catch (error) {
-      if (!ensuredSessionAfterAuthFailure && isPermissionError(error)) {
-        ensuredSessionAfterAuthFailure = true;
-        await ensureSessionIfPossible();
-        continue;
-      }
-
-      if (typeof window !== "undefined" && isNetworkTransportError(error)) {
-        const proxyResponse = await proxyListDocuments(collectionId, queries, timeoutMs);
-        const currentDocs = proxyResponse.documents as AppwriteDocument[];
-        documents.push(...currentDocs);
-
-        if (currentDocs.length < pageSize) {
-          break;
-        }
-
-        const lastDoc = currentDocs.at(-1);
-        if (!lastDoc?.$id) {
-          break;
-        }
-
-        cursorAfter = lastDoc.$id;
-        if (documents.length >= maxDocs) {
-          break;
-        }
-        continue;
-      }
-
-      const message = error && typeof error === "object" && "message" in error ? String(error.message).toLowerCase() : "";
-      const isIndexError = message.includes("index") || message.includes("attribute") || message.includes("query");
       const canUseBroadFallback =
         collectionId !== COLLECTION_IDS.orders &&
         collectionId !== COLLECTION_IDS.payments;
-
-      if (isIndexError && baseQueries.length > 0 && canUseBroadFallback) {
-        console.warn(`Query failed for ${collectionId} due to missing index or attribute. Retrying without filters.`);
-        // Fallback: try fetching without filters if the filtered query failed
+      if (baseQueries.length > 0 && canUseBroadFallback && isIndexOrQueryFailure(error)) {
         return fetchAllDocuments(collectionId, { ...options, queries: [] });
-      }
-
-      if (isIndexError && baseQueries.length > 0 && !canUseBroadFallback) {
-        throw new Error(`Filtered query failed for protected collection ${collectionId}.`);
       }
       throw error;
     }
@@ -385,22 +217,7 @@ export async function createDocument(
   if (!SAFE_CLIENT_CREATE_COLLECTIONS.has(collectionId)) {
     throw new Error("Collection create is not allowed from client flow.");
   }
-
-  await ensureSessionIfPossible();
-  const databases = getDatabases();
-
-  try {
-    return await withTimeout(
-      databases.createDocument(APPWRITE_DATABASE_ID, collectionId, ID.unique(), documentData),
-      timeoutMs,
-      `Create ${collectionId}`,
-    );
-  } catch (error) {
-    if (typeof window !== "undefined" && isNetworkTransportError(error)) {
-      return proxyCreateDocument(collectionId, documentData, timeoutMs);
-    }
-    throw error;
-  }
+  return proxyCreateDocument(collectionId, documentData, timeoutMs);
 }
 
 export async function createDocumentWithFallback(
@@ -420,7 +237,7 @@ export async function createDocumentWithFallback(
           : "";
 
       const shouldTryNextPayload =
-        /unknown attribute|invalid document structure|attribute not found|invalid type/i.test(
+        /unknown attribute|invalid document structure|attribute not found|invalid type|missing required attribute/i.test(
           message,
         );
 
@@ -442,25 +259,7 @@ export async function updateDocument(
   if (!SAFE_CLIENT_UPDATE_COLLECTIONS.has(collectionId)) {
     throw new Error("Collection update is not allowed from client flow.");
   }
-
-  await ensureSessionIfPossible();
-  const databases = getDatabases();
-
-  try {
-    return await withTimeout(
-      databases.updateDocument(APPWRITE_DATABASE_ID, collectionId, documentId, documentData),
-      timeoutMs,
-      `Update ${collectionId}`,
-    );
-  } catch (error) {
-    if (
-      typeof window !== "undefined" &&
-      (isNetworkTransportError(error) || isPermissionError(error))
-    ) {
-      return proxyUpdateDocument(collectionId, documentId, documentData, timeoutMs);
-    }
-    throw error;
-  }
+  return proxyUpdateDocument(collectionId, documentId, documentData, timeoutMs);
 }
 
 export async function updateDocumentWithFallback(
@@ -481,7 +280,7 @@ export async function updateDocumentWithFallback(
           : "";
 
       const shouldTryNextPayload =
-        /unknown attribute|invalid document structure|attribute not found|invalid type/i.test(
+        /unknown attribute|invalid document structure|attribute not found|invalid type|missing required attribute/i.test(
           message,
         );
 
@@ -519,6 +318,10 @@ function extractFileId(value: string) {
 }
 
 export function buildBucketFileViewUrl(fileId: string, bucketId = APPWRITE_BUCKET_ID) {
+  if (!APPWRITE_ENDPOINT || !APPWRITE_PROJECT_ID || !bucketId) {
+    return "";
+  }
+
   const encodedFileId = encodeURIComponent(fileId);
   const encodedBucketId = encodeURIComponent(bucketId);
   const encodedProjectId = encodeURIComponent(APPWRITE_PROJECT_ID);
@@ -567,4 +370,4 @@ export const appwriteConfig = {
   collections: COLLECTION_IDS,
 };
 
-export { getStorage, ID, Query };
+export { ID, Query };

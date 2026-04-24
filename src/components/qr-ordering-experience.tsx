@@ -101,6 +101,12 @@ type TableOrderRecord = {
   source: "local" | "backend";
 };
 
+type StatusPopupState = {
+  title: string;
+  description: string;
+  tone: "info" | "success";
+};
+
 type LegacyPersistedTableSession = {
   version: number;
   client: string;
@@ -194,6 +200,7 @@ const CUSTOMER_BROWSER_ID_KEY = "customer_browser_id";
 const CUSTOMER_PROFILE_KEY = "customer_profile";
 const CUSTOMER_ORDER_HISTORY_PREFIX = "customer_order_history";
 const THEME_PREF_KEY = "customer_theme_pref";
+const CLIENT_CACHE_RESET_MARKER_KEY = "cafeluxe_cache_reset_20260424";
 const CUSTOMER_PROFILE_VERSION = 1;
 const CUSTOMER_ORDER_HISTORY_VERSION = 1;
 const MAX_LOCAL_RECENT_ORDERS = 30;
@@ -203,6 +210,8 @@ const MAX_STORED_STATE_CHARS = 120_000;
 const ACTIVE_TABLE_STORAGE_VERSION = 1;
 const REQUEST_TIMEOUT_MS = 12000;
 const BILL_SYNC_TIMEOUT_MS = 10000;
+const ORDER_STATUS_WATCH_INTERVAL_MS = 14000;
+const STATUS_POPUP_HIDE_MS = 6500;
 const MAX_TABLE_ORDER_RECORDS = 60;
 const MAX_ROUTE_CLIENT_LENGTH = 64;
 const MAX_ROUTE_TABLE_LENGTH = 32;
@@ -852,31 +861,6 @@ function createBrowserCustomerId() {
   return `cust_${Date.now().toString(36)}_${randomToken}`;
 }
 
-async function hashConvenienceIdentifier(value: string) {
-  const normalized = sanitizeUserText(value, 128).replace(/\s+/g, "");
-  if (!normalized) {
-    return "";
-  }
-
-  if (typeof crypto !== "undefined" && crypto.subtle && typeof TextEncoder !== "undefined") {
-    try {
-      const encoded = new TextEncoder().encode(normalized);
-      const digest = await crypto.subtle.digest("SHA-256", encoded);
-      const bytes = Array.from(new Uint8Array(digest));
-      const hex = bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("");
-      return `h_${hex.slice(0, 48)}`;
-    } catch {
-      // Fallback below.
-    }
-  }
-
-  let hash = 5381;
-  for (let index = 0; index < normalized.length; index += 1) {
-    hash = (hash * 33) ^ normalized.charCodeAt(index);
-  }
-  return `h_${Math.abs(hash).toString(16)}`;
-}
-
 function ensureBrowserCustomerId() {
   if (typeof window === "undefined") {
     return "";
@@ -1109,6 +1093,18 @@ function buildNextCustomerHistory(
 
 function buildCustomerHistoryStorageKey(client: string, browserId: string) {
   return `${CUSTOMER_ORDER_HISTORY_PREFIX}_${normalizeRouteToken(client)}_${browserId}`;
+}
+
+function isResettableClientCacheKey(key: string) {
+  return (
+    key === CUSTOMER_BROWSER_ID_KEY ||
+    key === CUSTOMER_PROFILE_KEY ||
+    key.startsWith(`${CUSTOMER_ORDER_HISTORY_PREFIX}_`) ||
+    key.startsWith("active_cart_") ||
+    key.startsWith("active_bill_") ||
+    key.startsWith("active_session_") ||
+    key.startsWith("cart_")
+  );
 }
 
 function buildActiveCartStorageKey(client: string, table: string) {
@@ -1555,6 +1551,35 @@ function isOrderClosed(status: string, paymentStatus: string) {
   );
 }
 
+function isOrderAccepted(status: string) {
+  const normalized = status.trim().toUpperCase();
+  if (!normalized) {
+    return false;
+  }
+  return [
+    "ACCEPTED",
+    "CONFIRMED",
+    "PREPARING",
+    "IN_PROGRESS",
+    "COOKING",
+    "READY",
+    "SERVED",
+    "DELIVERED",
+    "BILLED",
+    "COMPLETED",
+    "CLOSED",
+    "SETTLED",
+  ].includes(normalized);
+}
+
+function isPaymentConfirmed(status: string) {
+  const normalized = status.trim().toUpperCase();
+  if (!normalized) {
+    return false;
+  }
+  return ["PAID", "SETTLED", "COMPLETED"].includes(normalized);
+}
+
 function getOrderStatusLabel(status: string) {
   const normalized = status.trim().toUpperCase();
   if (!normalized) {
@@ -1875,6 +1900,7 @@ export default function QrOrderingExperience({
   const [placingOrder, setPlacingOrder] = useState(false);
   const [billSyncing, setBillSyncing] = useState(false);
   const [billSyncMessage, setBillSyncMessage] = useState("");
+  const [statusPopup, setStatusPopup] = useState<StatusPopupState | null>(null);
   const [orderPlacedId, setOrderPlacedId] = useState("");
   const [selectedBillOrderId, setSelectedBillOrderId] = useState("");
   const [billActionOrderId, setBillActionOrderId] = useState("");
@@ -1886,6 +1912,10 @@ export default function QrOrderingExperience({
   const [customerProfile, setCustomerProfile] = useState<CustomerProfile | null>(null);
   const [brokenImageMap, setBrokenImageMap] = useState<Record<string, true>>({});
   const placeOrderLockRef = useRef(false);
+  const tableOrdersRef = useRef<TableOrderRecord[]>([]);
+  const activeOrderContextRef = useRef<ActiveOrderContext | null>(null);
+  const orderSyncSnapshotRef = useRef<Record<string, { status: string; paymentStatus: string }>>({});
+  const statusPopupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeCartStorageKey = useMemo(
     () => buildActiveCartStorageKey(routeClient, routeTable),
@@ -1911,6 +1941,41 @@ export default function QrOrderingExperience({
   }, [customerBrowserId, routeClient]);
 
   const isLightTheme = themeMode === "light";
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (window.localStorage.getItem(CLIENT_CACHE_RESET_MARKER_KEY) === "done") {
+      return;
+    }
+
+    const localKeysToRemove: string[] = [];
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key && isResettableClientCacheKey(key)) {
+        localKeysToRemove.push(key);
+      }
+    }
+
+    for (const key of localKeysToRemove) {
+      window.localStorage.removeItem(key);
+    }
+
+    const sessionKeysToRemove: string[] = [];
+    for (let index = 0; index < window.sessionStorage.length; index += 1) {
+      const key = window.sessionStorage.key(index);
+      if (key && isResettableClientCacheKey(key)) {
+        sessionKeysToRemove.push(key);
+      }
+    }
+    for (const key of sessionKeysToRemove) {
+      window.sessionStorage.removeItem(key);
+    }
+
+    window.localStorage.setItem(CLIENT_CACHE_RESET_MARKER_KEY, "done");
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1961,6 +2026,22 @@ export default function QrOrderingExperience({
   }, [customerProfile?.preferences?.preferredPaymentMethod]);
 
   useEffect(() => {
+    tableOrdersRef.current = tableOrders;
+  }, [tableOrders]);
+
+  useEffect(() => {
+    activeOrderContextRef.current = activeOrderContext;
+  }, [activeOrderContext]);
+
+  useEffect(() => {
+    return () => {
+      if (statusPopupTimeoutRef.current) {
+        clearTimeout(statusPopupTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadData() {
@@ -1969,9 +2050,13 @@ export default function QrOrderingExperience({
       setErrorMessage("");
       setNoticeMessage("");
       setBillSyncMessage("");
+      setStatusPopup(null);
       setOrderPlacedId("");
       setActiveOrderContext(null);
       setTableOrders([]);
+      tableOrdersRef.current = [];
+      activeOrderContextRef.current = null;
+      orderSyncSnapshotRef.current = {};
       setSelectedBillOrderId("");
       setSearchText("");
       setBrokenImageMap({});
@@ -2175,18 +2260,27 @@ export default function QrOrderingExperience({
             window.localStorage.removeItem(activeSessionStorageKey);
             window.localStorage.removeItem(legacyTableSessionStorageKey);
             setActiveOrderContext(null);
+            activeOrderContextRef.current = null;
             setOrderPlacedId("");
             setTableOrders([]);
+            tableOrdersRef.current = [];
+            syncOrderSnapshot([]);
             hydratedCart = {};
             hydratedModifiers = {};
             restoredInstructions = "";
           } else if (restoredOrder) {
             setActiveOrderContext(restoredOrder);
+            activeOrderContextRef.current = restoredOrder;
             setOrderPlacedId(restoredOrder.id);
             setTableOrders(restoredOrders);
+            tableOrdersRef.current = restoredOrders;
+            syncOrderSnapshot(restoredOrders);
           } else {
             setActiveOrderContext(null);
+            activeOrderContextRef.current = null;
             setTableOrders(restoredOrders);
+            tableOrdersRef.current = restoredOrders;
+            syncOrderSnapshot(restoredOrders);
           }
 
           setCart(hydratedCart);
@@ -2197,6 +2291,8 @@ export default function QrOrderingExperience({
           setSelectedModifiersByItem({});
           setKitchenInstructions("");
           setTableOrders([]);
+          tableOrdersRef.current = [];
+          syncOrderSnapshot([]);
         }
 
         setLoadState("ready");
@@ -2232,21 +2328,7 @@ export default function QrOrderingExperience({
                 return;
               }
 
-              setTableOrders((current) => mergeTableOrderRecords(current, backendOrders));
-              const latestBackendOrder = getLatestOrderContextFromRecords(backendOrders);
-              if (!latestBackendOrder) {
-                return;
-              }
-
-              setActiveOrderContext((current) => {
-                if (!current) {
-                  return latestBackendOrder;
-                }
-                return toTimestamp(latestBackendOrder.updatedAt) >= toTimestamp(current.updatedAt)
-                  ? latestBackendOrder
-                  : current;
-              });
-              setOrderPlacedId((current) => current || latestBackendOrder.id);
+              applyBackendOrders(backendOrders);
             } catch (syncError) {
               if (!cancelled) {
                 console.warn("Initial bill sync failed:", syncError);
@@ -2286,6 +2368,54 @@ export default function QrOrderingExperience({
     reloadKey,
     routeClient,
     routeTable,
+  ]);
+
+  useEffect(() => {
+    if (!tableInfo || loadState !== "ready") {
+      return;
+    }
+
+    const hasTrackableOrder =
+      tableOrders.length > 0 || !!activeOrderContext?.id || !!orderPlacedId;
+    if (!hasTrackableOrder) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const intervalId = setInterval(() => {
+      void (async () => {
+        try {
+          const backendRecords = await withTimeout(
+            fetchTableOrderRecords(tableInfo.clientId || routeClient, tableInfo.id),
+            BILL_SYNC_TIMEOUT_MS,
+            "Status watch sync",
+          );
+          if (cancelled || backendRecords.length === 0) {
+            return;
+          }
+
+          const applyResult = applyBackendOrders(backendRecords);
+          if (applyResult === "closed") {
+            setBillSyncMessage("Bill is already settled. You can start a fresh order now.");
+          }
+        } catch {
+          // Keep status watcher silent in background to avoid noisy UI.
+        }
+      })();
+    }, ORDER_STATUS_WATCH_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [
+    activeOrderContext?.id,
+    loadState,
+    orderPlacedId,
+    routeClient,
+    tableInfo,
+    tableOrders.length,
   ]);
 
   useEffect(() => {
@@ -2710,6 +2840,115 @@ export default function QrOrderingExperience({
     });
   }
 
+  function showStatusPopup(nextPopup: StatusPopupState) {
+    setStatusPopup(nextPopup);
+    if (statusPopupTimeoutRef.current) {
+      clearTimeout(statusPopupTimeoutRef.current);
+    }
+    statusPopupTimeoutRef.current = setTimeout(() => {
+      setStatusPopup(null);
+    }, STATUS_POPUP_HIDE_MS);
+  }
+
+  function syncOrderSnapshot(records: TableOrderRecord[]) {
+    orderSyncSnapshotRef.current = records.reduce(
+      (accumulator, record) => {
+        accumulator[record.orderId] = {
+          status: record.status.trim().toUpperCase(),
+          paymentStatus: record.paymentStatus.trim().toUpperCase(),
+        };
+        return accumulator;
+      },
+      {} as Record<string, { status: string; paymentStatus: string }>,
+    );
+  }
+
+  function checkBackendTransitions(records: TableOrderRecord[]) {
+    const previousSnapshot = orderSyncSnapshotRef.current;
+    let paymentConfirmedRecord: TableOrderRecord | null = null;
+    let orderAcceptedRecord: TableOrderRecord | null = null;
+
+    for (const record of records) {
+      const previous = previousSnapshot[record.orderId];
+      if (!previous) {
+        continue;
+      }
+
+      const currentStatus = record.status.trim().toUpperCase();
+      const currentPaymentStatus = record.paymentStatus.trim().toUpperCase();
+      const previousStatus = previous.status;
+      const previousPaymentStatus = previous.paymentStatus;
+
+      if (
+        !isPaymentConfirmed(previousPaymentStatus) &&
+        isPaymentConfirmed(currentPaymentStatus)
+      ) {
+        paymentConfirmedRecord = record;
+        continue;
+      }
+
+      if (!isOrderAccepted(previousStatus) && isOrderAccepted(currentStatus)) {
+        orderAcceptedRecord = record;
+      }
+    }
+
+    syncOrderSnapshot(records);
+
+    if (paymentConfirmedRecord) {
+      showStatusPopup({
+        title: "Payment Confirmed",
+        description: `${paymentConfirmedRecord.orderNumber} is confirmed by cashier.`,
+        tone: "success",
+      });
+      return;
+    }
+
+    if (orderAcceptedRecord) {
+      const statusLabel = getOrderStatusLabel(orderAcceptedRecord.status);
+      showStatusPopup({
+        title: "Order Accepted",
+        description: `${orderAcceptedRecord.orderNumber} is now ${statusLabel.toLowerCase()}.`,
+        tone: "info",
+      });
+    }
+  }
+
+  function applyBackendOrders(backendRecords: TableOrderRecord[]) {
+    if (backendRecords.length === 0) {
+      return "none" as const;
+    }
+
+    const mergedRecords = mergeTableOrderRecords(tableOrdersRef.current, backendRecords);
+    checkBackendTransitions(mergedRecords);
+    tableOrdersRef.current = mergedRecords;
+    setTableOrders(mergedRecords);
+
+    const latestContext = getLatestOrderContextFromRecords(mergedRecords);
+    if (latestContext) {
+      if (isOrderClosed(latestContext.status, latestContext.paymentStatus)) {
+        setActiveOrderContext(null);
+        activeOrderContextRef.current = null;
+        setOrderPlacedId("");
+        setCart({});
+        setTableOrders([]);
+        tableOrdersRef.current = [];
+        syncOrderSnapshot([]);
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem(activeCartStorageKey);
+          window.localStorage.removeItem(activeBillStorageKey);
+          window.localStorage.removeItem(activeSessionStorageKey);
+        }
+        return "closed" as const;
+      }
+
+      setActiveOrderContext(latestContext);
+      activeOrderContextRef.current = latestContext;
+      setOrderPlacedId(latestContext.id);
+    }
+
+    return "applied" as const;
+  }
+
   async function updateUnpaidOrder(
     order: TableOrderRecord,
     payloadCandidates: Record<string, unknown>[],
@@ -2764,8 +3003,10 @@ export default function QrOrderingExperience({
 
     const nowIso = new Date().toISOString();
     const payloadCandidates: Record<string, unknown>[] = [
-      { payment_method: "UPI", payment_status: order.paymentStatus, updated_at_custom: nowIso },
-      { payment_method: "UPI" },
+      {
+        payment_method: "UPI",
+        payment_status: "PENDING",
+      },
     ];
 
     const updated = await updateUnpaidOrder(
@@ -2774,6 +3015,7 @@ export default function QrOrderingExperience({
       (current) => ({
         ...current,
         paymentMethod: "UPI",
+        paymentStatus: "PENDING",
         updatedAt: nowIso,
       }),
       "Payment method switched to UPI.",
@@ -2792,25 +3034,11 @@ export default function QrOrderingExperience({
       {
         client_id: tableInfo.clientId || routeClient,
         order_id: order.orderId,
-        table_id: tableInfo.id,
-        table_no: tableInfo.tableNo,
         amount,
         payment_method: "UPI",
-        status: "PENDING",
-        payment_status: "UNPAID",
-        created_at: nowIso,
-      },
-      {
-        order_id: order.orderId,
-        amount,
-        payment_method: "UPI",
-        payment_status: "UNPAID",
-        status: "PENDING",
-      },
-      {
-        order_id: order.orderId,
-        amount,
-        payment_method: "UPI",
+        payment_status: "PENDING",
+        customer_marked_paid: false,
+        verified_by: "PENDING_CASHIER_CONFIRMATION",
       },
     ];
 
@@ -2843,27 +3071,10 @@ export default function QrOrderingExperience({
         return;
       }
 
-      const mergedRecords = mergeTableOrderRecords(tableOrders, backendRecords);
-      setTableOrders(mergedRecords);
-
-      const latestContext = getLatestOrderContextFromRecords(mergedRecords);
-      if (latestContext) {
-        if (isOrderClosed(latestContext.status, latestContext.paymentStatus)) {
-          setActiveOrderContext(null);
-          setOrderPlacedId("");
-          setCart({});
-          setTableOrders([]);
-          if (typeof window !== "undefined") {
-            window.localStorage.removeItem(activeCartStorageKey);
-            window.localStorage.removeItem(activeBillStorageKey);
-            window.localStorage.removeItem(activeSessionStorageKey);
-          }
-          setBillSyncMessage("Bill is already settled. You can start a fresh order now.");
-          return;
-        }
-
-        setActiveOrderContext(latestContext);
-        setOrderPlacedId(latestContext.id);
+      const applyResult = applyBackendOrders(backendRecords);
+      if (applyResult === "closed") {
+        setBillSyncMessage("Bill is already settled. You can start a fresh order now.");
+        return;
       }
 
       setBillSyncMessage("Bill refreshed successfully.");
@@ -2932,9 +3143,6 @@ export default function QrOrderingExperience({
     const orderNumber = generateOrderNumber(clientId, tableInfo.tableNo);
     const browserIdForOrder =
       customerBrowserId || (typeof window !== "undefined" ? ensureBrowserCustomerId() : "");
-    const hashedBrowserIdForOrder = browserIdForOrder
-      ? await hashConvenienceIdentifier(browserIdForOrder)
-      : "";
     if (!customerBrowserId && browserIdForOrder) {
       setCustomerBrowserId(browserIdForOrder);
     }
@@ -2978,56 +3186,13 @@ export default function QrOrderingExperience({
       subtotal: computedSubtotal,
       total_amount: computedTotal,
     };
-    const orderPayloadCandidates: Record<string, unknown>[] = [];
-    const seenOrderPayloads = new Set<string>();
-
-    const pushOrderPayload = (payload: Record<string, unknown>) => {
-      const key = JSON.stringify(payload);
-      if (seenOrderPayloads.has(key)) {
-        return;
-      }
-      seenOrderPayloads.add(key);
-      orderPayloadCandidates.push(payload);
-    };
-
-    const composeOrderPayload = (
-      payload: Record<string, unknown>,
-      includeBrowserId: boolean,
-      instructionField?: "kitchen_instructions" | "instructions" | "notes",
-    ) => {
-      const composed: Record<string, unknown> = { ...payload };
-      if (includeBrowserId && hashedBrowserIdForOrder) {
-        composed.customer_browser_id = hashedBrowserIdForOrder;
-      }
-      if (instructionField && trimmedInstructions) {
-        composed[instructionField] = trimmedInstructions;
-      }
-      return composed;
-    };
-
-    const richPayload = {
-      ...orderBasePayload,
-      table_no: tableInfo.tableNo,
-      payment_method: paymentMethod,
-      created_at_custom: nowIso,
-      items: compactItems,
-    };
-    const minimalWithMethodPayload = {
-      ...orderBasePayload,
-      payment_method: paymentMethod,
-    };
-    const minimalPayload = {
-      ...orderBasePayload,
-    };
-
-    if (trimmedInstructions) {
-      pushOrderPayload(composeOrderPayload(richPayload, true, "kitchen_instructions"));
-      pushOrderPayload(composeOrderPayload(richPayload, true, "instructions"));
-      pushOrderPayload(composeOrderPayload(richPayload, true, "notes"));
-    }
-    pushOrderPayload(composeOrderPayload(richPayload, true));
-    pushOrderPayload(composeOrderPayload(minimalWithMethodPayload, false));
-    pushOrderPayload(composeOrderPayload(minimalPayload, false));
+    const orderPayloadCandidates: Record<string, unknown>[] = [
+      {
+        ...orderBasePayload,
+        payment_method: paymentMethod,
+        created_at_custom: nowIso,
+      },
+    ];
 
     try {
       const createdOrder = await createDocumentWithFallback(
@@ -3040,28 +3205,12 @@ export default function QrOrderingExperience({
           {
             client_id: clientId,
             order_id: createdOrder.$id,
-            table_id: tableInfo.id,
-            table_no: tableInfo.tableNo,
             amount: computedTotal,
             payment_method: "UPI",
-            status: "PENDING",
-            payment_status: "UNPAID",
-            created_at: nowIso,
+            payment_status: "PENDING",
+            customer_marked_paid: false,
+            verified_by: "PENDING_CASHIER_CONFIRMATION",
           },
-            {
-              order_id: createdOrder.$id,
-              amount: computedTotal,
-              payment_method: "UPI",
-              payment_status: "UNPAID",
-              status: "PENDING",
-          },
-            {
-              order_id: createdOrder.$id,
-              table_id: tableInfo.id,
-              amount: computedTotal,
-              payment_method: "UPI",
-              status: "PENDING",
-            },
         ];
 
         try {
@@ -3078,12 +3227,14 @@ export default function QrOrderingExperience({
       }
 
       setOrderPlacedId(createdOrder.$id);
-      setActiveOrderContext({
+      const nextActiveOrderContext: ActiveOrderContext = {
         id: createdOrder.$id,
         status: "PLACED",
         paymentStatus: "UNPAID",
         updatedAt: nowIso,
-      });
+      };
+      setActiveOrderContext(nextActiveOrderContext);
+      activeOrderContextRef.current = nextActiveOrderContext;
       const placedOrderRecord = buildTableOrderRecordFromCart(
         createdOrder.$id,
         orderNumber,
@@ -3096,7 +3247,10 @@ export default function QrOrderingExperience({
         resolvedSelectedModifiersByItem,
         trimmedInstructions,
       );
-      setTableOrders((current) => mergeTableOrderRecords(current, [placedOrderRecord]));
+      const mergedLocalOrders = mergeTableOrderRecords(tableOrdersRef.current, [placedOrderRecord]);
+      setTableOrders(mergedLocalOrders);
+      tableOrdersRef.current = mergedLocalOrders;
+      syncOrderSnapshot(mergedLocalOrders);
       setBillSyncMessage("Order added to your bill.");
 
       if (typeof window !== "undefined") {
@@ -3561,6 +3715,29 @@ export default function QrOrderingExperience({
               <p className="mt-1 text-sm text-zinc-200/95">
                 Order ID: <span className="font-mono">{orderPlacedId}</span>
               </p>
+            </div>
+          </div>
+        ) : null}
+
+        {statusPopup ? (
+          <div
+            className="mb-4 flex items-start gap-3 rounded-xl border p-4 shadow-[0_18px_40px_-28px_rgba(0,0,0,0.75)]"
+            style={{
+              borderColor:
+                statusPopup.tone === "success"
+                  ? withAlpha("#22c55e", 0.36)
+                  : withAlpha(WARM_HIGHLIGHT, 0.34),
+              backgroundColor:
+                statusPopup.tone === "success"
+                  ? withAlpha("#22c55e", isLightTheme ? 0.14 : 0.18)
+                  : withAlpha(LUXURY_GOLD, isLightTheme ? 0.16 : 0.14),
+              color: statusPopup.tone === "success" ? "#22c55e" : WARM_HIGHLIGHT,
+            }}
+          >
+            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold">{statusPopup.title}</p>
+              <p className="mt-1 text-sm text-zinc-200/95">{statusPopup.description}</p>
             </div>
           </div>
         ) : null}
