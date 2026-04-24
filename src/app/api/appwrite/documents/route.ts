@@ -33,7 +33,30 @@ const ALLOWED_PENDING_PAYMENT_STATUSES = new Set(["UNPAID", "PENDING"]);
 
 const MAX_BODY_SIZE_BYTES = 48 * 1024;
 const MAX_QUERY_COUNT = 10;
-const MAX_QUERY_LENGTH = 240;
+const MAX_QUERY_LENGTH = 1200;
+
+const ALLOWED_QUERY_METHODS = new Set([
+  "equal",
+  "notEqual",
+  "lessThan",
+  "lessThanEqual",
+  "greaterThan",
+  "greaterThanEqual",
+  "search",
+  "contains",
+  "startsWith",
+  "endsWith",
+  "isNull",
+  "isNotNull",
+  "between",
+  "orderAsc",
+  "orderDesc",
+  "limit",
+  "offset",
+  "cursorAfter",
+  "cursorBefore",
+  "select",
+]);
 
 function buildAppwriteHeaders(useApiKey = false) {
   const headers: Record<string, string> = {
@@ -229,7 +252,13 @@ function sanitizeQueryList(values: string[]) {
     if (!/^[\x20-\x7E]+$/.test(query)) {
       return null;
     }
-    sanitized.push(query);
+
+    const normalized = normalizeQueryString(query);
+    if (!normalized) {
+      return null;
+    }
+
+    sanitized.push(normalized);
   }
 
   return sanitized;
@@ -246,7 +275,8 @@ function extractUpstreamMessage(payload: Record<string, unknown>) {
 }
 
 function sanitizeUpstreamErrorMessage(status: number, payload: Record<string, unknown>) {
-  const message = extractUpstreamMessage(payload).toLowerCase();
+  const rawMessage = sanitizeUpstreamMessage(extractUpstreamMessage(payload));
+  const message = rawMessage.toLowerCase();
 
   if (
     message.includes("unknown attribute") ||
@@ -272,9 +302,261 @@ function sanitizeUpstreamErrorMessage(status: number, payload: Record<string, un
     return "Document not found.";
   }
   if (status >= 500) {
-    return "Upstream service unavailable.";
+    return rawMessage || "Upstream service unavailable.";
   }
-  return "Request failed.";
+  return rawMessage || `Request failed (${status}).`;
+}
+
+function sanitizeUpstreamMessage(value: string) {
+  return value
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
+}
+
+function parseJsonLikeLiteral(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    const singleQuoted =
+      trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2;
+    if (singleQuoted) {
+      return trimmed.slice(1, -1);
+    }
+
+    const numericValue = Number(trimmed);
+    if (Number.isFinite(numericValue)) {
+      return numericValue;
+    }
+
+    if (trimmed === "true") {
+      return true;
+    }
+
+    if (trimmed === "false") {
+      return false;
+    }
+
+    if (trimmed === "null") {
+      return null;
+    }
+
+    return trimmed;
+  }
+}
+
+function splitTopLevelArgs(input: string) {
+  const args: string[] = [];
+  let current = "";
+  let inQuote = false;
+  let quoteChar = "";
+  let escapeNext = false;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+
+  for (const char of input) {
+    if (inQuote) {
+      current += char;
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
+      }
+      if (char === "\\") {
+        escapeNext = true;
+        continue;
+      }
+      if (char === quoteChar) {
+        inQuote = false;
+        quoteChar = "";
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      inQuote = true;
+      quoteChar = char;
+      current += char;
+      continue;
+    }
+
+    if (char === "(") {
+      parenDepth += 1;
+      current += char;
+      continue;
+    }
+    if (char === ")" && parenDepth > 0) {
+      parenDepth -= 1;
+      current += char;
+      continue;
+    }
+    if (char === "[") {
+      bracketDepth += 1;
+      current += char;
+      continue;
+    }
+    if (char === "]" && bracketDepth > 0) {
+      bracketDepth -= 1;
+      current += char;
+      continue;
+    }
+    if (char === "{") {
+      braceDepth += 1;
+      current += char;
+      continue;
+    }
+    if (char === "}" && braceDepth > 0) {
+      braceDepth -= 1;
+      current += char;
+      continue;
+    }
+
+    if (char === "," && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+      args.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  const tail = current.trim();
+  if (tail) {
+    args.push(tail);
+  }
+
+  return args;
+}
+
+function normalizeJsonQuery(value: string) {
+  if (!value.startsWith("{") || !value.endsWith("}")) {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+
+  const source = parsed as Record<string, unknown>;
+  const method = typeof source.method === "string" ? source.method.trim() : "";
+  if (!method || !ALLOWED_QUERY_METHODS.has(method)) {
+    return null;
+  }
+
+  const normalized: Record<string, unknown> = { method };
+  if (typeof source.attribute === "string" && source.attribute.trim()) {
+    normalized.attribute = source.attribute.trim();
+  }
+
+  if ("values" in source) {
+    const values = Array.isArray(source.values) ? source.values : [source.values];
+    if (values.length > 100) {
+      return null;
+    }
+    normalized.values = values;
+  }
+
+  return JSON.stringify(normalized);
+}
+
+function normalizeLegacyQuery(value: string) {
+  const methodMatch = value.match(/^([a-zA-Z][a-zA-Z0-9_]*)\(([\s\S]*)\)$/);
+  if (!methodMatch) {
+    return null;
+  }
+
+  const method = methodMatch[1];
+  const rawArgs = methodMatch[2].trim();
+  if (!ALLOWED_QUERY_METHODS.has(method)) {
+    return null;
+  }
+
+  const args = splitTopLevelArgs(rawArgs);
+
+  if (["equal", "notEqual", "search", "contains", "startsWith", "endsWith"].includes(method)) {
+    if (args.length !== 2) {
+      return null;
+    }
+    const attributeValue = parseJsonLikeLiteral(args[0]);
+    const valuesValue = parseJsonLikeLiteral(args[1]);
+    if (typeof attributeValue !== "string" || !attributeValue.trim()) {
+      return null;
+    }
+
+    const values = Array.isArray(valuesValue) ? valuesValue : [valuesValue];
+    return JSON.stringify({
+      method,
+      attribute: attributeValue.trim(),
+      values,
+    });
+  }
+
+  if (
+    [
+      "lessThan",
+      "lessThanEqual",
+      "greaterThan",
+      "greaterThanEqual",
+      "between",
+      "orderAsc",
+      "orderDesc",
+    ].includes(method)
+  ) {
+    if (args.length !== 1 && args.length !== 2) {
+      return null;
+    }
+
+    const attributeValue = parseJsonLikeLiteral(args[0]);
+    if (typeof attributeValue !== "string" || !attributeValue.trim()) {
+      return null;
+    }
+
+    if (args.length === 1) {
+      return JSON.stringify({
+        method,
+        attribute: attributeValue.trim(),
+      });
+    }
+
+    const valuesValue = parseJsonLikeLiteral(args[1]);
+    const values = Array.isArray(valuesValue) ? valuesValue : [valuesValue];
+    return JSON.stringify({
+      method,
+      attribute: attributeValue.trim(),
+      values,
+    });
+  }
+
+  if (["cursorAfter", "cursorBefore", "limit", "offset", "select", "isNull", "isNotNull"].includes(method)) {
+    if (args.length !== 1) {
+      return null;
+    }
+    const parsedValue = parseJsonLikeLiteral(args[0]);
+    const values = Array.isArray(parsedValue) ? parsedValue : [parsedValue];
+    return JSON.stringify({
+      method,
+      values,
+    });
+  }
+
+  return null;
+}
+
+function normalizeQueryString(value: string) {
+  return normalizeJsonQuery(value) ?? normalizeLegacyQuery(value) ?? value;
 }
 
 async function parseResponse(response: Response) {
