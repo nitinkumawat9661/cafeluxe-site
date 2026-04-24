@@ -2723,6 +2723,12 @@ export default function QrOrderingExperience({
     latestBillOrder?.updatedAt ??
     latestBillOrder?.createdAt ??
     "";
+  const topCardOrderStatusRaw =
+    toSafeString(activeOrderContext?.status) || toSafeString(latestBillOrder?.status);
+  const topCardPaymentStatusRaw =
+    toSafeString(activeOrderContext?.paymentStatus) ||
+    toSafeString(latestBillOrder?.paymentStatus);
+  const showTopCardStatus = !!topCardOrderStatusRaw;
 
   const unpaidOrders = useMemo(
     () =>
@@ -3754,6 +3760,24 @@ export default function QrOrderingExperience({
               <p className="mt-1 text-sm text-zinc-200/95">
                 Order ID: <span className="font-mono">{orderPlacedId}</span>
               </p>
+              {showTopCardStatus ? (
+                <div className="mt-2 grid gap-1 text-xs text-zinc-100/95">
+                  <p>
+                    <span className="text-zinc-200/85">Order Status:</span>{" "}
+                    <span className="font-semibold">
+                      {getOrderStatusLabel(topCardOrderStatusRaw)}
+                    </span>
+                  </p>
+                  {topCardPaymentStatusRaw ? (
+                    <p>
+                      <span className="text-zinc-200/85">Payment Status:</span>{" "}
+                      <span className="font-semibold">
+                        {getPaymentStatusLabel(topCardPaymentStatusRaw)}
+                      </span>
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
         ) : null}
