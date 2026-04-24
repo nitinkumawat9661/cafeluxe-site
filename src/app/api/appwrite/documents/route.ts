@@ -34,6 +34,8 @@ const ALLOWED_PENDING_PAYMENT_STATUSES = new Set(["UNPAID", "PENDING"]);
 const MAX_BODY_SIZE_BYTES = 48 * 1024;
 const MAX_QUERY_COUNT = 10;
 const MAX_QUERY_LENGTH = 1200;
+const MAX_ORDER_ITEMS_SNAPSHOT_CHARS = 24_000;
+const MAX_KITCHEN_NOTE_LENGTH = 500;
 
 const ALLOWED_QUERY_METHODS = new Set([
   "equal",
@@ -192,6 +194,72 @@ function sanitizeIsoTimestamp(value: unknown) {
   }
   const parsed = Date.parse(trimmed);
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : "";
+}
+
+function sanitizeJsonSnapshotString(value: unknown) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return "";
+    }
+    try {
+      parsed = JSON.parse(trimmed) as unknown;
+    } catch {
+      return "";
+    }
+  }
+
+  if (!parsed || (typeof parsed !== "object" && !Array.isArray(parsed))) {
+    return "";
+  }
+
+  try {
+    const serialized = JSON.stringify(parsed);
+    if (!serialized || serialized.length > MAX_ORDER_ITEMS_SNAPSHOT_CHARS) {
+      return "";
+    }
+    return serialized;
+  } catch {
+    return "";
+  }
+}
+
+function sanitizeJsonSnapshotStructured(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    try {
+      parsed = JSON.parse(trimmed) as unknown;
+    } catch {
+      return null;
+    }
+  }
+
+  if (!parsed || (typeof parsed !== "object" && !Array.isArray(parsed))) {
+    return null;
+  }
+
+  try {
+    const serialized = JSON.stringify(parsed);
+    if (!serialized || serialized.length > MAX_ORDER_ITEMS_SNAPSHOT_CHARS) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 function isSameOriginRequest(request: NextRequest) {
@@ -587,7 +655,7 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
   const createdAtCustom =
     sanitizeIsoTimestamp(documentData.created_at_custom) || new Date().toISOString();
 
-  return {
+  const payload: Record<string, unknown> = {
     client_id: clientId,
     table_id: tableId,
     order_number: orderNumber,
@@ -597,7 +665,51 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
     subtotal,
     total_amount: totalAmount,
     created_at_custom: createdAtCustom,
-  } satisfies Record<string, unknown>;
+  };
+
+  if (Object.hasOwn(documentData, "items_json")) {
+    const snapshot = sanitizeJsonSnapshotString(documentData.items_json);
+    if (snapshot) {
+      payload.items_json = snapshot;
+    }
+  }
+
+  if (Object.hasOwn(documentData, "order_items")) {
+    const snapshot = sanitizeJsonSnapshotString(documentData.order_items);
+    if (snapshot) {
+      payload.order_items = snapshot;
+    }
+  }
+
+  if (Object.hasOwn(documentData, "items")) {
+    const snapshot = sanitizeJsonSnapshotStructured(documentData.items);
+    if (snapshot) {
+      payload.items = snapshot;
+    }
+  }
+
+  if (Object.hasOwn(documentData, "kitchen_instructions")) {
+    const note = sanitizeText(documentData.kitchen_instructions, MAX_KITCHEN_NOTE_LENGTH);
+    if (note) {
+      payload.kitchen_instructions = note;
+    }
+  }
+
+  if (Object.hasOwn(documentData, "instructions")) {
+    const note = sanitizeText(documentData.instructions, MAX_KITCHEN_NOTE_LENGTH);
+    if (note) {
+      payload.instructions = note;
+    }
+  }
+
+  if (Object.hasOwn(documentData, "notes")) {
+    const note = sanitizeText(documentData.notes, MAX_KITCHEN_NOTE_LENGTH);
+    if (note) {
+      payload.notes = note;
+    }
+  }
+
+  return payload;
 }
 
 function sanitizePaymentCreatePayload(documentData: Record<string, unknown>) {

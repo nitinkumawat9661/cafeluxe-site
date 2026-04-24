@@ -3165,6 +3165,7 @@ export default function QrOrderingExperience({
         };
       })(),
     }));
+    const orderItemsSnapshot = JSON.stringify(compactItems);
     const computedSubtotal = Math.round(
       compactItems.reduce((sum, entry) => sum + toAmount(entry.line_total), 0) * 100,
     ) / 100;
@@ -3187,6 +3188,41 @@ export default function QrOrderingExperience({
       total_amount: computedTotal,
     };
     const orderPayloadCandidates: Record<string, unknown>[] = [
+      {
+        ...orderBasePayload,
+        payment_method: paymentMethod,
+        created_at_custom: nowIso,
+        items_json: orderItemsSnapshot,
+        kitchen_instructions: trimmedInstructions,
+      },
+      {
+        ...orderBasePayload,
+        payment_method: paymentMethod,
+        created_at_custom: nowIso,
+        order_items: orderItemsSnapshot,
+        kitchen_instructions: trimmedInstructions,
+      },
+      {
+        ...orderBasePayload,
+        payment_method: paymentMethod,
+        created_at_custom: nowIso,
+        items_json: orderItemsSnapshot,
+        notes: trimmedInstructions,
+      },
+      {
+        ...orderBasePayload,
+        payment_method: paymentMethod,
+        created_at_custom: nowIso,
+        order_items: orderItemsSnapshot,
+        notes: trimmedInstructions,
+      },
+      {
+        ...orderBasePayload,
+        payment_method: paymentMethod,
+        created_at_custom: nowIso,
+        items: compactItems,
+        instructions: trimmedInstructions,
+      },
       {
         ...orderBasePayload,
         payment_method: paymentMethod,
