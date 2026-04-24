@@ -262,25 +262,99 @@ function sanitizeJsonSnapshotStructured(value: unknown) {
   }
 }
 
-function isSameOriginRequest(request: NextRequest) {
-  const expectedOrigin = request.nextUrl.origin;
-  const origin = request.headers.get("origin");
-  if (origin && origin !== expectedOrigin) {
-    return false;
+function firstHeaderValue(value: string | null) {
+  if (!value) {
+    return "";
+  }
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .find(Boolean) ?? "";
+}
+
+function getRequestProtocol(request: NextRequest) {
+  const forwardedProto = firstHeaderValue(request.headers.get("x-forwarded-proto")).toLowerCase();
+  if (forwardedProto === "http" || forwardedProto === "https") {
+    return forwardedProto;
   }
 
-  const referer = request.headers.get("referer");
+  const nextUrlProto = request.nextUrl.protocol.replace(":", "").toLowerCase();
+  if (nextUrlProto === "http" || nextUrlProto === "https") {
+    return nextUrlProto;
+  }
+
+  return "https";
+}
+
+function appendOriginFromHost(
+  trustedOrigins: Set<string>,
+  hostHeader: string | null,
+  protocol: string,
+) {
+  if (!hostHeader) {
+    return;
+  }
+
+  for (const rawHost of hostHeader.split(",")) {
+    const host = rawHost.trim();
+    if (!host) {
+      continue;
+    }
+
+    try {
+      trustedOrigins.add(new URL(`${protocol}://${host}`).origin);
+    } catch {
+      // Ignore malformed host header fragments.
+    }
+  }
+}
+
+function getTrustedOrigins(request: NextRequest) {
+  const trustedOrigins = new Set<string>();
+  trustedOrigins.add(request.nextUrl.origin);
+
+  const protocol = getRequestProtocol(request);
+  appendOriginFromHost(trustedOrigins, request.headers.get("host"), protocol);
+  appendOriginFromHost(trustedOrigins, request.headers.get("x-forwarded-host"), protocol);
+  appendOriginFromHost(trustedOrigins, request.headers.get("x-original-host"), protocol);
+
+  return trustedOrigins;
+}
+
+function isTrustedOrigin(rawOrigin: string, trustedOrigins: Set<string>) {
+  try {
+    return trustedOrigins.has(new URL(rawOrigin).origin);
+  } catch {
+    return false;
+  }
+}
+
+function getWriteOriginValidationError(request: NextRequest) {
+  const secFetchSite = firstHeaderValue(request.headers.get("sec-fetch-site")).toLowerCase();
+  if (secFetchSite === "cross-site") {
+    return "Cross-site browser context is blocked for this write endpoint.";
+  }
+
+  const trustedOrigins = getTrustedOrigins(request);
+
+  const origin = firstHeaderValue(request.headers.get("origin"));
+  if (origin && origin !== "null" && !isTrustedOrigin(origin, trustedOrigins)) {
+    return "Origin mismatch for write endpoint.";
+  }
+
+  const referer = firstHeaderValue(request.headers.get("referer"));
   if (referer) {
     try {
-      if (new URL(referer).origin !== expectedOrigin) {
-        return false;
+      const refererOrigin = new URL(referer).origin;
+      if (!trustedOrigins.has(refererOrigin)) {
+        return "Referer mismatch for write endpoint.";
       }
     } catch {
-      return false;
+      return "Invalid referer header on write request.";
     }
   }
 
-  return true;
+  return "";
 }
 
 function hasAcceptableContentType(request: NextRequest) {
@@ -838,8 +912,9 @@ export async function POST(request: NextRequest) {
     return configError;
   }
 
-  if (!isSameOriginRequest(request)) {
-    return jsonError("Cross-origin requests are not allowed.", 403);
+  const writeOriginError = getWriteOriginValidationError(request);
+  if (writeOriginError) {
+    return jsonError(writeOriginError, 403);
   }
   if (!hasAcceptableContentType(request)) {
     return jsonError("Unsupported content type.", 415);
@@ -900,8 +975,9 @@ export async function PATCH(request: NextRequest) {
     return configError;
   }
 
-  if (!isSameOriginRequest(request)) {
-    return jsonError("Cross-origin requests are not allowed.", 403);
+  const writeOriginError = getWriteOriginValidationError(request);
+  if (writeOriginError) {
+    return jsonError(writeOriginError, 403);
   }
   if (!hasAcceptableContentType(request)) {
     return jsonError("Unsupported content type.", 415);
