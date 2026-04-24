@@ -1,10 +1,3 @@
-import { ID, Query } from "appwrite";
-
-const APPWRITE_ENDPOINT = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT ?? "";
-const APPWRITE_PROJECT_ID = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID ?? "";
-const APPWRITE_DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID ?? "";
-const APPWRITE_BUCKET_ID = process.env.NEXT_PUBLIC_APPWRITE_BUCKET_ID ?? "";
-
 const COLLECTION_IDS = {
   users: "users",
   tables: "tables",
@@ -163,6 +156,48 @@ type ListOptions = {
   timeoutMs?: number;
 };
 
+function escapeQueryString(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function serializeQueryValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => serializeQueryValue(entry)).join(",")}]`;
+  }
+
+  if (typeof value === "string") {
+    return `"${escapeQueryString(value)}"`;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (value === null) {
+    return "null";
+  }
+
+  return `"${escapeQueryString(String(value ?? ""))}"`;
+}
+
+const QueryBuilder = {
+  equal(attribute: string, values: unknown[] | unknown) {
+    const normalizedValues = Array.isArray(values) ? values : [values];
+    return `equal(${serializeQueryValue(attribute)},${serializeQueryValue(normalizedValues)})`;
+  },
+  orderDesc(attribute: string) {
+    return `orderDesc(${serializeQueryValue(attribute)})`;
+  },
+  limit(value: number) {
+    const normalized = Number.isFinite(value) ? Math.floor(value) : 0;
+    const safe = Math.min(500, Math.max(1, normalized));
+    return `limit(${safe})`;
+  },
+  cursorAfter(documentId: string) {
+    return `cursorAfter(${serializeQueryValue(documentId)})`;
+  },
+};
+
 export async function fetchAllDocuments(collectionId: string, options?: ListOptions) {
   const documents: AppwriteDocument[] = [];
   let cursorAfter: string | null = null;
@@ -317,16 +352,67 @@ function extractFileId(value: string) {
   return "";
 }
 
-export function buildBucketFileViewUrl(fileId: string, bucketId = APPWRITE_BUCKET_ID) {
-  if (!APPWRITE_ENDPOINT || !APPWRITE_PROJECT_ID || !bucketId) {
+function normalizeStorageId(value: string) {
+  const trimmed = value.trim();
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{5,127}$/.test(trimmed)) {
+    return "";
+  }
+  return trimmed;
+}
+
+type AssetReference = {
+  fileId: string;
+  bucketId: string;
+};
+
+function extractAssetReference(value: string): AssetReference | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const bucketPathMatch = trimmed.match(/\/storage\/buckets\/([^/]+)\/files\/([^/?#]+)/i);
+  if (bucketPathMatch) {
+    const bucketId = normalizeStorageId(decodeURIComponent(bucketPathMatch[1]));
+    const fileId = normalizeStorageId(decodeURIComponent(bucketPathMatch[2]));
+    if (bucketId && fileId) {
+      return { fileId, bucketId };
+    }
+  }
+
+  try {
+    const parsed = new URL(trimmed, "https://cafeluxe.local");
+    const fileId = normalizeStorageId(parsed.searchParams.get("fileId") ?? "");
+    const bucketId = normalizeStorageId(parsed.searchParams.get("bucketId") ?? "");
+    if (fileId) {
+      return { fileId, bucketId };
+    }
+  } catch {
+    // Ignore URL parsing issues and continue with other extraction paths.
+  }
+
+  const directFileId = normalizeStorageId(extractFileId(trimmed));
+  if (directFileId) {
+    return { fileId: directFileId, bucketId: "" };
+  }
+
+  return null;
+}
+
+export function buildBucketFileViewUrl(fileId: string, bucketId = "") {
+  const normalizedFileId = normalizeStorageId(fileId);
+  const normalizedBucketId = normalizeStorageId(bucketId);
+  if (!normalizedFileId) {
     return "";
   }
 
-  const encodedFileId = encodeURIComponent(fileId);
-  const encodedBucketId = encodeURIComponent(bucketId);
-  const encodedProjectId = encodeURIComponent(APPWRITE_PROJECT_ID);
+  const params = new URLSearchParams();
+  params.set("fileId", normalizedFileId);
+  if (normalizedBucketId) {
+    params.set("bucketId", normalizedBucketId);
+  }
 
-  return `${APPWRITE_ENDPOINT}/storage/buckets/${encodedBucketId}/files/${encodedFileId}/view?project=${encodedProjectId}`;
+  return `/api/appwrite/assets?${params.toString()}`;
 }
 
 export function resolveAssetUrl(value: unknown) {
@@ -339,23 +425,39 @@ export function resolveAssetUrl(value: unknown) {
     if (!trimmed) {
       return "";
     }
-    if (/^(https?:)?\/\//i.test(trimmed) || trimmed.startsWith("data:")) {
+
+    if (trimmed.startsWith("data:")) {
       return trimmed;
     }
-    const fileId = extractFileId(trimmed);
-    return fileId ? buildBucketFileViewUrl(fileId) : "";
+
+    const extracted = extractAssetReference(trimmed);
+    if (extracted?.fileId) {
+      return buildBucketFileViewUrl(extracted.fileId, extracted.bucketId);
+    }
+
+    if (/^(https?:)?\/\//i.test(trimmed) || trimmed.startsWith("/")) {
+      return trimmed;
+    }
+
+    return "";
   }
 
   if (typeof value === "object" && value) {
     const objectValue = value as Record<string, unknown>;
+    const objectBucketId =
+      (typeof objectValue.bucketId === "string" && objectValue.bucketId) ||
+      (typeof objectValue.bucket_id === "string" && objectValue.bucket_id) ||
+      (typeof objectValue.bucket === "string" && objectValue.bucket) ||
+      "";
+
     if (typeof objectValue.$id === "string") {
-      return buildBucketFileViewUrl(objectValue.$id);
+      return buildBucketFileViewUrl(objectValue.$id, objectBucketId);
     }
     if (typeof objectValue.fileId === "string") {
-      return buildBucketFileViewUrl(objectValue.fileId);
+      return buildBucketFileViewUrl(objectValue.fileId, objectBucketId);
     }
     if (typeof objectValue.id === "string") {
-      return buildBucketFileViewUrl(objectValue.id);
+      return buildBucketFileViewUrl(objectValue.id, objectBucketId);
     }
   }
 
@@ -363,11 +465,7 @@ export function resolveAssetUrl(value: unknown) {
 }
 
 export const appwriteConfig = {
-  endpoint: APPWRITE_ENDPOINT,
-  projectId: APPWRITE_PROJECT_ID,
-  databaseId: APPWRITE_DATABASE_ID,
-  bucketId: APPWRITE_BUCKET_ID,
   collections: COLLECTION_IDS,
 };
 
-export { ID, Query };
+export const Query = QueryBuilder;

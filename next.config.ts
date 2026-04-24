@@ -1,25 +1,12 @@
 import type { NextConfig } from "next";
 
-const appwriteEndpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT ?? "";
-let appwriteOrigin = "";
-try {
-  appwriteOrigin = appwriteEndpoint ? new URL(appwriteEndpoint).origin : "";
-} catch {
-  appwriteOrigin = "";
-}
-
-const connectSrcParts = ["'self'"];
-if (appwriteOrigin) {
-  connectSrcParts.push(appwriteOrigin);
-}
-
 const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'self'",
   "frame-ancestors 'none'",
   "object-src 'none'",
   "form-action 'self'",
-  `connect-src ${connectSrcParts.join(" ")}`,
+  "connect-src 'self'",
   "img-src 'self' https: data: blob:",
   "font-src 'self' data:",
   "script-src 'self' 'unsafe-inline'",
