@@ -1591,7 +1591,10 @@ function getOrderStatusLabel(status: string) {
   if (["PREPARING", "IN_PROGRESS", "COOKING"].includes(normalized)) {
     return "Preparing";
   }
-  if (["SERVED", "READY", "DELIVERED", "COMPLETED", "CLOSED", "BILLED"].includes(normalized)) {
+  if (["READY"].includes(normalized)) {
+    return "Ready";
+  }
+  if (["SERVED", "DELIVERED", "COMPLETED", "CLOSED", "BILLED"].includes(normalized)) {
     return "Served";
   }
   return "Unknown";
