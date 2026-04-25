@@ -570,22 +570,27 @@ export function parseMenuItems(docs: AppwriteDocument[], client: string) {
     .map((doc) => {
       const name = getFieldString(doc, ["name", "title", "itemName"]) || "Menu Item";
       const categoryRefs = getFieldStringList(doc, categoryRefKeys);
+      const directImageUrl =
+        getFieldString(doc, ["image_url", "imageUrl"]) ||
+        toSafeString(doc.image_url) ||
+        toSafeString(doc.imageUrl);
       return {
         id: doc.$id,
         name,
         nameHi: getFieldString(doc, ["name_hi", "nameHindi", "title_hi"]) || name,
         description: getFieldString(doc, ["description", "desc", "subtitle"]),
-        image: resolveAssetUrl(
-          doc.image ??
-            doc.imageUrl ??
-            doc.image_url ??
-            doc.photo ??
-            doc.thumbnail ??
-            doc.imageId ??
-            doc.image_id ??
-            doc.assetId ??
-            doc.asset_id,
-        ),
+        // Prefer explicit Appwrite URL saved in `image_url` and render it directly.
+        image:
+          directImageUrl ||
+          resolveAssetUrl(
+            doc.image ??
+              doc.photo ??
+              doc.thumbnail ??
+              doc.imageId ??
+              doc.image_id ??
+              doc.assetId ??
+              doc.asset_id,
+          ),
         price: getFieldNumber(doc, ["price", "amount", "rate", "mrp", "salePrice"]),
         categoryRefs,
         isAvailable:
