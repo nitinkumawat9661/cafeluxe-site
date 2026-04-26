@@ -3949,11 +3949,13 @@ export default function QrOrderingExperience({
               const quantity = cart[item.id] ?? 0;
               const directImageSrc = item.image.trim();
               const proxyImageSrc = directImageSrc ? resolveAssetUrl(directImageSrc) : "";
+              const productImageKey = `${item.id}::${directImageSrc || "no-image"}`;
               const resolvedImageSrc =
-                !directImageFallbackMap[item.id] && proxyImageSrc
+                !directImageFallbackMap[productImageKey] && proxyImageSrc
                   ? proxyImageSrc
                   : directImageSrc;
-              const hasImage = !!resolvedImageSrc && !brokenImageMap[item.id];
+              const renderedImageKey = `${item.id}::${resolvedImageSrc || "no-image"}`;
+              const hasImage = !!resolvedImageSrc && !brokenImageMap[productImageKey];
               const selectedModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
               const modifierTotal = getSelectedModifierTotal(selectedModifiers);
               const displayPrice = item.price + modifierTotal;
@@ -3980,25 +3982,29 @@ export default function QrOrderingExperience({
                     {hasImage ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
+                        key={renderedImageKey}
                         src={resolvedImageSrc}
                         alt={item.name}
                         className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
                         loading="lazy"
                         onError={() => {
                           const shouldTryDirectFallback =
-                            !directImageFallbackMap[item.id] &&
+                            !directImageFallbackMap[productImageKey] &&
                             !!directImageSrc &&
                             proxyImageSrc !== directImageSrc;
 
                           if (shouldTryDirectFallback) {
                             setDirectImageFallbackMap((current) => ({
                               ...current,
-                              [item.id]: true,
+                              [productImageKey]: true,
                             }));
                             return;
                           }
 
-                          setBrokenImageMap((current) => ({ ...current, [item.id]: true }));
+                          setBrokenImageMap((current) => ({
+                            ...current,
+                            [productImageKey]: true,
+                          }));
                         }}
                       />
                     ) : (
