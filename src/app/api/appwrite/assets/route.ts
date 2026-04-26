@@ -110,19 +110,18 @@ export async function GET(request: NextRequest) {
     responseHeaders.set("Content-Type", "application/octet-stream");
   }
 
-  const etag = upstreamResponse.headers.get("etag");
-  if (etag) {
-    responseHeaders.set("ETag", etag);
-  }
-
-  const lastModified = upstreamResponse.headers.get("last-modified");
-  if (lastModified) {
-    responseHeaders.set("Last-Modified", lastModified);
-  }
-
   // Keep this route strictly request-scoped so each fileId resolves to its own image
   // without intermediary caching layers reusing a stale binary across items.
-  responseHeaders.set("Cache-Control", "no-store, max-age=0");
+  responseHeaders.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+  );
+  responseHeaders.set("CDN-Cache-Control", "no-store");
+  responseHeaders.set("Netlify-CDN-Cache-Control", "no-store");
+  responseHeaders.set("Surrogate-Control", "no-store");
+  responseHeaders.set("Pragma", "no-cache");
+  responseHeaders.set("Expires", "0");
+  responseHeaders.set("Vary", "Accept, Origin");
 
   const body = await upstreamResponse.arrayBuffer();
   return new NextResponse(body, {

@@ -2483,6 +2483,64 @@ export default function QrOrderingExperience({
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [activeCategory]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    // No service worker/PWA cache exists in this repo now, but users can still have
+    // stale old registrations from earlier deployments that may serve wrong cached
+    // responses for `/api/appwrite/assets` on mobile.
+    const cleanupStaleServiceWorkerCache = async () => {
+      try {
+        if ("serviceWorker" in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(
+            registrations.map(async (registration) => {
+              try {
+                await registration.unregister();
+              } catch {
+                // Ignore unregister failures.
+              }
+            }),
+          );
+        }
+      } catch {
+        // Ignore service worker registry read failures.
+      }
+
+      try {
+        if (!("caches" in window)) {
+          return;
+        }
+        const cacheNames = await window.caches.keys();
+        const staleCacheNames = cacheNames.filter((cacheName) => {
+          const key = cacheName.toLowerCase();
+          return (
+            key.includes("workbox") ||
+            key.includes("next-pwa") ||
+            key.includes("service-worker") ||
+            key.includes("runtime") ||
+            key.includes("precache")
+          );
+        });
+        await Promise.all(
+          staleCacheNames.map(async (cacheName) => {
+            try {
+              await window.caches.delete(cacheName);
+            } catch {
+              // Ignore delete failures.
+            }
+          }),
+        );
+      } catch {
+        // Ignore Cache Storage cleanup failures.
+      }
+    };
+
+    void cleanupStaleServiceWorkerCache();
+  }, []);
+
   const visibleItems = useMemo(() => {
     const normalizedSearch = searchText.trim().toLowerCase();
     const selectedCategory =
