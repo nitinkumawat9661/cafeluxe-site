@@ -47,7 +47,6 @@ import {
 } from "@/lib/menu";
 
 type PaymentMethod = "UPI" | "COUNTER";
-type ThemeMode = "dark" | "light";
 type LoadState = "loading" | "ready" | "invalid-table" | "error";
 
 type ModifierOption = {
@@ -199,7 +198,6 @@ const ENABLE_BACKEND_ORDER_SYNC =
 const CUSTOMER_BROWSER_ID_KEY = "customer_browser_id";
 const CUSTOMER_PROFILE_KEY = "customer_profile";
 const CUSTOMER_ORDER_HISTORY_PREFIX = "customer_order_history";
-const THEME_PREF_KEY = "customer_theme_pref";
 const CLIENT_CACHE_RESET_MARKER_KEY = "cafeluxe_cache_reset_20260424";
 const CUSTOMER_PROFILE_VERSION = 1;
 const CUSTOMER_ORDER_HISTORY_VERSION = 1;
@@ -400,17 +398,6 @@ function toPaymentMethod(value: unknown): PaymentMethod | undefined {
   const normalized = toSafeString(value).toUpperCase();
   if (normalized === "UPI" || normalized === "COUNTER") {
     return normalized;
-  }
-  return undefined;
-}
-
-function toThemeMode(value: unknown): ThemeMode | undefined {
-  const normalized = toSafeString(value).toLowerCase();
-  if (normalized === "dark") {
-    return "dark";
-  }
-  if (normalized === "light") {
-    return "light";
   }
   return undefined;
 }
@@ -803,6 +790,63 @@ function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string)
   });
 }
 
+function normalizeUpiId(value: string) {
+  const normalized = value
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  // VPA format: handle@provider
+  if (!/^[a-z0-9._-]{2,128}@[a-z0-9.-]{2,128}$/i.test(normalized)) {
+    return "";
+  }
+  return normalized;
+}
+
+function sanitizeUpiText(value: string, maxLength: number) {
+  return value
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .replace(/[<>]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function sanitizeUpiTransactionRef(value: string, maxLength = 35) {
+  const cleaned = sanitizeUpiText(value, maxLength)
+    .replace(/[^a-zA-Z0-9._-]/g, "")
+    .slice(0, maxLength);
+  return cleaned;
+}
+
+function withFreshUpiAttemptRef(link: string) {
+  try {
+    const parsed = new URL(link);
+    const baseRef =
+      parsed.searchParams.get("tr") ||
+      parsed.searchParams.get("tid") ||
+      "";
+    const sanitizedBase = sanitizeUpiTransactionRef(baseRef, 24);
+    if (!sanitizedBase) {
+      return link;
+    }
+
+    const suffix = Date.now().toString(36).toUpperCase().slice(-8);
+    const finalRef = sanitizeUpiTransactionRef(`${sanitizedBase}-${suffix}`, 35);
+    if (!finalRef) {
+      return link;
+    }
+
+    parsed.searchParams.set("tr", finalRef);
+    parsed.searchParams.set("tid", finalRef);
+    return parsed.toString();
+  } catch {
+    return link;
+  }
+}
+
 function buildUpiPaymentLink({
   upiId,
   upiName,
@@ -816,23 +860,28 @@ function buildUpiPaymentLink({
   note: string;
   transactionRef?: string;
 }) {
-  const normalizedUpiId = upiId.trim();
-  if (!normalizedUpiId || amount <= 0) {
+  const normalizedUpiId = normalizeUpiId(upiId);
+  if (!normalizedUpiId || !Number.isFinite(amount) || amount <= 0) {
     return "";
   }
 
+  const safeName = sanitizeUpiText(upiName, 60);
+  const safeNote = sanitizeUpiText(note, 80);
+  const safeRef = sanitizeUpiTransactionRef(transactionRef ?? "", 35);
+
   const params = new URLSearchParams();
   params.set("pa", normalizedUpiId);
-  if (upiName.trim()) {
-    params.set("pn", upiName.trim());
+  if (safeName) {
+    params.set("pn", safeName);
   }
   params.set("am", amount.toFixed(2));
   params.set("cu", "INR");
-  if (note.trim()) {
-    params.set("tn", note.trim());
+  if (safeNote) {
+    params.set("tn", safeNote);
   }
-  if (transactionRef?.trim()) {
-    params.set("tr", transactionRef.trim());
+  if (safeRef) {
+    params.set("tr", safeRef);
+    params.set("tid", safeRef);
   }
 
   return `upi://pay?${params.toString()}`;
@@ -1899,9 +1948,7 @@ export default function QrOrderingExperience({
   const [cartOpen, setCartOpen] = useState(false);
   const [billOpen, setBillOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("COUNTER");
-  const [themeMode, setThemeMode] = useState<ThemeMode>("dark");
   const [canLaunchUpiDeepLink, setCanLaunchUpiDeepLink] = useState(false);
-  const [preferencesHydrated, setPreferencesHydrated] = useState(false);
   const [placingOrder, setPlacingOrder] = useState(false);
   const [billSyncing, setBillSyncing] = useState(false);
   const [billSyncMessage, setBillSyncMessage] = useState("");
@@ -1946,7 +1993,7 @@ export default function QrOrderingExperience({
     return buildCustomerHistoryStorageKey(routeClient, customerBrowserId);
   }, [customerBrowserId, routeClient]);
 
-  const isLightTheme = themeMode === "light";
+  const isLightTheme = true;
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1999,30 +2046,8 @@ export default function QrOrderingExperience({
     if (typeof window === "undefined") {
       return;
     }
-
-    const storedTheme = toThemeMode(window.localStorage.getItem(THEME_PREF_KEY));
-
-    if (storedTheme) {
-      setThemeMode(storedTheme);
-    }
-
-    setPreferencesHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
     setCanLaunchUpiDeepLink(supportsUpiDeepLinkInBrowser());
   }, []);
-
-  useEffect(() => {
-    if (!preferencesHydrated || typeof window === "undefined") {
-      return;
-    }
-
-    window.localStorage.setItem(THEME_PREF_KEY, themeMode);
-  }, [preferencesHydrated, themeMode]);
 
   useEffect(() => {
     const preferred = customerProfile?.preferences?.preferredPaymentMethod;
@@ -2854,10 +2879,6 @@ export default function QrOrderingExperience({
     setKitchenInstructions("");
   }
 
-  function toggleThemeMode() {
-    setThemeMode((current) => (current === "dark" ? "light" : "dark"));
-  }
-
   function toggleModifierSelection(itemId: string, option: ModifierOption) {
     setSelectedModifiersByItem((current) => {
       const existing = current[itemId] ?? [];
@@ -3441,7 +3462,7 @@ export default function QrOrderingExperience({
     }
   }
 
-  function handleUpiPayClick(link: string) {
+function handleUpiPayClick(link: string) {
     if (!link) {
       return;
     }
@@ -3457,7 +3478,8 @@ export default function QrOrderingExperience({
       return;
     }
 
-    window.location.href = link;
+    const launchLink = withFreshUpiAttemptRef(link);
+    window.location.href = launchLink;
   }
 
   const tableLabel = tableInfo ? tableInfo.displayLabel : formatTableLabel(routeTable);
@@ -3471,8 +3493,11 @@ export default function QrOrderingExperience({
   const logoUrl = clientSettings.logoUrl || branding?.logoUrl || "";
   const tagline = clientSettings.tagline || branding?.tagline || "";
   const supportPhone = clientSettings.supportPhone;
-  const configuredUpiId = clientSettings.upiId.trim() || DEFAULT_UPI_ID;
-  const configuredUpiName = clientSettings.upiName.trim() || DEFAULT_UPI_NAME;
+  const configuredUpiId = normalizeUpiId(clientSettings.upiId) || DEFAULT_UPI_ID;
+  const configuredUpiName = sanitizeUpiText(
+    clientSettings.upiName.trim() || DEFAULT_UPI_NAME,
+    60,
+  );
   const cartUpiLink =
     paymentMethod === "UPI"
       ? buildUpiPaymentLink({
@@ -3718,22 +3743,6 @@ export default function QrOrderingExperience({
                   {tableLabel}
                 </p>
               </div>
-              <button
-                type="button"
-                className={clsx(
-                  "inline-flex items-center justify-center rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition active:translate-y-px",
-                  contentTextClass,
-                )}
-                style={{
-                  borderColor: withAlpha(LUXURY_GOLD, 0.35),
-                  backgroundColor: isLightTheme
-                    ? withAlpha("#F6F6F6", 0.88)
-                    : withAlpha("#1C1C1C", 0.84),
-                }}
-                onClick={toggleThemeMode}
-              >
-                {themeMode === "dark" ? "Dark" : "Light"}
-              </button>
             </div>
           </div>
           {supportPhone ? (
