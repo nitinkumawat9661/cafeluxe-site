@@ -1,4 +1,8 @@
-import { resolveAssetUrl, type AppwriteDocument } from "@/lib/appwrite";
+import {
+  buildBucketFileViewUrl,
+  resolveAssetUrl,
+  type AppwriteDocument,
+} from "@/lib/appwrite";
 
 export type RestaurantTable = {
   id: string;
@@ -110,6 +114,8 @@ const categoryRefKeys = [
   "category_name",
 ] as const;
 
+const DEFAULT_MENU_IMAGE_BUCKET_ID = "restaurant-assets";
+
 function toSafeString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -139,6 +145,14 @@ function slugify(value: string) {
     .replace(/[^a-z0-9-]/g, "");
 }
 
+function normalizeStorageId(value: string) {
+  const trimmed = value.trim();
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{5,127}$/.test(trimmed)) {
+    return "";
+  }
+  return trimmed;
+}
+
 function extractAssetFileId(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -156,6 +170,96 @@ function extractAssetFileId(value: string) {
   }
 
   return "";
+}
+
+function extractFileIdFromUnknown(value: unknown): string {
+  if (!value) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    const direct = normalizeStorageId(value);
+    if (direct) {
+      return direct;
+    }
+    return normalizeStorageId(extractAssetFileId(value));
+  }
+
+  if (typeof value === "object") {
+    const source = value as Record<string, unknown>;
+    const candidates: unknown[] = [
+      source.fileId,
+      source.file_id,
+      source.image_file_id,
+      source.imageFileId,
+      source.$id,
+      source.id,
+      source.image_url,
+      source.imageUrl,
+      source.url,
+    ];
+    for (const candidate of candidates) {
+      const found = extractFileIdFromUnknown(candidate);
+      if (found) {
+        return found;
+      }
+    }
+  }
+
+  return "";
+}
+
+function resolveMenuItemImageFileId(doc: AppwriteDocument) {
+  const directFieldFileId = getFieldString(doc, [
+    "image_file_id",
+    "imageFileId",
+    "file_id",
+    "fileId",
+    "asset_file_id",
+    "assetFileId",
+    "image_id",
+    "imageId",
+    "asset_id",
+    "assetId",
+  ]);
+  const directNormalized = normalizeStorageId(directFieldFileId);
+  if (directNormalized) {
+    return directNormalized;
+  }
+
+  const fallbackCandidates: unknown[] = [
+    doc.image_url,
+    doc.imageUrl,
+    doc.image,
+    doc.photo,
+    doc.thumbnail,
+    doc.imageId,
+    doc.image_id,
+    doc.assetId,
+    doc.asset_id,
+  ];
+
+  for (const candidate of fallbackCandidates) {
+    const fileId = extractFileIdFromUnknown(candidate);
+    if (fileId) {
+      return fileId;
+    }
+  }
+
+  return "";
+}
+
+function resolveMenuItemImageBucketId(doc: AppwriteDocument) {
+  const explicitBucketId = getFieldString(doc, [
+    "image_bucket_id",
+    "imageBucketId",
+    "bucket_id",
+    "bucketId",
+    "asset_bucket_id",
+    "assetBucketId",
+  ]);
+
+  return normalizeStorageId(explicitBucketId) || DEFAULT_MENU_IMAGE_BUCKET_ID;
 }
 
 function toTitleCase(value: string) {
@@ -598,22 +702,11 @@ export function parseMenuItems(docs: AppwriteDocument[], client: string) {
     .map((doc) => {
       const name = getFieldString(doc, ["name", "title", "itemName"]) || "Menu Item";
       const categoryRefs = getFieldStringList(doc, categoryRefKeys);
-      const backendImageUrl = getFieldString(doc, ["image_url", "imageUrl"]);
-      const resolvedBackendImage = resolveAssetUrl(backendImageUrl);
-      const resolvedLegacyImage = resolveAssetUrl(
-        doc.image ??
-          doc.photo ??
-          doc.thumbnail ??
-          doc.imageId ??
-          doc.image_id ??
-          doc.assetId ??
-          doc.asset_id,
-      );
-      // Single deterministic source per item:
-      // 1) backend `image_url` / `imageUrl`
-      // 2) legacy media fields only when primary image is absent
-      const finalImageSrc = resolvedBackendImage || resolvedLegacyImage;
-      const imageFileId = extractAssetFileId(finalImageSrc);
+      const imageFileId = resolveMenuItemImageFileId(doc);
+      const imageBucketId = resolveMenuItemImageBucketId(doc);
+      const finalImageSrc = imageFileId
+        ? buildBucketFileViewUrl(imageFileId, imageBucketId)
+        : "";
       return {
         id: doc.$id,
         name,
