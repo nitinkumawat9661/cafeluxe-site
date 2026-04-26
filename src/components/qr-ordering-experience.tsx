@@ -816,49 +816,14 @@ function sanitizeUpiText(value: string, maxLength: number) {
     .slice(0, maxLength);
 }
 
-function sanitizeUpiTransactionRef(value: string, maxLength = 35) {
-  const cleaned = sanitizeUpiText(value, maxLength)
-    .replace(/[^a-zA-Z0-9]/g, "")
-    .slice(0, maxLength);
-  return cleaned;
-}
-
-function withFreshUpiAttemptRef(link: string) {
-  try {
-    const parsed = new URL(link);
-    const baseRef =
-      parsed.searchParams.get("tr") ||
-      parsed.searchParams.get("tid") ||
-      "";
-
-    const sanitizedBase = sanitizeUpiTransactionRef(baseRef, 12) || "CLX";
-    const tsToken = Date.now().toString(36).toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const randomToken = Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
-    const finalRef = sanitizeUpiTransactionRef(`${sanitizedBase}${tsToken}${randomToken}`, 30);
-    if (!finalRef) {
-      return link;
-    }
-
-    parsed.searchParams.set("tr", finalRef);
-    parsed.searchParams.set("tid", finalRef);
-    return parsed.toString();
-  } catch {
-    return link;
-  }
-}
-
 function buildUpiPaymentLink({
   upiId,
   upiName,
   amount,
-  note,
-  transactionRef,
 }: {
   upiId: string;
   upiName: string;
   amount: number;
-  note: string;
-  transactionRef?: string;
 }) {
   const normalizedUpiId = normalizeUpiId(upiId);
   if (!normalizedUpiId || !Number.isFinite(amount) || amount <= 0) {
@@ -866,8 +831,6 @@ function buildUpiPaymentLink({
   }
 
   const safeName = sanitizeUpiText(upiName, 60).replace(/[^a-zA-Z0-9 .,_-]/g, "");
-  const safeNote = sanitizeUpiText(note, 80).replace(/[^a-zA-Z0-9 .,_-]/g, "");
-  const safeRef = sanitizeUpiTransactionRef(transactionRef ?? "", 30);
 
   const params = new URLSearchParams();
   params.set("pa", normalizedUpiId);
@@ -876,13 +839,6 @@ function buildUpiPaymentLink({
   }
   params.set("am", amount.toFixed(2));
   params.set("cu", "INR");
-  if (safeNote) {
-    params.set("tn", safeNote);
-  }
-  if (safeRef) {
-    params.set("tr", safeRef);
-    params.set("tid", safeRef);
-  }
 
   return `upi://pay?${params.toString()}`;
 }
@@ -3478,8 +3434,7 @@ function handleUpiPayClick(link: string) {
       return;
     }
 
-    const launchLink = withFreshUpiAttemptRef(link);
-    window.location.href = launchLink;
+    window.location.href = link;
   }
 
   const tableLabel = tableInfo ? tableInfo.displayLabel : formatTableLabel(routeTable);
@@ -3504,7 +3459,6 @@ function handleUpiPayClick(link: string) {
           upiId: configuredUpiId,
           upiName: configuredUpiName,
           amount: total,
-          note: `${restaurantName} ${tableLabel} order`,
         })
       : "";
   const selectedBillUpiLink =
@@ -3513,8 +3467,6 @@ function handleUpiPayClick(link: string) {
           upiId: configuredUpiId,
           upiName: configuredUpiName,
           amount: selectedBillFinalTotal,
-          note: `${restaurantName} ${tableLabel} bill`,
-          transactionRef: selectedBillOrder?.orderNumber || selectedBillOrder?.orderId,
         })
       : "";
   const appBackground = isLightTheme
