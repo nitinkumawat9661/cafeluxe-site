@@ -799,7 +799,7 @@ function normalizeUpiId(value: string) {
     return "";
   }
   // VPA format: handle@provider
-  if (!/^[a-z0-9._-]{2,128}@[a-z0-9.-]{2,128}$/i.test(normalized)) {
+  if (!/^[a-z0-9._-]{2,64}@[a-z0-9.-]{2,64}$/i.test(normalized)) {
     return "";
   }
   return normalized;
@@ -808,7 +808,9 @@ function normalizeUpiId(value: string) {
 function sanitizeUpiText(value: string, maxLength: number) {
   return value
     .replace(/[\u0000-\u001F\u007F]/g, "")
+    .replace(/[^\x20-\x7E]/g, "")
     .replace(/[<>]/g, "")
+    .replace(/[%&?#]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
@@ -826,6 +828,7 @@ function withFreshUpiAttemptRef(link: string) {
     const parsed = new URL(link);
     const baseRef =
       parsed.searchParams.get("tr") ||
+      parsed.searchParams.get("tid") ||
       "";
 
     const sanitizedBase = sanitizeUpiTransactionRef(baseRef, 12) || "CLX";
@@ -837,7 +840,7 @@ function withFreshUpiAttemptRef(link: string) {
     }
 
     parsed.searchParams.set("tr", finalRef);
-    parsed.searchParams.delete("tid");
+    parsed.searchParams.set("tid", finalRef);
     return parsed.toString();
   } catch {
     return link;
@@ -862,8 +865,8 @@ function buildUpiPaymentLink({
     return "";
   }
 
-  const safeName = sanitizeUpiText(upiName, 60);
-  const safeNote = sanitizeUpiText(note, 80);
+  const safeName = sanitizeUpiText(upiName, 60).replace(/[^a-zA-Z0-9 .,_-]/g, "");
+  const safeNote = sanitizeUpiText(note, 80).replace(/[^a-zA-Z0-9 .,_-]/g, "");
   const safeRef = sanitizeUpiTransactionRef(transactionRef ?? "", 30);
 
   const params = new URLSearchParams();
@@ -878,6 +881,7 @@ function buildUpiPaymentLink({
   }
   if (safeRef) {
     params.set("tr", safeRef);
+    params.set("tid", safeRef);
   }
 
   return `upi://pay?${params.toString()}`;
