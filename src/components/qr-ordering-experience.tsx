@@ -25,6 +25,7 @@ import {
   createDocumentWithFallback,
   fetchAllDocuments,
   Query,
+  resolveAssetUrl,
   updateDocumentWithFallback,
 } from "@/lib/appwrite";
 import {
@@ -219,12 +220,14 @@ const MAX_SEARCH_INPUT_LENGTH = 64;
 const MAX_INSTRUCTION_LENGTH = 240;
 const DEFAULT_UPI_ID = "7665853321@superyes";
 const DEFAULT_UPI_NAME = "Nitin Kumawat";
-const ROYAL_NAVY = "#0C1F37";
-const LUXURY_GOLD = "#C6A05C";
+const ROYAL_NAVY = "#1C1C1C";
+const LUXURY_GOLD = "#FDE4C3";
 const DEEP_CHARCOAL = "#1C1C1C";
-const SOFT_DARK_SURFACE = "#111827";
-const WARM_HIGHLIGHT = "#E7C98A";
-const LIGHT_TEXT = "#1E293B";
+const SOFT_DARK_SURFACE = "#302A18";
+const WARM_HIGHLIGHT = "#FDE4C3";
+const LIGHT_TEXT = "#1C1C1C";
+const BRAND_BG = "#F6F6F6";
+const BRAND_SURFACE = "#FDE4C3";
 
 const PIZZA_FALLBACK_MODIFIER_OPTIONS: ModifierOption[] = [
   { id: "extra_cheese", label: "Extra Cheese", price: 40, kind: "paid" },
@@ -1914,6 +1917,7 @@ export default function QrOrderingExperience({
   const [customerBrowserId, setCustomerBrowserId] = useState("");
   const [customerProfile, setCustomerProfile] = useState<CustomerProfile | null>(null);
   const [brokenImageMap, setBrokenImageMap] = useState<Record<string, true>>({});
+  const [directImageFallbackMap, setDirectImageFallbackMap] = useState<Record<string, true>>({});
   const placeOrderLockRef = useRef(false);
   const tableOrdersRef = useRef<TableOrderRecord[]>([]);
   const activeOrderContextRef = useRef<ActiveOrderContext | null>(null);
@@ -2063,6 +2067,7 @@ export default function QrOrderingExperience({
       setSelectedBillOrderId("");
       setSearchText("");
       setBrokenImageMap({});
+      setDirectImageFallbackMap({});
       setBillOpen(false);
       setSelectedModifiersByItem({});
       setKitchenInstructions("");
@@ -3455,27 +3460,27 @@ export default function QrOrderingExperience({
         })
       : "";
   const appBackground = isLightTheme
-    ? "linear-gradient(180deg, #F8F1E4 0%, #F4EAD9 44%, #F0E2CC 100%)"
-    : `linear-gradient(180deg, ${ROYAL_NAVY} 0%, #0A1730 36%, ${DEEP_CHARCOAL} 100%)`;
+    ? `linear-gradient(180deg, #F6F6F6 0%, #F6F6F6 44%, #FDE4C3 100%)`
+    : `linear-gradient(180deg, #1C1C1C 0%, #302A18 36%, #1C1C1C 100%)`;
   const panelGradient = isLightTheme
-    ? "linear-gradient(165deg, rgba(255,250,241,0.98) 0%, rgba(248,238,221,0.96) 100%)"
-    : `linear-gradient(165deg, ${withAlpha(SOFT_DARK_SURFACE, 0.92)} 0%, ${withAlpha(DEEP_CHARCOAL, 0.93)} 100%)`;
+    ? "linear-gradient(165deg, #FFFFFF 0%, #FDE4C3 100%)"
+    : `linear-gradient(165deg, #302A18 0%, #1C1C1C 100%)`;
   const sectionGradient = isLightTheme
-    ? "linear-gradient(160deg, rgba(255,248,236,0.96) 0%, rgba(245,234,214,0.94) 100%)"
-    : `linear-gradient(160deg, ${withAlpha(SOFT_DARK_SURFACE, 0.86)} 0%, ${withAlpha(DEEP_CHARCOAL, 0.9)} 100%)`;
+    ? "linear-gradient(160deg, #F6F6F6 0%, #FDE4C3 100%)"
+    : `linear-gradient(160deg, #302A18 0%, #1C1C1C 100%)`;
   const cardGradient = isLightTheme
-    ? "linear-gradient(168deg, rgba(255,250,241,0.98) 0%, rgba(244,232,209,0.95) 100%)"
-    : `linear-gradient(168deg, ${withAlpha(SOFT_DARK_SURFACE, 0.93)} 0%, ${withAlpha(DEEP_CHARCOAL, 0.97)} 100%)`;
+    ? "linear-gradient(168deg, #FFFFFF 0%, #FDE4C3 100%)"
+    : `linear-gradient(168deg, #302A18 0%, #1C1C1C 100%)`;
   const sheetGradient = isLightTheme
-    ? "linear-gradient(176deg, rgba(255,249,238,0.98) 0%, rgba(243,231,208,0.97) 100%)"
-    : `linear-gradient(176deg, ${withAlpha(SOFT_DARK_SURFACE, 0.95)} 0%, ${withAlpha(DEEP_CHARCOAL, 0.98)} 100%)`;
+    ? "linear-gradient(176deg, #FFFFFF 0%, #FDE4C3 100%)"
+    : `linear-gradient(176deg, #302A18 0%, #1C1C1C 100%)`;
   const bottomBarGradient = isLightTheme
-    ? "linear-gradient(170deg, rgba(255,248,236,0.98) 0%, rgba(244,232,210,0.96) 100%)"
-    : `linear-gradient(170deg, ${withAlpha(SOFT_DARK_SURFACE, 0.9)} 0%, ${withAlpha(DEEP_CHARCOAL, 0.95)} 100%)`;
-  const overlayShade = isLightTheme ? "rgba(12, 31, 55, 0.22)" : "rgba(8, 10, 16, 0.72)";
-  const contentTextClass = isLightTheme ? "text-slate-900" : "text-zinc-100";
-  const secondaryTextClass = isLightTheme ? "text-slate-700" : "text-zinc-300";
-  const mutedTextClass = isLightTheme ? "text-slate-500" : "text-zinc-400";
+    ? "linear-gradient(170deg, #FFFFFF 0%, #FDE4C3 100%)"
+    : `linear-gradient(170deg, #302A18 0%, #1C1C1C 100%)`;
+  const overlayShade = isLightTheme ? "rgba(28, 28, 28, 0.22)" : "rgba(0, 0, 0, 0.72)";
+  const contentTextClass = isLightTheme ? "text-brand-dark" : "text-white";
+  const secondaryTextClass = isLightTheme ? "text-brand-accent" : "text-zinc-300";
+  const mutedTextClass = isLightTheme ? "text-zinc-500" : "text-zinc-400";
   const themeScopeClass = isLightTheme ? "cafe-theme-light" : "";
 
   if (loadState === "loading") {
@@ -3550,8 +3555,8 @@ export default function QrOrderingExperience({
           <p className="mt-2 text-sm text-zinc-300">{errorMessage}</p>
           <button
             type="button"
-            className="mt-5 inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold text-zinc-950 transition"
-            style={{ backgroundColor: accentColor }}
+            className="mt-5 inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold text-brand-dark transition"
+            style={{ backgroundColor: LUXURY_GOLD }}
             onClick={() => {
               setLoadState("loading");
               setLoadingMessage("Retrying...");
@@ -3624,10 +3629,10 @@ export default function QrOrderingExperience({
                 <div
                   className="flex h-11 w-11 items-center justify-center rounded-xl border text-xs font-bold"
                   style={{
-                    borderColor: withAlpha(WARM_HIGHLIGHT, 0.45),
-                    background: `linear-gradient(160deg, ${withAlpha(WARM_HIGHLIGHT, 0.34)} 0%, ${withAlpha(accentColor, 0.18)} 100%)`,
-                    color: isLightTheme ? LIGHT_TEXT : "#0B1323",
-                    boxShadow: `0 14px 30px -18px ${withAlpha(WARM_HIGHLIGHT, 0.55)}`,
+                    borderColor: withAlpha(LUXURY_GOLD, 0.45),
+                    background: `linear-gradient(160deg, ${withAlpha(LUXURY_GOLD, 0.34)} 0%, ${withAlpha(LUXURY_GOLD, 0.18)} 100%)`,
+                    color: isLightTheme ? "#1C1C1C" : "#FFFFFF",
+                    boxShadow: `0 14px 30px -18px ${withAlpha(LUXURY_GOLD, 0.55)}`,
                   }}
                 >
                   {logoUrl ? (
@@ -3645,7 +3650,7 @@ export default function QrOrderingExperience({
                 <div className="min-w-0">
                   <h1
                     className="truncate text-[1.78rem] font-bold leading-none tracking-[0.04em]"
-                    style={{ color: isLightTheme ? "#89672F" : WARM_HIGHLIGHT }}
+                    style={{ color: isLightTheme ? "#1C1C1C" : "#FFFFFF" }}
                   >
                     Cafe Luxe
                   </h1>
@@ -3675,7 +3680,7 @@ export default function QrOrderingExperience({
                 <p className={clsx("text-[10px] uppercase tracking-[0.16em]", mutedTextClass)}>Table</p>
                 <p
                   className="text-sm font-semibold"
-                  style={{ color: isLightTheme ? "#89672F" : WARM_HIGHLIGHT }}
+                  style={{ color: isLightTheme ? "#1C1C1C" : "#FFFFFF" }}
                 >
                   {tableLabel}
                 </p>
@@ -3687,10 +3692,10 @@ export default function QrOrderingExperience({
                   contentTextClass,
                 )}
                 style={{
-                  borderColor: withAlpha(WARM_HIGHLIGHT, 0.35),
+                  borderColor: withAlpha(LUXURY_GOLD, 0.35),
                   backgroundColor: isLightTheme
-                    ? withAlpha("#FDF8EF", 0.88)
-                    : withAlpha(SOFT_DARK_SURFACE, 0.84),
+                    ? withAlpha("#F6F6F6", 0.88)
+                    : withAlpha("#1C1C1C", 0.84),
                 }}
                 onClick={toggleThemeMode}
               >
@@ -3699,11 +3704,11 @@ export default function QrOrderingExperience({
             </div>
           </div>
           {supportPhone ? (
-            <div className={clsx("mt-3 border-t pt-2 text-xs", secondaryTextClass)} style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.2) }}>
+            <div className={clsx("mt-3 border-t pt-2 text-xs", secondaryTextClass)} style={{ borderColor: withAlpha(SOFT_DARK_SURFACE, 0.2) }}>
               {"Support"}:{" "}
               <span
                 className="font-medium"
-                style={{ color: isLightTheme ? "#89672F" : WARM_HIGHLIGHT }}
+                style={{ color: isLightTheme ? "#1C1C1C" : "#FFFFFF" }}
               >
                 {supportPhone}
               </span>
@@ -3860,7 +3865,7 @@ export default function QrOrderingExperience({
               onChange={(event) => setSearchText(sanitizeSearchInput(event.target.value))}
               placeholder={"Search dishes"}
               className={clsx(
-                "w-full bg-transparent text-sm outline-none placeholder:text-zinc-500",
+                "w-full bg-transparent text-sm outline-none placeholder:text-brand-dark/50",
                 contentTextClass,
               )}
               inputMode="search"
@@ -3881,20 +3886,20 @@ export default function QrOrderingExperience({
               className={clsx(
                 "flex-none rounded-xl px-4 py-2 text-sm font-medium transition",
                 activeCategory === "all"
-                  ? "text-zinc-950 shadow-[0_12px_30px_-18px_rgba(0,0,0,0.9)]"
-                  : "text-zinc-300 hover:text-zinc-100",
+                  ? "text-brand-dark shadow-[0_12px_30px_-18px_rgba(0,0,0,0.5)]"
+                  : isLightTheme ? "text-brand-dark/70 hover:text-brand-dark" : "text-white/70 hover:text-white",
               )}
                   style={
                 activeCategory === "all"
                   ? isLightTheme
                     ? {
-                        background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
+                        background: `linear-gradient(180deg, #FFFFFF 0%, #FDE4C3 100%)`,
                       }
-                    : { backgroundColor: accentColor }
+                    : { backgroundColor: LUXURY_GOLD }
                   : {
                       backgroundColor: isLightTheme
-                        ? withAlpha("#EFE0C3", 0.94)
-                        : withAlpha(DEEP_CHARCOAL, 0.9),
+                        ? withAlpha("#FFFFFF", 0.94)
+                        : withAlpha("#302A18", 0.9),
                     }
               }
               onClick={() => setActiveCategory("all")}
@@ -3908,20 +3913,20 @@ export default function QrOrderingExperience({
                 className={clsx(
                   "flex-none rounded-xl px-4 py-2 text-sm font-medium transition",
                   activeCategory === category.id
-                    ? "text-zinc-950 shadow-[0_12px_30px_-18px_rgba(0,0,0,0.9)]"
-                    : "text-zinc-300 hover:text-zinc-100",
+                    ? "text-brand-dark shadow-[0_12px_30px_-18px_rgba(0,0,0,0.5)]"
+                    : isLightTheme ? "text-brand-dark/70 hover:text-brand-dark" : "text-white/70 hover:text-white",
                 )}
                 style={
                   activeCategory === category.id
                     ? isLightTheme
                       ? {
-                          background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
+                          background: `linear-gradient(180deg, #FFFFFF 0%, #FDE4C3 100%)`,
                         }
-                      : { backgroundColor: accentColor }
+                      : { backgroundColor: LUXURY_GOLD }
                     : {
                         backgroundColor: isLightTheme
-                          ? withAlpha("#EFE0C3", 0.94)
-                          : withAlpha(DEEP_CHARCOAL, 0.9),
+                          ? withAlpha("#FFFFFF", 0.94)
+                          : withAlpha("#302A18", 0.9),
                       }
                 }
                 onClick={() => setActiveCategory(category.id)}
@@ -3933,7 +3938,7 @@ export default function QrOrderingExperience({
         </section>
 
         {visibleItems.length === 0 ? (
-          <section className="rounded-2xl border border-zinc-800/80 bg-zinc-900/70 p-5 text-sm text-zinc-300">
+          <section className={clsx("rounded-2xl border border-zinc-800/30 bg-white/10 p-5 text-sm", secondaryTextClass)}>
             {menuItems.length === 0
               ? "No menu items are available right now. Please check with staff."
               : "No items match this search/category. Try another filter."}
@@ -3942,7 +3947,13 @@ export default function QrOrderingExperience({
           <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {visibleItems.map((item) => {
               const quantity = cart[item.id] ?? 0;
-              const hasImage = !!item.image && !brokenImageMap[item.id];
+              const directImageSrc = item.image.trim();
+              const proxyImageSrc = directImageSrc ? resolveAssetUrl(directImageSrc) : "";
+              const resolvedImageSrc =
+                !directImageFallbackMap[item.id] && proxyImageSrc
+                  ? proxyImageSrc
+                  : directImageSrc;
+              const hasImage = !!resolvedImageSrc && !brokenImageMap[item.id];
               const selectedModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
               const modifierTotal = getSelectedModifierTotal(selectedModifiers);
               const displayPrice = item.price + modifierTotal;
@@ -3969,13 +3980,26 @@ export default function QrOrderingExperience({
                     {hasImage ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={item.image}
+                        src={resolvedImageSrc}
                         alt={item.name}
                         className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
                         loading="lazy"
-                        onError={() =>
-                          setBrokenImageMap((current) => ({ ...current, [item.id]: true }))
-                        }
+                        onError={() => {
+                          const shouldTryDirectFallback =
+                            !directImageFallbackMap[item.id] &&
+                            !!directImageSrc &&
+                            proxyImageSrc !== directImageSrc;
+
+                          if (shouldTryDirectFallback) {
+                            setDirectImageFallbackMap((current) => ({
+                              ...current,
+                              [item.id]: true,
+                            }));
+                            return;
+                          }
+
+                          setBrokenImageMap((current) => ({ ...current, [item.id]: true }));
+                        }}
                       />
                     ) : (
                       <div className="flex h-full items-center justify-center text-zinc-500">
@@ -4045,23 +4069,23 @@ export default function QrOrderingExperience({
 
                   <div className="space-y-3 p-4">
                     <div>
-                      <h3 className="line-clamp-1 text-base font-semibold text-zinc-100">{item.name}</h3>
-                      <p className="line-clamp-1 text-sm text-zinc-400">{item.nameHi}</p>
+                      <h3 className={clsx("line-clamp-1 text-base font-semibold", contentTextClass)}>{item.name}</h3>
+                      <p className={clsx("line-clamp-1 text-sm", secondaryTextClass)}>{item.nameHi}</p>
                     </div>
 
                     {item.description ? (
-                      <p className="line-clamp-2 min-h-10 text-sm text-zinc-300/85">{item.description}</p>
+                      <p className={clsx("line-clamp-2 min-h-10 text-sm opacity-85", secondaryTextClass)}>{item.description}</p>
                     ) : (
                       <div className="min-h-10" />
                     )}
 
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-base font-semibold" style={{ color: WARM_HIGHLIGHT }}>
+                        <p className="text-base font-semibold" style={{ color: isLightTheme ? "#1C1C1C" : "#FDE4C3" }}>
                           {formatMoney(displayPrice)}
                         </p>
                         {selectedModifiers.length > 0 ? (
-                          <p className="text-[11px] text-zinc-400">
+                          <p className={clsx("text-[11px]", mutedTextClass)}>
                             +{selectedModifiers.length} customization
                             {selectedModifiers.length > 1 ? "s" : ""}
                           </p>
@@ -4079,10 +4103,10 @@ export default function QrOrderingExperience({
                       ) : quantity === 0 ? (
                         <button
                           type="button"
-                          className="inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-sm font-semibold text-zinc-950 shadow-[0_14px_34px_-20px_rgba(0,0,0,0.9)] transition active:translate-y-px"
+                          className="inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-sm font-semibold text-brand-dark shadow-[0_14px_34px_-20px_rgba(0,0,0,0.9)] transition active:translate-y-px"
                           style={{
-                            background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
-                            borderColor: withAlpha(WARM_HIGHLIGHT, 0.55),
+                            backgroundColor: LUXURY_GOLD,
+                            borderColor: withAlpha(LUXURY_GOLD, 0.55),
                           }}
                           onClick={() => {
                             updateItemQuantity(item.id, 1);
@@ -4092,21 +4116,21 @@ export default function QrOrderingExperience({
                           Add
                         </button>
                       ) : (
-                        <div className="inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950/70">
+                        <div className="inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950/20">
                           <button
                             type="button"
-                            className="p-2 text-zinc-200 transition hover:bg-zinc-800"
+                            className={clsx("p-2 transition hover:bg-zinc-800", contentTextClass)}
                             onClick={() => updateItemQuantity(item.id, -1)}
                             aria-label={`Remove one ${item.name}`}
                           >
                             <Minus className="h-4 w-4" />
                           </button>
-                          <span className="w-8 text-center text-sm font-semibold text-zinc-100">
+                          <span className={clsx("w-8 text-center text-sm font-semibold", contentTextClass)}>
                             {quantity}
                           </span>
                           <button
                             type="button"
-                            className="p-2 text-zinc-200 transition hover:bg-zinc-800"
+                            className={clsx("p-2 transition hover:bg-zinc-800", contentTextClass)}
                             onClick={() => updateItemQuantity(item.id, 1)}
                             aria-label={`Add one ${item.name}`}
                           >
@@ -4179,13 +4203,13 @@ export default function QrOrderingExperience({
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              className="flex items-center justify-between rounded-xl border px-4 py-3 text-zinc-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)] transition active:translate-y-px"
+              className="flex items-center justify-between rounded-xl border px-4 py-3 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)] transition active:translate-y-px"
               style={{
-                borderColor: withAlpha(WARM_HIGHLIGHT, 0.34),
+                borderColor: withAlpha(ROYAL_NAVY, 0.34),
                 background: isLightTheme
-                  ? "linear-gradient(180deg, rgba(243,231,208,0.96) 0%, rgba(231,201,138,0.64) 100%)"
-                  : `linear-gradient(180deg, ${withAlpha(ROYAL_NAVY, 0.58)} 0%, ${withAlpha(SOFT_DARK_SURFACE, 0.85)} 100%)`,
-                color: isLightTheme ? "#17263D" : undefined,
+                  ? "linear-gradient(180deg, #FFFFFF 0%, #FDE4C3 100%)"
+                  : `linear-gradient(180deg, #1C1C1C 0%, #302A18 100%)`,
+                color: isLightTheme ? "#1C1C1C" : undefined,
               }}
               onClick={openBillDrawer}
             >
@@ -4193,16 +4217,16 @@ export default function QrOrderingExperience({
                 <ReceiptText className="h-5 w-5" />
                 {"My Bill"}
               </span>
-              <span className="rounded-lg bg-zinc-900/40 px-2 py-1 text-xs font-semibold">
+              <span className="rounded-lg bg-black/20 px-2 py-1 text-xs font-semibold">
                 {formatMoney(billFinalTotal)}
               </span>
             </button>
 
             <button
               type="button"
-              className="flex items-center justify-between rounded-xl border px-4 py-3 text-zinc-950 shadow-[0_16px_36px_-24px_rgba(0,0,0,0.95)] transition disabled:cursor-not-allowed disabled:opacity-60 active:translate-y-px"
+              className="flex items-center justify-between rounded-xl border px-4 py-3 text-brand-dark shadow-[0_16px_36px_-24px_rgba(0,0,0,0.95)] transition disabled:cursor-not-allowed disabled:opacity-60 active:translate-y-px"
               style={{
-                borderColor: withAlpha(WARM_HIGHLIGHT, 0.42),
+                borderColor: withAlpha(LUXURY_GOLD, 0.42),
                 background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
               }}
               onClick={() => {
@@ -4214,7 +4238,7 @@ export default function QrOrderingExperience({
                 <ShoppingBag className="h-5 w-5" />
                 {"Cart"} {cartCount > 0 ? `(${cartCount})` : ""}
               </span>
-              <span className="rounded-lg bg-zinc-900/15 px-2 py-1 text-xs font-semibold">
+              <span className="rounded-lg bg-black/10 px-2 py-1 text-xs font-semibold">
                 {formatMoney(total)}
               </span>
             </button>
@@ -4424,25 +4448,25 @@ export default function QrOrderingExperience({
                     </div>
 
                     <section className="space-y-2">
-                      <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+                      <p className={clsx("text-xs uppercase tracking-[0.16em]", mutedTextClass)}>
                         Itemized Charges
                       </p>
                       <div className="space-y-2">
                         {selectedBillItems.map((lineItem) => (
                           <div
                             key={lineItem.lineKey}
-                            className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"
+                            className="rounded-xl border border-zinc-800/30 bg-white/10 p-3"
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold text-zinc-100">
+                                <p className={clsx("truncate text-sm font-semibold", contentTextClass)}>
                                   {lineItem.name}
                                 </p>
-                                <p className="text-xs text-zinc-400">
+                                <p className={clsx("text-xs", mutedTextClass)}>
                                   {lineItem.quantity} x {formatMoney(lineItem.unitPrice)}
                                 </p>
                                 {lineItem.modifiers.length > 0 ? (
-                                  <p className="mt-1 line-clamp-2 text-[11px] text-zinc-400">
+                                  <p className={clsx("mt-1 line-clamp-2 text-[11px]", mutedTextClass)}>
                                     {lineItem.modifiers
                                       .map((modifier) =>
                                         modifier.price > 0
@@ -4453,7 +4477,7 @@ export default function QrOrderingExperience({
                                   </p>
                                 ) : null}
                               </div>
-                              <p className="text-sm font-semibold" style={{ color: WARM_HIGHLIGHT }}>
+                              <p className="text-sm font-semibold" style={{ color: isLightTheme ? "#1C1C1C" : "#FDE4C3" }}>
                                 {formatMoney(lineItem.lineTotal)}
                               </p>
                             </div>
@@ -4538,34 +4562,34 @@ export default function QrOrderingExperience({
                     ) : null}
 
                     <section className="space-y-2">
-                      <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+                      <p className={clsx("text-xs uppercase tracking-[0.16em]", mutedTextClass)}>
                         Order History
                       </p>
                       <div className="space-y-2">
                         {tableOrders.map((order) => (
                           <div
                             key={order.orderId}
-                            className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"
+                            className="rounded-xl border border-zinc-800/30 bg-white/10 p-3"
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold text-zinc-100">
+                                <p className={clsx("truncate text-sm font-semibold", contentTextClass)}>
                                   {order.orderNumber}
                                 </p>
-                                <p className="mt-0.5 text-xs text-zinc-400">
+                                <p className={clsx("mt-0.5 text-xs", mutedTextClass)}>
                                   {formatBillDateTime(order.createdAt)}
                                 </p>
                                 {order.instructions ? (
-                                  <p className="mt-1 line-clamp-2 text-[11px] text-zinc-400">
+                                  <p className={clsx("mt-1 line-clamp-2 text-[11px]", mutedTextClass)}>
                                     {order.instructions}
                                   </p>
                                 ) : null}
                               </div>
                               <div className="text-right">
-                                <p className="text-sm font-semibold" style={{ color: WARM_HIGHLIGHT }}>
+                                <p className="text-sm font-semibold" style={{ color: isLightTheme ? "#1C1C1C" : "#FDE4C3" }}>
                                   {formatMoney(order.totalAmount)}
                                 </p>
-                                <p className="text-[11px] text-zinc-400">
+                                <p className={clsx("text-[11px]", mutedTextClass)}>
                                   {getOrderStatusLabel(order.status)} / {getPaymentStatusLabel(order.paymentStatus)}
                                 </p>
                               </div>
@@ -4581,9 +4605,9 @@ export default function QrOrderingExperience({
               <div className="space-y-2 border-t border-zinc-800 px-4 py-4">
                 <button
                   type="button"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-zinc-950 transition"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-brand-dark transition"
                   style={{
-                    borderColor: withAlpha(WARM_HIGHLIGHT, 0.4),
+                    borderColor: withAlpha(ROYAL_NAVY, 0.4),
                     background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
                   }}
                   onClick={backToMenuFromBill}
@@ -4704,22 +4728,22 @@ export default function QrOrderingExperience({
                       return (
                         <section
                           key={item.id}
-                          className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3.5"
+                          className="rounded-2xl border border-zinc-800/30 bg-white/10 p-3.5"
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 space-y-1">
-                              <p className="truncate text-sm font-semibold text-zinc-100">{item.name}</p>
+                              <p className={clsx("truncate text-sm font-semibold", contentTextClass)}>{item.name}</p>
                               {secondaryLine ? (
-                                <p className="line-clamp-2 text-xs leading-relaxed text-zinc-400">
+                                <p className={clsx("line-clamp-2 text-xs leading-relaxed", secondaryTextClass)}>
                                   {secondaryLine}
                                 </p>
                               ) : null}
                             </div>
                             <div className="shrink-0 text-right">
-                              <p className="text-sm font-semibold" style={{ color: WARM_HIGHLIGHT }}>
+                              <p className="text-sm font-semibold" style={{ color: isLightTheme ? "#1C1C1C" : "#FDE4C3" }}>
                                 {formatMoney(effectiveUnit * quantity)}
                               </p>
-                              <p className="mt-0.5 text-[11px] text-zinc-400">
+                              <p className={clsx("mt-0.5 text-[11px]", mutedTextClass)}>
                                 {formatMoney(effectiveUnit)} each
                               </p>
                             </div>
@@ -4745,28 +4769,28 @@ export default function QrOrderingExperience({
                           ) : null}
 
                           <div className="mt-3 flex items-center justify-between gap-3">
-                            <div className="inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950/70">
+                            <div className="inline-flex items-center rounded-xl border border-zinc-800/30 bg-white/20">
                               <button
                                 type="button"
-                                className="p-2 text-zinc-200 transition hover:bg-zinc-800"
+                                className={clsx("p-2 transition hover:bg-black/10", contentTextClass)}
                                 onClick={() => updateItemQuantity(item.id, -1)}
                                 aria-label={`Remove one ${item.name}`}
                               >
                                 <Minus className="h-4 w-4" />
                               </button>
-                              <span className="w-8 text-center text-sm font-semibold text-zinc-100">
+                              <span className={clsx("w-8 text-center text-sm font-semibold", contentTextClass)}>
                                 {quantity}
                               </span>
                               <button
                                 type="button"
-                                className="p-2 text-zinc-200 transition hover:bg-zinc-800"
+                                className={clsx("p-2 transition hover:bg-black/10", contentTextClass)}
                                 onClick={() => updateItemQuantity(item.id, 1)}
                                 aria-label={`Add one ${item.name}`}
                               >
                                 <Plus className="h-4 w-4" />
                               </button>
                             </div>
-                            <p className="text-[11px] text-zinc-400">
+                            <p className={clsx("text-[11px]", mutedTextClass)}>
                               {quantity} item{quantity === 1 ? "" : "s"}
                             </p>
                           </div>
@@ -4854,13 +4878,13 @@ export default function QrOrderingExperience({
                 </section>
 
                 {paymentMethod === "UPI" ? (
-                  <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3.5 text-sm">
-                    <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-400">UPI Payment</p>
-                    <p className="mt-1 text-sm font-semibold text-zinc-100">{configuredUpiName}</p>
-                    <p className="mt-0.5 text-xs text-zinc-400">{configuredUpiId}</p>
-                    <div className="mt-3 flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-950/50 px-3 py-2">
-                      <span className="text-xs text-zinc-400">Payable Amount</span>
-                      <span className="text-sm font-semibold text-zinc-100">{formatMoney(total)}</span>
+                  <section className={clsx("rounded-2xl border border-zinc-800/30 bg-white/10 p-3.5 text-sm", contentTextClass)}>
+                    <p className="text-[10px] uppercase tracking-[0.14em] opacity-70">UPI Payment</p>
+                    <p className="mt-1 text-sm font-semibold">{configuredUpiName}</p>
+                    <p className="mt-0.5 text-xs opacity-70">{configuredUpiId}</p>
+                    <div className="mt-3 flex items-center justify-between rounded-xl border border-zinc-800/20 bg-black/10 px-3 py-2">
+                      <span className="text-xs opacity-70">Payable Amount</span>
+                      <span className="text-sm font-semibold">{formatMoney(total)}</span>
                     </div>
                     {cartUpiLink ? (
                       <button
@@ -4932,26 +4956,26 @@ export default function QrOrderingExperience({
                   />
                 </section>
 
-                <section className="space-y-2 rounded-2xl border border-zinc-800 bg-zinc-900/60 px-3.5 py-3.5 text-sm">
+                <section className={clsx("space-y-2 rounded-2xl border border-zinc-800/30 bg-white/10 px-3.5 py-3.5 text-sm", contentTextClass)}>
                   <div className="flex items-center justify-between">
-                    <span className="text-zinc-300">Subtotal</span>
-                    <span className="font-semibold text-zinc-100">{formatMoney(subtotal)}</span>
+                    <span className="opacity-80">Subtotal</span>
+                    <span className="font-semibold">{formatMoney(subtotal)}</span>
                   </div>
                   {hasCustomizationsInCart ? (
                     <div className="flex items-center justify-between">
-                      <span className="text-zinc-300">Customizations</span>
-                      <span className="font-semibold text-zinc-100">
+                      <span className="opacity-80">Customizations</span>
+                      <span className="font-semibold">
                         Included
                       </span>
                     </div>
                   ) : null}
                   <div className="flex items-center justify-between">
-                    <span className="text-zinc-300">Tax</span>
-                    <span className="font-semibold text-zinc-100">{formatMoney(taxAmount)}</span>
+                    <span className="opacity-80">Tax</span>
+                    <span className="font-semibold">{formatMoney(taxAmount)}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-zinc-300">Total</span>
-                    <span className="font-semibold" style={{ color: WARM_HIGHLIGHT }}>
+                    <span className="opacity-80">Total</span>
+                    <span className="font-semibold" style={{ color: isLightTheme ? "#1C1C1C" : "#FDE4C3" }}>
                       {formatMoney(total)}
                     </span>
                   </div>
@@ -4959,9 +4983,9 @@ export default function QrOrderingExperience({
 
                 <button
                   type="button"
-                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-zinc-950 transition disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-brand-dark transition disabled:cursor-not-allowed disabled:opacity-50"
                   style={{
-                    borderColor: withAlpha(WARM_HIGHLIGHT, 0.4),
+                    borderColor: withAlpha(ROYAL_NAVY, 0.4),
                     background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
                   }}
                   onClick={handlePlaceOrder}
@@ -4984,4 +5008,3 @@ export default function QrOrderingExperience({
     </div>
   );
 }
-

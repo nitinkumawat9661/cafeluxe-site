@@ -16,9 +16,10 @@ function getRouteTableToken(table: RestaurantTable) {
 }
 
 export default function Home() {
-  const royalNavy = "#0C1F37";
-  const luxuryGold = "#C6A05C";
-  const warmHighlight = "#E7C98A";
+  const royalNavy = "#1C1C1C";
+  const luxuryGold = "#302A18";
+  const warmHighlight = "#FDE4C3";
+  const brandBg = "#F6F6F6";
   const [loadState, setLoadState] = useState<HomeLoadState>("loading");
   const [tables, setTables] = useState<RestaurantTable[]>([]);
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
@@ -82,18 +83,17 @@ export default function Home() {
     <div
       className="relative min-h-screen overflow-hidden px-4 py-8 text-zinc-900"
       style={{
-        background:
-          "radial-gradient(1200px 520px at 20% -20%, rgba(231,201,138,0.45) 0%, rgba(255,255,255,0) 55%), linear-gradient(180deg, #fdf8ef 0%, #f5ead8 100%)",
+        background: `radial-gradient(1200px 520px at 20% -20%, ${warmHighlight} 0%, rgba(255,255,255,0) 55%), linear-gradient(180deg, ${brandBg} 0%, ${warmHighlight} 100%)`,
       }}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(12,31,55,0.03)_0%,rgba(255,255,255,0)_42%,rgba(198,160,92,0.08)_100%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(28,28,28,0.03)_0%,rgba(255,255,255,0)_42%,rgba(48,42,24,0.08)_100%)]" />
 
       <main className="relative mx-auto w-full max-w-md">
         <section
-          className="mb-5 rounded-3xl border p-6 shadow-[0_28px_70px_-42px_rgba(12,31,55,0.45)]"
+          className="mb-5 rounded-3xl border p-6 shadow-[0_28px_70px_-42px_rgba(28,28,28,0.45)]"
           style={{
-            borderColor: "rgba(198,160,92,0.36)",
-            background: "linear-gradient(165deg, rgba(255,251,243,0.94) 0%, rgba(246,234,213,0.95) 100%)",
+            borderColor: "rgba(48,42,24,0.36)",
+            background: `linear-gradient(165deg, #FFFFFF 0%, ${warmHighlight} 100%)`,
           }}
         >
           <p className="text-xs uppercase tracking-[0.24em]" style={{ color: royalNavy }}>
@@ -162,8 +162,8 @@ export default function Home() {
           <section
             className="rounded-2xl border p-5 text-sm"
             style={{
-              borderColor: "rgba(12,31,55,0.14)",
-              background: "rgba(255,252,246,0.9)",
+              borderColor: "rgba(48,42,24,0.14)",
+              background: "rgba(255,255,255,0.9)",
             }}
           >
             <div className="flex items-start gap-3">
@@ -190,11 +190,11 @@ export default function Home() {
                   href={`/c/${ROOT_CLIENT_ID}/t/${encodeURIComponent(routeToken)}`}
                   className="group rounded-2xl border p-4 transition active:translate-y-px"
                   style={{
-                    borderColor: "rgba(198,160,92,0.33)",
+                    borderColor: "rgba(48,42,24,0.33)",
                     background:
-                      "linear-gradient(160deg, rgba(255,252,245,0.96) 0%, rgba(247,237,220,0.95) 100%)",
+                      `linear-gradient(160deg, #FFFFFF 0%, ${warmHighlight} 100%)`,
                     boxShadow:
-                      "0 22px 56px -38px rgba(12,31,55,0.35), inset 0 0 0 1px rgba(198,160,92,0.08)",
+                      "0 22px 56px -38px rgba(28,28,28,0.35), inset 0 0 0 1px rgba(48,42,24,0.08)",
                   }}
                 >
                   <div className="flex items-center justify-between gap-3">
@@ -208,8 +208,8 @@ export default function Home() {
                     <div
                       className="rounded-xl border px-3 py-1.5 text-xs font-semibold"
                       style={{
-                        borderColor: "rgba(198,160,92,0.34)",
-                        backgroundColor: "rgba(231,201,138,0.2)",
+                        borderColor: "rgba(48,42,24,0.34)",
+                        backgroundColor: "rgba(48,42,24,0.1)",
                         color: royalNavy,
                       }}
                     >
