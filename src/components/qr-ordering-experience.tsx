@@ -2542,39 +2542,15 @@ export default function QrOrderingExperience({
       return;
     }
 
-    const targetNames = [
-      "chai",
-      "tandoori masala burger",
-      "chocolate brownie",
-    ];
-
-    const sampledEntries = targetNames.map((targetName) => {
-      const item =
-        menuItems.find((entry) => entry.name.trim().toLowerCase() === targetName) ?? null;
-      if (!item) {
-        return {
-          name: targetName,
-          found: false,
-        } as const;
-      }
-
-      const finalParsedImageSrc = item.image.trim();
-      const renderedImageKey = `${item.id}::${finalParsedImageSrc || "no-image"}`;
-      const finalRenderedImageSrc =
-        finalParsedImageSrc && !brokenImageMap[renderedImageKey]
-          ? finalParsedImageSrc
-          : "";
+    const sampledEntries = menuItems.slice(0, 5).map((item) => {
       const raw = item.raw as Record<string, unknown>;
-
+      const backendImageUrl = toSafeString(raw.image_url) || toSafeString(raw.imageUrl);
+      const finalParsedImageSrc = item.image.trim();
       return {
-        name: item.name,
-        found: true,
         id: item.id,
-        backend_image_url: toSafeString(raw.image_url) || toSafeString(raw.imageUrl),
-        final_parsed_image_src: finalParsedImageSrc,
-        final_rendered_image_src: finalRenderedImageSrc,
-        react_card_key: item.id,
-        react_img_key: renderedImageKey,
+        name: item.name,
+        backend_image_url: backendImageUrl,
+        parsed_item_image: finalParsedImageSrc,
       } as const;
     });
 
@@ -2591,7 +2567,7 @@ export default function QrOrderingExperience({
       table: routeTable,
       sample: sampledEntries,
     });
-  }, [brokenImageMap, menuItems, routeClient, routeTable]);
+  }, [menuItems, routeClient, routeTable]);
 
   const cartItems = useMemo(() => {
     const items: CartItem[] = [];

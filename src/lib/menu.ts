@@ -565,6 +565,20 @@ export function parseCategories(docs: AppwriteDocument[], client: string) {
 }
 
 export function parseMenuItems(docs: AppwriteDocument[], client: string) {
+  const normalizePrimaryMenuImage = (rawValue: string) => {
+    const trimmed = rawValue.trim();
+    if (!trimmed) {
+      return "";
+    }
+
+    // Keep explicit URLs as-is to avoid cross-item proxy cache collisions.
+    if (/^(https?:)?\/\//i.test(trimmed) || trimmed.startsWith("/")) {
+      return trimmed;
+    }
+
+    return resolveAssetUrl(trimmed);
+  };
+
   const items = docs
     .filter((doc) => {
       const hasExplicitClientScope = clientKeys.some(
@@ -582,7 +596,7 @@ export function parseMenuItems(docs: AppwriteDocument[], client: string) {
         getFieldString(doc, ["image_url", "imageUrl"]) ||
         toSafeString(doc.image_url) ||
         toSafeString(doc.imageUrl);
-      const normalizedPrimaryImage = resolveAssetUrl(rawImageUrl);
+      const normalizedPrimaryImage = normalizePrimaryMenuImage(rawImageUrl);
       const normalizedFallbackImage = resolveAssetUrl(
         doc.image ??
           doc.photo ??
