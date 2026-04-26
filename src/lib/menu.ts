@@ -566,7 +566,15 @@ export function parseCategories(docs: AppwriteDocument[], client: string) {
 
 export function parseMenuItems(docs: AppwriteDocument[], client: string) {
   const items = docs
-    .filter((doc) => isClientMatch(doc, client))
+    .filter((doc) => {
+      const hasExplicitClientScope = clientKeys.some(
+        (key) => getFieldString(doc, [key]).length > 0,
+      );
+      if (!hasExplicitClientScope) {
+        return false;
+      }
+      return isClientMatch(doc, client);
+    })
     .map((doc) => {
       const name = getFieldString(doc, ["name", "title", "itemName"]) || "Menu Item";
       const categoryRefs = getFieldStringList(doc, categoryRefKeys);

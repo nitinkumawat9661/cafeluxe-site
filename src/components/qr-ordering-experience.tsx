@@ -2538,32 +2538,48 @@ export default function QrOrderingExperience({
     if (process.env.NODE_ENV === "production") {
       return;
     }
-    if (visibleItems.length === 0) {
+    if (menuItems.length === 0) {
       return;
     }
 
-    const sampledItems = visibleItems.slice(0, 3);
-    const sampledEntries = sampledItems.map((item) => {
+    const targetNames = [
+      "chai",
+      "tandoori masala burger",
+      "chocolate brownie",
+    ];
+
+    const sampledEntries = targetNames.map((targetName) => {
+      const item =
+        menuItems.find((entry) => entry.name.trim().toLowerCase() === targetName) ?? null;
+      if (!item) {
+        return {
+          name: targetName,
+          found: false,
+        } as const;
+      }
+
       const finalParsedImageSrc = item.image.trim();
       const renderedImageKey = `${item.id}::${finalParsedImageSrc || "no-image"}`;
       const finalRenderedImageSrc =
         finalParsedImageSrc && !brokenImageMap[renderedImageKey]
           ? finalParsedImageSrc
           : "";
+      const raw = item.raw as Record<string, unknown>;
 
       return {
-        id: item.id,
         name: item.name,
+        found: true,
+        id: item.id,
+        backend_image_url: toSafeString(raw.image_url) || toSafeString(raw.imageUrl),
         final_parsed_image_src: finalParsedImageSrc,
         final_rendered_image_src: finalRenderedImageSrc,
-      };
+        react_card_key: item.id,
+        react_img_key: renderedImageKey,
+      } as const;
     });
 
     const signature = sampledEntries
-      .map(
-        (entry) =>
-          `${entry.id}:${entry.final_parsed_image_src}:${entry.final_rendered_image_src}`,
-      )
+      .map((entry) => JSON.stringify(entry))
       .join("|");
     if (menuImageDebugSignatureRef.current === signature) {
       return;
@@ -2575,7 +2591,7 @@ export default function QrOrderingExperience({
       table: routeTable,
       sample: sampledEntries,
     });
-  }, [brokenImageMap, routeClient, routeTable, visibleItems]);
+  }, [brokenImageMap, menuItems, routeClient, routeTable]);
 
   const cartItems = useMemo(() => {
     const items: CartItem[] = [];
