@@ -6,6 +6,7 @@ const APPWRITE_ENDPOINT = process.env.APPWRITE_ENDPOINT ?? "";
 const APPWRITE_PROJECT_ID = process.env.APPWRITE_PROJECT_ID ?? "";
 const APPWRITE_API_KEY = process.env.APPWRITE_API_KEY ?? "";
 const APPWRITE_BUCKET_ID = process.env.APPWRITE_BUCKET_ID ?? "";
+const DEFAULT_BUCKET_ID = "restaurant-assets";
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ message }, { status });
@@ -21,10 +22,6 @@ function ensureServerConfig() {
 
   if (!APPWRITE_API_KEY) {
     return jsonError("Server Appwrite API key is missing (APPWRITE_API_KEY).", 500);
-  }
-
-  if (!APPWRITE_BUCKET_ID) {
-    return jsonError("Server Appwrite bucket is missing (APPWRITE_BUCKET_ID).", 500);
   }
 
   return null;
@@ -69,12 +66,22 @@ export async function GET(request: NextRequest) {
   }
 
   const requestedBucketId = normalizeId(request.nextUrl.searchParams.get("bucketId"));
-  if (requestedBucketId && requestedBucketId !== APPWRITE_BUCKET_ID) {
+  const configuredBucketId = normalizeId(APPWRITE_BUCKET_ID);
+  const effectiveBucketId = requestedBucketId || configuredBucketId || DEFAULT_BUCKET_ID;
+
+  const allowedBucketIds = new Set<string>();
+  if (configuredBucketId) {
+    allowedBucketIds.add(configuredBucketId);
+  } else {
+    allowedBucketIds.add(DEFAULT_BUCKET_ID);
+  }
+
+  if (requestedBucketId && !allowedBucketIds.has(requestedBucketId)) {
     return jsonError("Bucket is not allowed.", 403);
   }
 
   const upstreamUrl = `${APPWRITE_ENDPOINT}/storage/buckets/${encodeURIComponent(
-    APPWRITE_BUCKET_ID,
+    effectiveBucketId,
   )}/files/${encodeURIComponent(fileId)}/view`;
 
   const upstreamResponse = await fetch(upstreamUrl, {
@@ -100,11 +107,6 @@ export async function GET(request: NextRequest) {
     responseHeaders.set("Content-Type", contentType);
   } else {
     responseHeaders.set("Content-Type", "application/octet-stream");
-  }
-
-  const contentLength = upstreamResponse.headers.get("content-length");
-  if (contentLength) {
-    responseHeaders.set("Content-Length", contentLength);
   }
 
   const etag = upstreamResponse.headers.get("etag");
