@@ -3418,7 +3418,7 @@ export default function QrOrderingExperience({
     }
   }
 
-function handleUpiPayClick(link: string) {
+  function handleUpiPayClick(link: string) {
     if (!link) {
       return;
     }
@@ -3434,6 +3434,7 @@ function handleUpiPayClick(link: string) {
       return;
     }
 
+    console.log(`[UPI_RAW_URI] ${link}`);
     window.location.href = link;
   }
 
