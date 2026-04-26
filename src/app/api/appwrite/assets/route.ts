@@ -121,7 +121,10 @@ export async function GET(request: NextRequest) {
   responseHeaders.set("Surrogate-Control", "no-store");
   responseHeaders.set("Pragma", "no-cache");
   responseHeaders.set("Expires", "0");
+  responseHeaders.set("No-Transform", "true");
   responseHeaders.set("Vary", "Accept, Origin");
+  responseHeaders.set("X-Asset-FileId", fileId);
+  responseHeaders.set("X-Asset-BucketId", effectiveBucketId);
 
   const body = await upstreamResponse.arrayBuffer();
   return new NextResponse(body, {

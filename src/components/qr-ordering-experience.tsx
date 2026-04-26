@@ -2497,13 +2497,26 @@ export default function QrOrderingExperience({
     // stale old registrations from earlier deployments that may serve wrong cached
     // responses for `/api/appwrite/assets` on mobile.
     const cleanupStaleServiceWorkerCache = async () => {
+      const cleanupFlagKey = "cafeluxe_mobile_cache_cleanup_done";
+      const cleanupAlreadyDone =
+        typeof window.sessionStorage !== "undefined" &&
+        window.sessionStorage.getItem(cleanupFlagKey) === "1";
+      if (cleanupAlreadyDone) {
+        return;
+      }
+
+      let didMutateRuntimeCache = false;
+
       try {
         if ("serviceWorker" in navigator) {
           const registrations = await navigator.serviceWorker.getRegistrations();
           await Promise.all(
             registrations.map(async (registration) => {
               try {
-                await registration.unregister();
+                const unregistered = await registration.unregister();
+                if (unregistered) {
+                  didMutateRuntimeCache = true;
+                }
               } catch {
                 // Ignore unregister failures.
               }
@@ -2515,24 +2528,21 @@ export default function QrOrderingExperience({
       }
 
       try {
-        if (!("caches" in window)) {
+        const hasCacheStorage = typeof window.caches !== "undefined";
+        if (!hasCacheStorage) {
+          if (typeof window.sessionStorage !== "undefined") {
+            window.sessionStorage.setItem(cleanupFlagKey, "1");
+          }
           return;
         }
         const cacheNames = await window.caches.keys();
-        const staleCacheNames = cacheNames.filter((cacheName) => {
-          const key = cacheName.toLowerCase();
-          return (
-            key.includes("workbox") ||
-            key.includes("next-pwa") ||
-            key.includes("service-worker") ||
-            key.includes("runtime") ||
-            key.includes("precache")
-          );
-        });
         await Promise.all(
-          staleCacheNames.map(async (cacheName) => {
+          cacheNames.map(async (cacheName) => {
             try {
-              await window.caches.delete(cacheName);
+              const deleted = await window.caches.delete(cacheName);
+              if (deleted) {
+                didMutateRuntimeCache = true;
+              }
             } catch {
               // Ignore delete failures.
             }
@@ -2540,6 +2550,14 @@ export default function QrOrderingExperience({
         );
       } catch {
         // Ignore Cache Storage cleanup failures.
+      }
+
+      if (typeof window.sessionStorage !== "undefined") {
+        window.sessionStorage.setItem(cleanupFlagKey, "1");
+      }
+
+      if (didMutateRuntimeCache && typeof window.location !== "undefined") {
+        window.location.reload();
       }
     };
 
