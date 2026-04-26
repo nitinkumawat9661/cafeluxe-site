@@ -72,9 +72,8 @@ export async function GET(request: NextRequest) {
   const allowedBucketIds = new Set<string>();
   if (configuredBucketId) {
     allowedBucketIds.add(configuredBucketId);
-  } else {
-    allowedBucketIds.add(DEFAULT_BUCKET_ID);
   }
+  allowedBucketIds.add(DEFAULT_BUCKET_ID);
 
   if (requestedBucketId && !allowedBucketIds.has(requestedBucketId)) {
     return jsonError("Bucket is not allowed.", 403);
