@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const APPWRITE_ENDPOINT = process.env.APPWRITE_ENDPOINT ?? "";
 const APPWRITE_PROJECT_ID = process.env.APPWRITE_PROJECT_ID ?? "";
@@ -118,7 +120,9 @@ export async function GET(request: NextRequest) {
     responseHeaders.set("Last-Modified", lastModified);
   }
 
-  responseHeaders.set("Cache-Control", "public, max-age=300, stale-while-revalidate=600");
+  // Keep this route strictly request-scoped so each fileId resolves to its own image
+  // without intermediary caching layers reusing a stale binary across items.
+  responseHeaders.set("Cache-Control", "no-store, max-age=0");
 
   const body = await upstreamResponse.arrayBuffer();
   return new NextResponse(body, {

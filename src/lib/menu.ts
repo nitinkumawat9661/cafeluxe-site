@@ -578,14 +578,9 @@ export function parseMenuItems(docs: AppwriteDocument[], client: string) {
     .map((doc) => {
       const name = getFieldString(doc, ["name", "title", "itemName"]) || "Menu Item";
       const categoryRefs = getFieldStringList(doc, categoryRefKeys);
-      const rawImageUrl =
-        getFieldString(doc, ["image_url", "imageUrl"]) ||
-        toSafeString(doc.image_url) ||
-        toSafeString(doc.imageUrl);
-      // Use the canonical resolver so Appwrite storage URLs are served from same-origin
-      // `/api/appwrite/assets` on all devices (including mobile browsers).
-      const normalizedPrimaryImage = resolveAssetUrl(rawImageUrl);
-      const normalizedFallbackImage = resolveAssetUrl(
+      const backendImageUrl = getFieldString(doc, ["image_url", "imageUrl"]);
+      const resolvedBackendImage = resolveAssetUrl(backendImageUrl);
+      const resolvedLegacyImage = resolveAssetUrl(
         doc.image ??
           doc.photo ??
           doc.thumbnail ??
@@ -594,13 +589,16 @@ export function parseMenuItems(docs: AppwriteDocument[], client: string) {
           doc.assetId ??
           doc.asset_id,
       );
+      // Single deterministic source per item:
+      // 1) backend `image_url` / `imageUrl`
+      // 2) legacy media fields only when primary image is absent
+      const finalImageSrc = resolvedBackendImage || resolvedLegacyImage;
       return {
         id: doc.$id,
         name,
         nameHi: getFieldString(doc, ["name_hi", "nameHindi", "title_hi"]) || name,
         description: getFieldString(doc, ["description", "desc", "subtitle"]),
-        // Normalize source once so every card receives a deterministic per-item image URL.
-        image: normalizedPrimaryImage || normalizedFallbackImage,
+        image: finalImageSrc,
         price: getFieldNumber(doc, ["price", "amount", "rate", "mrp", "salePrice"]),
         categoryRefs,
         isAvailable:

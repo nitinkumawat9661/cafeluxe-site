@@ -831,16 +831,9 @@ function buildUpiPaymentLink({
   }
 
   const safeName = sanitizeUpiText(upiName, 60).replace(/[^a-zA-Z0-9 .,_-]/g, "");
-
-  const params = new URLSearchParams();
-  params.set("pa", normalizedUpiId);
-  if (safeName) {
-    params.set("pn", safeName);
-  }
-  params.set("am", amount.toFixed(2));
-  params.set("cu", "INR");
-
-  return `upi://pay?${params.toString()}`;
+  const finalName = safeName || DEFAULT_UPI_NAME;
+  const finalAmount = Number(amount).toFixed(2);
+  return `upi://pay?pa=${normalizedUpiId}&pn=${finalName}&am=${finalAmount}&cu=INR`;
 }
 
 function supportsUpiDeepLinkInBrowser() {
@@ -1918,7 +1911,6 @@ export default function QrOrderingExperience({
   const [tableOrders, setTableOrders] = useState<TableOrderRecord[]>([]);
   const [customerBrowserId, setCustomerBrowserId] = useState("");
   const [customerProfile, setCustomerProfile] = useState<CustomerProfile | null>(null);
-  const [brokenImageMap, setBrokenImageMap] = useState<Record<string, true>>({});
   const placeOrderLockRef = useRef(false);
   const tableOrdersRef = useRef<TableOrderRecord[]>([]);
   const activeOrderContextRef = useRef<ActiveOrderContext | null>(null);
@@ -2046,7 +2038,6 @@ export default function QrOrderingExperience({
       orderSyncSnapshotRef.current = {};
       setSelectedBillOrderId("");
       setSearchText("");
-      setBrokenImageMap({});
       setBillOpen(false);
       setSelectedModifiersByItem({});
       setKitchenInstructions("");
@@ -2527,11 +2518,22 @@ export default function QrOrderingExperience({
       const raw = item.raw as Record<string, unknown>;
       const backendImageUrl = toSafeString(raw.image_url) || toSafeString(raw.imageUrl);
       const finalParsedImageSrc = item.image.trim();
+      const renderedImageElement =
+        typeof document !== "undefined"
+          ? (document.querySelector(
+              `img[data-menu-image-item="${item.id}"]`,
+            ) as HTMLImageElement | null)
+          : null;
+      const renderedImageSrc =
+        renderedImageElement?.getAttribute("src") ||
+        renderedImageElement?.currentSrc ||
+        "";
       return {
         id: item.id,
         name: item.name,
         backend_image_url: backendImageUrl,
         parsed_item_image: finalParsedImageSrc,
+        rendered_image_src: renderedImageSrc,
       } as const;
     });
 
@@ -3943,8 +3945,7 @@ export default function QrOrderingExperience({
             {visibleItems.map((item) => {
               const quantity = cart[item.id] ?? 0;
               const parsedImageSrc = item.image.trim();
-              const renderedImageKey = `${item.id}::${parsedImageSrc || "no-image"}`;
-              const hasImage = !!parsedImageSrc && !brokenImageMap[renderedImageKey];
+              const hasImage = parsedImageSrc.length > 0;
               const selectedModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
               const modifierTotal = getSelectedModifierTotal(selectedModifiers);
               const displayPrice = item.price + modifierTotal;
@@ -3953,6 +3954,7 @@ export default function QrOrderingExperience({
               return (
                 <article
                   key={item.id}
+                  data-menu-item-id={item.id}
                   className="group overflow-hidden rounded-2xl border shadow-[0_30px_70px_-44px_rgba(0,0,0,0.98)] transition duration-300 hover:-translate-y-1"
                   style={{
                     borderColor: withAlpha(WARM_HIGHLIGHT, 0.23),
@@ -3968,26 +3970,23 @@ export default function QrOrderingExperience({
                         : "linear-gradient(135deg, rgb(39 39 42) 0%, rgb(9 9 11) 100%)",
                     }}
                   >
+                    <div className="absolute inset-0 flex items-center justify-center text-zinc-500">
+                      <ShoppingBag className="h-10 w-10" />
+                    </div>
                     {hasImage ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        key={renderedImageKey}
                         src={parsedImageSrc}
                         alt={item.name}
+                        data-menu-rendered-src={parsedImageSrc}
+                        data-menu-image-item={item.id}
                         className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
                         loading="lazy"
-                        onError={() => {
-                          setBrokenImageMap((current) => ({
-                            ...current,
-                            [renderedImageKey]: true,
-                          }));
+                        onError={(event) => {
+                          event.currentTarget.style.display = "none";
                         }}
                       />
-                    ) : (
-                      <div className="flex h-full items-center justify-center text-zinc-500">
-                        <ShoppingBag className="h-10 w-10" />
-                      </div>
-                    )}
+                    ) : null}
                     <div
                       className="pointer-events-none absolute inset-0"
                       style={{
