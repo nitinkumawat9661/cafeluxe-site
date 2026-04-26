@@ -25,7 +25,6 @@ import {
   createDocumentWithFallback,
   fetchAllDocuments,
   Query,
-  resolveAssetUrl,
   updateDocumentWithFallback,
 } from "@/lib/appwrite";
 import {
@@ -1917,7 +1916,6 @@ export default function QrOrderingExperience({
   const [customerBrowserId, setCustomerBrowserId] = useState("");
   const [customerProfile, setCustomerProfile] = useState<CustomerProfile | null>(null);
   const [brokenImageMap, setBrokenImageMap] = useState<Record<string, true>>({});
-  const [directImageFallbackMap, setDirectImageFallbackMap] = useState<Record<string, true>>({});
   const placeOrderLockRef = useRef(false);
   const tableOrdersRef = useRef<TableOrderRecord[]>([]);
   const activeOrderContextRef = useRef<ActiveOrderContext | null>(null);
@@ -2068,7 +2066,6 @@ export default function QrOrderingExperience({
       setSelectedBillOrderId("");
       setSearchText("");
       setBrokenImageMap({});
-      setDirectImageFallbackMap({});
       setBillOpen(false);
       setSelectedModifiersByItem({});
       setKitchenInstructions("");
@@ -2547,30 +2544,26 @@ export default function QrOrderingExperience({
 
     const sampledItems = visibleItems.slice(0, 3);
     const sampledEntries = sampledItems.map((item) => {
-      const raw = item.raw as Record<string, unknown>;
-      const parsedImage = item.image.trim();
-      const resolvedImageSrc = parsedImage ? resolveAssetUrl(parsedImage) : "";
-      const productImageKey = `${item.id}::${parsedImage || "no-image"}`;
-      const finalRenderedSrc =
-        !directImageFallbackMap[productImageKey] && resolvedImageSrc
-          ? resolvedImageSrc
-          : parsedImage;
+      const finalParsedImageSrc = item.image.trim();
+      const renderedImageKey = `${item.id}::${finalParsedImageSrc || "no-image"}`;
+      const finalRenderedImageSrc =
+        finalParsedImageSrc && !brokenImageMap[renderedImageKey]
+          ? finalParsedImageSrc
+          : "";
 
       return {
         id: item.id,
         name: item.name,
-        raw_image_url: toSafeString(raw.image_url),
-        raw_imageUrl: toSafeString(raw.imageUrl),
-        raw_image: toSafeString(raw.image),
-        raw_image_id: toSafeString(raw.image_id) || toSafeString(raw.imageId),
-        parsed_image: parsedImage,
-        resolved_image_src: resolvedImageSrc || parsedImage,
-        final_rendered_src: finalRenderedSrc,
+        final_parsed_image_src: finalParsedImageSrc,
+        final_rendered_image_src: finalRenderedImageSrc,
       };
     });
 
     const signature = sampledEntries
-      .map((entry) => `${entry.id}:${entry.parsed_image}:${entry.final_rendered_src}`)
+      .map(
+        (entry) =>
+          `${entry.id}:${entry.final_parsed_image_src}:${entry.final_rendered_image_src}`,
+      )
       .join("|");
     if (menuImageDebugSignatureRef.current === signature) {
       return;
@@ -2582,7 +2575,7 @@ export default function QrOrderingExperience({
       table: routeTable,
       sample: sampledEntries,
     });
-  }, [directImageFallbackMap, routeClient, routeTable, visibleItems]);
+  }, [brokenImageMap, routeClient, routeTable, visibleItems]);
 
   const cartItems = useMemo(() => {
     const items: CartItem[] = [];
@@ -3995,15 +3988,9 @@ export default function QrOrderingExperience({
           <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {visibleItems.map((item) => {
               const quantity = cart[item.id] ?? 0;
-              const directImageSrc = item.image.trim();
-              const proxyImageSrc = directImageSrc ? resolveAssetUrl(directImageSrc) : "";
-              const productImageKey = `${item.id}::${directImageSrc || "no-image"}`;
-              const resolvedImageSrc =
-                !directImageFallbackMap[productImageKey] && proxyImageSrc
-                  ? proxyImageSrc
-                  : directImageSrc;
-              const renderedImageKey = `${item.id}::${resolvedImageSrc || "no-image"}`;
-              const hasImage = !!resolvedImageSrc && !brokenImageMap[productImageKey];
+              const parsedImageSrc = item.image.trim();
+              const renderedImageKey = `${item.id}::${parsedImageSrc || "no-image"}`;
+              const hasImage = !!parsedImageSrc && !brokenImageMap[renderedImageKey];
               const selectedModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
               const modifierTotal = getSelectedModifierTotal(selectedModifiers);
               const displayPrice = item.price + modifierTotal;
@@ -4031,27 +4018,14 @@ export default function QrOrderingExperience({
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         key={renderedImageKey}
-                        src={resolvedImageSrc}
+                        src={parsedImageSrc}
                         alt={item.name}
                         className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
                         loading="lazy"
                         onError={() => {
-                          const shouldTryDirectFallback =
-                            !directImageFallbackMap[productImageKey] &&
-                            !!directImageSrc &&
-                            proxyImageSrc !== directImageSrc;
-
-                          if (shouldTryDirectFallback) {
-                            setDirectImageFallbackMap((current) => ({
-                              ...current,
-                              [productImageKey]: true,
-                            }));
-                            return;
-                          }
-
                           setBrokenImageMap((current) => ({
                             ...current,
-                            [productImageKey]: true,
+                            [renderedImageKey]: true,
                           }));
                         }}
                       />
