@@ -15,6 +15,69 @@ function getRouteTableToken(table: RestaurantTable) {
   return (table.tableCode || table.tableNo || table.id).trim();
 }
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "object" && error && "message" in error) {
+    return String(error.message);
+  }
+  return "Unknown error";
+}
+
+function toSafeTableLoadReason(error: unknown) {
+  const rawMessage = getErrorMessage(error).trim();
+  if (!rawMessage) {
+    return "Unknown error";
+  }
+
+  if (/usage[_\s-]*exceeded|service unavailable/i.test(rawMessage)) {
+    return "Service usage limit reached";
+  }
+  if (/not authorized|unauthorized|missing scope/i.test(rawMessage)) {
+    return "Server authorization failed";
+  }
+  if (/missing .*appwrite|configuration/i.test(rawMessage)) {
+    return "Server Appwrite configuration missing";
+  }
+  if (/timed out/i.test(rawMessage)) {
+    return "Request timed out";
+  }
+
+  return rawMessage;
+}
+
+async function fetchHomepageTables(clientId: string) {
+  try {
+    return await fetchAllDocuments(appwriteConfig.collections.tables, {
+      pageSize: 100,
+      maxDocs: 400,
+      queries: [Query.equal("client_id", [clientId])],
+      timeoutMs: 12000,
+    });
+  } catch (filteredError) {
+    const filteredReason = getErrorMessage(filteredError);
+    console.warn("[HomeTables] Client-filtered tables fetch failed, retrying unfiltered fetch.", {
+      clientId,
+      stage: "tables.filtered",
+      reason: filteredReason,
+    });
+
+    try {
+      return await fetchAllDocuments(appwriteConfig.collections.tables, {
+        pageSize: 100,
+        maxDocs: 400,
+        timeoutMs: 12000,
+      });
+    } catch (fallbackError) {
+      const fallbackReason = getErrorMessage(fallbackError);
+      throw new Error(
+        `tables.filtered=${filteredReason}; tables.fallback=${fallbackReason}`,
+      );
+    }
+  }
+}
+
 export default function Home() {
   const royalNavy = "#1C1C1C";
   const luxuryGold = "#302A18";
@@ -24,6 +87,7 @@ export default function Home() {
   const [tables, setTables] = useState<RestaurantTable[]>([]);
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [errorReason, setErrorReason] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -32,21 +96,24 @@ export default function Home() {
     async function loadHomepageData() {
       setLoadState("loading");
       setErrorMessage("");
+      setErrorReason("");
 
       try {
         const [tableDocs, settingsDocs] = await Promise.all([
-          fetchAllDocuments(appwriteConfig.collections.tables, {
-            pageSize: 120,
-            maxDocs: 400,
-            queries: [Query.equal("client_id", [ROOT_CLIENT_ID]), Query.limit(120)],
-            timeoutMs: 12000,
-          }),
+          fetchHomepageTables(ROOT_CLIENT_ID),
           fetchAllDocuments(appwriteConfig.collections.settings, {
-            pageSize: 120,
+            pageSize: 100,
             maxDocs: 200,
-            queries: [Query.equal("client_id", [ROOT_CLIENT_ID]), Query.limit(120)],
+            queries: [Query.equal("client_id", [ROOT_CLIENT_ID])],
             timeoutMs: 12000,
-          }).catch(() => []),
+          }).catch((settingsError) => {
+            console.warn("[HomeTables] Settings fetch failed, continuing with defaults.", {
+              clientId: ROOT_CLIENT_ID,
+              stage: "settings.filtered",
+              reason: getErrorMessage(settingsError),
+            });
+            return [];
+          }),
         ]);
 
         if (cancelled) {
@@ -63,9 +130,16 @@ export default function Home() {
         if (cancelled) {
           return;
         }
-        console.error(error);
+        const reason = toSafeTableLoadReason(error);
+        console.error("[HomeTables] Live tables load failed.", {
+          clientId: ROOT_CLIENT_ID,
+          stage: "home.load",
+          reason,
+          raw: getErrorMessage(error),
+        });
         setLoadState("error");
         setErrorMessage("Unable to load live tables right now. Please retry.");
+        setErrorReason(reason);
       }
     }
 
@@ -140,6 +214,9 @@ export default function Home() {
               <div>
                 <p className="text-sm font-semibold">Unable To Load Tables</p>
                 <p className="mt-1 text-sm text-rose-700">{errorMessage}</p>
+                {errorReason ? (
+                  <p className="mt-1 text-xs text-rose-700/90">Reason: {errorReason}</p>
+                ) : null}
                 <button
                   type="button"
                   className="mt-3 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition"
