@@ -51,6 +51,7 @@ export type MenuItem = {
   nameHi: string;
   description: string;
   image: string;
+  imageFileId?: string;
   price: number;
   categoryRefs: string[];
   isAvailable: boolean;
@@ -136,6 +137,25 @@ function slugify(value: string) {
     .toLowerCase()
     .replace(/[_\s]+/g, "-")
     .replace(/[^a-z0-9-]/g, "");
+}
+
+function extractAssetFileId(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const queryMatch = trimmed.match(/[?&]fileId=([^&#]+)/i);
+  if (queryMatch) {
+    return decodeURIComponent(queryMatch[1]).trim();
+  }
+
+  const pathMatch = trimmed.match(/\/files\/([^/?#]+)/i);
+  if (pathMatch) {
+    return decodeURIComponent(pathMatch[1]).trim();
+  }
+
+  return "";
 }
 
 function toTitleCase(value: string) {
@@ -593,12 +613,14 @@ export function parseMenuItems(docs: AppwriteDocument[], client: string) {
       // 1) backend `image_url` / `imageUrl`
       // 2) legacy media fields only when primary image is absent
       const finalImageSrc = resolvedBackendImage || resolvedLegacyImage;
+      const imageFileId = extractAssetFileId(finalImageSrc);
       return {
         id: doc.$id,
         name,
         nameHi: getFieldString(doc, ["name_hi", "nameHindi", "title_hi"]) || name,
         description: getFieldString(doc, ["description", "desc", "subtitle"]),
         image: finalImageSrc,
+        imageFileId,
         price: getFieldNumber(doc, ["price", "amount", "rate", "mrp", "salePrice"]),
         categoryRefs,
         isAvailable:

@@ -106,6 +106,8 @@ type StatusPopupState = {
   tone: "info" | "success";
 };
 
+type ImageLoadState = "PENDING" | "LOAD_OK" | "LOAD_ERR";
+
 type LegacyPersistedTableSession = {
   version: number;
   client: string;
@@ -1911,6 +1913,9 @@ export default function QrOrderingExperience({
   const [tableOrders, setTableOrders] = useState<TableOrderRecord[]>([]);
   const [customerBrowserId, setCustomerBrowserId] = useState("");
   const [customerProfile, setCustomerProfile] = useState<CustomerProfile | null>(null);
+  const [imageLoadStateByItem, setImageLoadStateByItem] = useState<Record<string, ImageLoadState>>(
+    {},
+  );
   const placeOrderLockRef = useRef(false);
   const tableOrdersRef = useRef<TableOrderRecord[]>([]);
   const activeOrderContextRef = useRef<ActiveOrderContext | null>(null);
@@ -2609,6 +2614,14 @@ export default function QrOrderingExperience({
       sample: sampledEntries,
     });
   }, [menuItems, routeClient, routeTable]);
+
+  useEffect(() => {
+    const next: Record<string, ImageLoadState> = {};
+    for (const item of menuItems) {
+      next[item.id] = "PENDING";
+    }
+    setImageLoadStateByItem(next);
+  }, [menuItems]);
 
   const cartItems = useMemo(() => {
     const items: CartItem[] = [];
@@ -4004,6 +4017,18 @@ export default function QrOrderingExperience({
               const quantity = cart[item.id] ?? 0;
               const parsedImageSrc = item.image.trim();
               const hasImage = parsedImageSrc.length > 0;
+              const backendImageUrl =
+                toSafeString((item.raw as Record<string, unknown>).image_url) ||
+                toSafeString((item.raw as Record<string, unknown>).imageUrl);
+              const extractedFileId = item.imageFileId?.trim() || "";
+              const loadState = imageLoadStateByItem[item.id] ?? "PENDING";
+              const loadBadge = loadState === "LOAD_OK" ? "LOAD_OK" : "LOAD_ERR";
+              const loadEvent =
+                loadState === "LOAD_OK"
+                  ? "onLoad fired"
+                  : loadState === "LOAD_ERR"
+                    ? "onError fired"
+                    : "pending";
               const selectedModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
               const modifierTotal = getSelectedModifierTotal(selectedModifiers);
               const displayPrice = item.price + modifierTotal;
@@ -4040,7 +4065,21 @@ export default function QrOrderingExperience({
                         data-menu-image-item={item.id}
                         className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
                         loading="lazy"
+                        onLoad={() => {
+                          setImageLoadStateByItem((current) => {
+                            if (current[item.id] === "LOAD_OK") {
+                              return current;
+                            }
+                            return { ...current, [item.id]: "LOAD_OK" };
+                          });
+                        }}
                         onError={(event) => {
+                          setImageLoadStateByItem((current) => {
+                            if (current[item.id] === "LOAD_ERR") {
+                              return current;
+                            }
+                            return { ...current, [item.id]: "LOAD_ERR" };
+                          });
                           event.currentTarget.style.display = "none";
                         }}
                       />
@@ -4117,6 +4156,17 @@ export default function QrOrderingExperience({
                     ) : (
                       <div className="min-h-10" />
                     )}
+
+                    <div className="space-y-0.5 text-[10px] leading-4 text-zinc-500 md:hidden">
+                      <p className="truncate">DEBUG_NAME: {item.name}</p>
+                      <p className="truncate">DEBUG_DOC_ID: {item.id}</p>
+                      <p className="break-all">DEBUG_BACKEND_IMAGE: {backendImageUrl || "-"}</p>
+                      <p className="break-all">DEBUG_PARSED_IMAGE: {parsedImageSrc || "-"}</p>
+                      <p className="break-all">DEBUG_FILE_ID: {extractedFileId || "-"}</p>
+                      <p>
+                        DEBUG_LOAD: {loadBadge} ({loadEvent})
+                      </p>
+                    </div>
 
                     <div className="flex items-center justify-between gap-3">
                       <div>
