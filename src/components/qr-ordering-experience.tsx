@@ -816,7 +816,7 @@ function sanitizeUpiText(value: string, maxLength: number) {
 
 function sanitizeUpiTransactionRef(value: string, maxLength = 35) {
   const cleaned = sanitizeUpiText(value, maxLength)
-    .replace(/[^a-zA-Z0-9._-]/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "")
     .slice(0, maxLength);
   return cleaned;
 }
@@ -826,21 +826,18 @@ function withFreshUpiAttemptRef(link: string) {
     const parsed = new URL(link);
     const baseRef =
       parsed.searchParams.get("tr") ||
-      parsed.searchParams.get("tid") ||
       "";
-    const sanitizedBase = sanitizeUpiTransactionRef(baseRef, 24);
-    if (!sanitizedBase) {
-      return link;
-    }
 
-    const suffix = Date.now().toString(36).toUpperCase().slice(-8);
-    const finalRef = sanitizeUpiTransactionRef(`${sanitizedBase}-${suffix}`, 35);
+    const sanitizedBase = sanitizeUpiTransactionRef(baseRef, 12) || "CLX";
+    const tsToken = Date.now().toString(36).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const randomToken = Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+    const finalRef = sanitizeUpiTransactionRef(`${sanitizedBase}${tsToken}${randomToken}`, 30);
     if (!finalRef) {
       return link;
     }
 
     parsed.searchParams.set("tr", finalRef);
-    parsed.searchParams.set("tid", finalRef);
+    parsed.searchParams.delete("tid");
     return parsed.toString();
   } catch {
     return link;
@@ -867,7 +864,7 @@ function buildUpiPaymentLink({
 
   const safeName = sanitizeUpiText(upiName, 60);
   const safeNote = sanitizeUpiText(note, 80);
-  const safeRef = sanitizeUpiTransactionRef(transactionRef ?? "", 35);
+  const safeRef = sanitizeUpiTransactionRef(transactionRef ?? "", 30);
 
   const params = new URLSearchParams();
   params.set("pa", normalizedUpiId);
@@ -881,7 +878,6 @@ function buildUpiPaymentLink({
   }
   if (safeRef) {
     params.set("tr", safeRef);
-    params.set("tid", safeRef);
   }
 
   return `upi://pay?${params.toString()}`;
