@@ -570,27 +570,27 @@ export function parseMenuItems(docs: AppwriteDocument[], client: string) {
     .map((doc) => {
       const name = getFieldString(doc, ["name", "title", "itemName"]) || "Menu Item";
       const categoryRefs = getFieldStringList(doc, categoryRefKeys);
-      const directImageUrl =
+      const rawImageUrl =
         getFieldString(doc, ["image_url", "imageUrl"]) ||
         toSafeString(doc.image_url) ||
         toSafeString(doc.imageUrl);
+      const normalizedPrimaryImage = resolveAssetUrl(rawImageUrl);
+      const normalizedFallbackImage = resolveAssetUrl(
+        doc.image ??
+          doc.photo ??
+          doc.thumbnail ??
+          doc.imageId ??
+          doc.image_id ??
+          doc.assetId ??
+          doc.asset_id,
+      );
       return {
         id: doc.$id,
         name,
         nameHi: getFieldString(doc, ["name_hi", "nameHindi", "title_hi"]) || name,
         description: getFieldString(doc, ["description", "desc", "subtitle"]),
-        // Prefer explicit Appwrite URL saved in `image_url` and render it directly.
-        image:
-          directImageUrl ||
-          resolveAssetUrl(
-            doc.image ??
-              doc.photo ??
-              doc.thumbnail ??
-              doc.imageId ??
-              doc.image_id ??
-              doc.assetId ??
-              doc.asset_id,
-          ),
+        // Normalize source once so every card receives a deterministic per-item image URL.
+        image: normalizedPrimaryImage || normalizedFallbackImage,
         price: getFieldNumber(doc, ["price", "amount", "rate", "mrp", "salePrice"]),
         categoryRefs,
         isAvailable:

@@ -1923,6 +1923,7 @@ export default function QrOrderingExperience({
   const activeOrderContextRef = useRef<ActiveOrderContext | null>(null);
   const orderSyncSnapshotRef = useRef<Record<string, { status: string; paymentStatus: string }>>({});
   const statusPopupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const menuImageDebugSignatureRef = useRef("");
 
   const activeCartStorageKey = useMemo(
     () => buildActiveCartStorageKey(routeClient, routeTable),
@@ -2535,6 +2536,53 @@ export default function QrOrderingExperience({
       return haystack.includes(normalizedSearch);
     });
   }, [activeCategory, categories, menuItems, searchText]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") {
+      return;
+    }
+    if (visibleItems.length === 0) {
+      return;
+    }
+
+    const sampledItems = visibleItems.slice(0, 3);
+    const sampledEntries = sampledItems.map((item) => {
+      const raw = item.raw as Record<string, unknown>;
+      const parsedImage = item.image.trim();
+      const resolvedImageSrc = parsedImage ? resolveAssetUrl(parsedImage) : "";
+      const productImageKey = `${item.id}::${parsedImage || "no-image"}`;
+      const finalRenderedSrc =
+        !directImageFallbackMap[productImageKey] && resolvedImageSrc
+          ? resolvedImageSrc
+          : parsedImage;
+
+      return {
+        id: item.id,
+        name: item.name,
+        raw_image_url: toSafeString(raw.image_url),
+        raw_imageUrl: toSafeString(raw.imageUrl),
+        raw_image: toSafeString(raw.image),
+        raw_image_id: toSafeString(raw.image_id) || toSafeString(raw.imageId),
+        parsed_image: parsedImage,
+        resolved_image_src: resolvedImageSrc || parsedImage,
+        final_rendered_src: finalRenderedSrc,
+      };
+    });
+
+    const signature = sampledEntries
+      .map((entry) => `${entry.id}:${entry.parsed_image}:${entry.final_rendered_src}`)
+      .join("|");
+    if (menuImageDebugSignatureRef.current === signature) {
+      return;
+    }
+    menuImageDebugSignatureRef.current = signature;
+
+    console.info("[MenuImageDebug]", {
+      client: routeClient,
+      table: routeTable,
+      sample: sampledEntries,
+    });
+  }, [directImageFallbackMap, routeClient, routeTable, visibleItems]);
 
   const cartItems = useMemo(() => {
     const items: CartItem[] = [];
