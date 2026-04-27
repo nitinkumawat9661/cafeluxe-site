@@ -209,7 +209,7 @@ const ACTIVE_TABLE_STORAGE_VERSION = 1;
 const REQUEST_TIMEOUT_MS = 12000;
 const BILL_SYNC_TIMEOUT_MS = 10000;
 const ORDER_STATUS_WATCH_INTERVAL_MS = 14000;
-const STATUS_POPUP_HIDE_MS = 6500;
+const BILL_AUTO_DELETE_AFTER_MS = 60 * 60 * 1000;
 const MAX_TABLE_ORDER_RECORDS = 60;
 const MAX_ROUTE_CLIENT_LENGTH = 64;
 const MAX_ROUTE_TABLE_LENGTH = 32;
@@ -267,6 +267,15 @@ function getErrorMessage(error: unknown) {
     return String(error.message);
   }
   return "Unexpected error";
+}
+
+async function readResponseMessage(response: Response) {
+  try {
+    const payload = (await response.json()) as { message?: string; error?: string };
+    return payload.message || payload.error || `Request failed (${response.status})`;
+  } catch {
+    return `Request failed (${response.status})`;
+  }
 }
 
 function normalizeRouteToken(value: string) {
@@ -1641,6 +1650,21 @@ function isPaymentConfirmed(status: string) {
   return ["PAID", "SETTLED", "COMPLETED"].includes(normalized);
 }
 
+function getOrderTimelineAnchor(order: TableOrderRecord) {
+  return toTimestamp(order.updatedAt) || toTimestamp(order.createdAt);
+}
+
+function shouldAutoDeleteSettledOrder(order: TableOrderRecord, now = Date.now()) {
+  if (!isPaymentConfirmed(order.paymentStatus)) {
+    return false;
+  }
+  const anchor = getOrderTimelineAnchor(order);
+  if (!anchor) {
+    return false;
+  }
+  return now - anchor >= BILL_AUTO_DELETE_AFTER_MS;
+}
+
 function getOrderStatusLabel(status: string) {
   const normalized = status.trim().toUpperCase();
   if (!normalized) {
@@ -1980,7 +2004,8 @@ export default function QrOrderingExperience({
   const tableOrdersRef = useRef<TableOrderRecord[]>([]);
   const activeOrderContextRef = useRef<ActiveOrderContext | null>(null);
   const orderSyncSnapshotRef = useRef<Record<string, { status: string; paymentStatus: string }>>({});
-  const statusPopupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settledDeleteInFlightRef = useRef<Set<string>>(new Set());
+  const settledDeleteTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const activeCartStorageKey = useMemo(
     () => buildActiveCartStorageKey(routeClient, routeTable),
@@ -2077,10 +2102,12 @@ export default function QrOrderingExperience({
   }, [activeOrderContext]);
 
   useEffect(() => {
+    const timers = settledDeleteTimerRef.current;
     return () => {
-      if (statusPopupTimeoutRef.current) {
-        clearTimeout(statusPopupTimeoutRef.current);
+      for (const timer of timers.values()) {
+        clearTimeout(timer);
       }
+      timers.clear();
     };
   }, []);
 
@@ -2180,15 +2207,18 @@ export default function QrOrderingExperience({
         setCartOpen(false);
         setBillOpen(false);
 
+        let shouldResumeOrderSync = false;
         if (typeof window !== "undefined") {
           const activeCartState = parseActiveCartState(
             window.localStorage.getItem(activeCartStorageKey),
           );
-          const activeBillState = parseActiveBillState(
-            window.localStorage.getItem(activeBillStorageKey),
-          );
+          const sessionBillRaw = window.sessionStorage.getItem(activeBillStorageKey);
+          const sessionStateRaw = window.sessionStorage.getItem(activeSessionStorageKey);
+          const legacyLocalBillRaw = window.localStorage.getItem(activeBillStorageKey);
+          const legacyLocalSessionRaw = window.localStorage.getItem(activeSessionStorageKey);
+          const activeBillState = parseActiveBillState(sessionBillRaw ?? legacyLocalBillRaw);
           const activeSessionState = parseActiveSessionState(
-            window.localStorage.getItem(activeSessionStorageKey),
+            sessionStateRaw ?? legacyLocalSessionRaw,
           );
           const legacySession = parseLegacyPersistedSession(
             window.localStorage.getItem(legacyTableSessionStorageKey),
@@ -2206,6 +2236,19 @@ export default function QrOrderingExperience({
           const legacyForRoute = isRecordForRoute(legacySession, routeClient, routeTable)
             ? legacySession
             : null;
+
+          if (!sessionBillRaw && legacyLocalBillRaw && activeBillState) {
+            window.sessionStorage.setItem(activeBillStorageKey, legacyLocalBillRaw);
+          }
+          if (!sessionStateRaw && legacyLocalSessionRaw && activeSessionState) {
+            window.sessionStorage.setItem(activeSessionStorageKey, legacyLocalSessionRaw);
+          }
+          if (legacyLocalBillRaw) {
+            window.localStorage.removeItem(activeBillStorageKey);
+          }
+          if (legacyLocalSessionRaw) {
+            window.localStorage.removeItem(activeSessionStorageKey);
+          }
 
           if (legacyForRoute) {
             const nowIso = new Date().toISOString();
@@ -2238,7 +2281,7 @@ export default function QrOrderingExperience({
                 orders: [],
                 updatedAt: legacyForRoute.activeOrder.updatedAt || legacyForRoute.updatedAt || nowIso,
               };
-              window.localStorage.setItem(activeBillStorageKey, JSON.stringify(migratedBill));
+              window.sessionStorage.setItem(activeBillStorageKey, JSON.stringify(migratedBill));
             }
 
             if (!sessionForRoute) {
@@ -2251,7 +2294,7 @@ export default function QrOrderingExperience({
                 activeOrder: legacyForRoute.activeOrder,
                 updatedAt: legacyForRoute.updatedAt || nowIso,
               };
-              window.localStorage.setItem(
+              window.sessionStorage.setItem(
                 activeSessionStorageKey,
                 JSON.stringify(migratedSession),
               );
@@ -2290,14 +2333,34 @@ export default function QrOrderingExperience({
             sessionForRoute?.activeOrder ??
             legacyForRoute?.activeOrder ??
             null;
-          let restoredOrders = billForRoute?.orders ?? [];
+          const persistedOrders = billForRoute?.orders ?? [];
+          const settledPersistedOrders = persistedOrders.filter((order) =>
+            isOrderClosed(order.status, order.paymentStatus),
+          );
+          const restoredOrders = persistedOrders.filter(
+            (order) => !isOrderClosed(order.status, order.paymentStatus),
+          );
+
+          for (const settledOrder of settledPersistedOrders) {
+            scheduleSettledOrderDelete(settledOrder);
+          }
 
           if (!restoredOrder && restoredOrders.length > 0) {
             restoredOrder = getLatestOrderContextFromRecords(restoredOrders);
           }
 
+          shouldResumeOrderSync =
+            !!billForRoute ||
+            !!sessionForRoute ||
+            !!legacyForRoute ||
+            Object.keys(cartSource).length > 0 ||
+            restoredOrders.length > 0 ||
+            !!restoredOrder;
+
           if (restoredOrder && isOrderClosed(restoredOrder.status, restoredOrder.paymentStatus)) {
             window.localStorage.removeItem(activeCartStorageKey);
+            window.sessionStorage.removeItem(activeBillStorageKey);
+            window.sessionStorage.removeItem(activeSessionStorageKey);
             window.localStorage.removeItem(activeBillStorageKey);
             window.localStorage.removeItem(activeSessionStorageKey);
             window.localStorage.removeItem(legacyTableSessionStorageKey);
@@ -2358,7 +2421,7 @@ export default function QrOrderingExperience({
         });
 
         // Sync backend orders in background so first load does not wait on order-history calls.
-        if (ENABLE_BACKEND_ORDER_SYNC) {
+        if (ENABLE_BACKEND_ORDER_SYNC && shouldResumeOrderSync) {
           void (async () => {
             try {
               const backendOrders = await withTimeout(
@@ -2375,6 +2438,27 @@ export default function QrOrderingExperience({
               if (!cancelled) {
                 console.warn("Initial bill sync failed:", syncError);
               }
+            }
+          })();
+        } else if (ENABLE_BACKEND_ORDER_SYNC) {
+          // Fresh tab should not restore bill UI, but we still process settled-order cleanup.
+          void (async () => {
+            try {
+              const backendOrders = await withTimeout(
+                fetchTableOrderRecords(matchedTable.clientId || routeClient, matchedTable.id),
+                BILL_SYNC_TIMEOUT_MS,
+                "Settled cleanup scan",
+              );
+              if (cancelled || backendOrders.length === 0) {
+                return;
+              }
+              for (const backendOrder of backendOrders) {
+                if (isOrderClosed(backendOrder.status, backendOrder.paymentStatus)) {
+                  scheduleSettledOrderDelete(backendOrder);
+                }
+              }
+            } catch {
+              // Keep cleanup scan silent.
             }
           })();
         }
@@ -2510,17 +2594,21 @@ export default function QrOrderingExperience({
     }
 
     if (hasOpenOrder || hasBillOrders) {
-      window.localStorage.setItem(activeBillStorageKey, JSON.stringify(activeBillState));
+      window.sessionStorage.setItem(activeBillStorageKey, JSON.stringify(activeBillState));
+      window.localStorage.removeItem(activeBillStorageKey);
     } else {
+      window.sessionStorage.removeItem(activeBillStorageKey);
       window.localStorage.removeItem(activeBillStorageKey);
     }
 
     if (hasCart || hasOpenOrder || hasBillOrders) {
-      window.localStorage.setItem(
+      window.sessionStorage.setItem(
         activeSessionStorageKey,
         JSON.stringify(activeSessionState),
       );
+      window.localStorage.removeItem(activeSessionStorageKey);
     } else {
+      window.sessionStorage.removeItem(activeSessionStorageKey);
       window.localStorage.removeItem(activeSessionStorageKey);
     }
 
@@ -2962,12 +3050,76 @@ export default function QrOrderingExperience({
 
   function showStatusPopup(nextPopup: StatusPopupState) {
     setStatusPopup(nextPopup);
-    if (statusPopupTimeoutRef.current) {
-      clearTimeout(statusPopupTimeoutRef.current);
+  }
+
+  async function deleteSettledOrderAfterRetention(order: TableOrderRecord) {
+    if (!tableInfo?.id) {
+      return;
     }
-    statusPopupTimeoutRef.current = setTimeout(() => {
-      setStatusPopup(null);
-    }, STATUS_POPUP_HIDE_MS);
+    if (!shouldAutoDeleteSettledOrder(order)) {
+      return;
+    }
+    if (settledDeleteInFlightRef.current.has(order.orderId)) {
+      return;
+    }
+
+    settledDeleteInFlightRef.current.add(order.orderId);
+    try {
+      const response = await withTimeout(
+        fetch("/api/appwrite/documents", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          cache: "no-store",
+          body: JSON.stringify({
+            collectionId: appwriteConfig.collections.orders,
+            documentId: order.orderId,
+            clientId: routeClient,
+            tableId: tableInfo.id,
+          }),
+        }),
+        REQUEST_TIMEOUT_MS,
+        "Delete settled order",
+      );
+
+      if (!response.ok) {
+        const message = await readResponseMessage(response);
+        console.warn(`Settled order cleanup skipped for ${order.orderId}: ${message}`);
+      }
+    } catch (error) {
+      console.warn(`Settled order cleanup failed for ${order.orderId}:`, error);
+    } finally {
+      settledDeleteInFlightRef.current.delete(order.orderId);
+    }
+  }
+
+  function scheduleSettledOrderDelete(order: TableOrderRecord) {
+    if (!isPaymentConfirmed(order.paymentStatus)) {
+      return;
+    }
+    if (settledDeleteInFlightRef.current.has(order.orderId)) {
+      return;
+    }
+    if (settledDeleteTimerRef.current.has(order.orderId)) {
+      return;
+    }
+
+    const anchor = getOrderTimelineAnchor(order);
+    if (!anchor) {
+      return;
+    }
+
+    const delayMs = Math.max(0, BILL_AUTO_DELETE_AFTER_MS - (Date.now() - anchor));
+    if (delayMs === 0) {
+      void deleteSettledOrderAfterRetention(order);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      settledDeleteTimerRef.current.delete(order.orderId);
+      void deleteSettledOrderAfterRetention(order);
+    }, delayMs);
+    settledDeleteTimerRef.current.set(order.orderId, timer);
   }
 
   function syncOrderSnapshot(records: TableOrderRecord[]) {
@@ -2986,6 +3138,7 @@ export default function QrOrderingExperience({
   function checkBackendTransitions(records: TableOrderRecord[]) {
     const previousSnapshot = orderSyncSnapshotRef.current;
     let paymentConfirmedRecord: TableOrderRecord | null = null;
+    let orderReadyRecord: TableOrderRecord | null = null;
     let orderAcceptedRecord: TableOrderRecord | null = null;
 
     for (const record of records) {
@@ -3007,6 +3160,11 @@ export default function QrOrderingExperience({
         continue;
       }
 
+      if (previousStatus !== "READY" && currentStatus === "READY") {
+        orderReadyRecord = record;
+        continue;
+      }
+
       if (!isOrderAccepted(previousStatus) && isOrderAccepted(currentStatus)) {
         orderAcceptedRecord = record;
       }
@@ -3018,6 +3176,15 @@ export default function QrOrderingExperience({
       showStatusPopup({
         title: "Payment Confirmed",
         description: `${paymentConfirmedRecord.orderNumber} is confirmed by cashier.`,
+        tone: "success",
+      });
+      return;
+    }
+
+    if (orderReadyRecord) {
+      showStatusPopup({
+        title: "Order Ready",
+        description: `${orderReadyRecord.orderNumber} is ready to serve.`,
         tone: "success",
       });
       return;
@@ -3040,32 +3207,38 @@ export default function QrOrderingExperience({
 
     const mergedRecords = mergeTableOrderRecords(tableOrdersRef.current, backendRecords);
     checkBackendTransitions(mergedRecords);
-    tableOrdersRef.current = mergedRecords;
-    setTableOrders(mergedRecords);
+    const activeRecords = mergedRecords.filter(
+      (record) => !isOrderClosed(record.status, record.paymentStatus),
+    );
+    const settledRecords = mergedRecords.filter((record) =>
+      isOrderClosed(record.status, record.paymentStatus),
+    );
 
-    const latestContext = getLatestOrderContextFromRecords(mergedRecords);
-    if (latestContext) {
-      if (isOrderClosed(latestContext.status, latestContext.paymentStatus)) {
-        setActiveOrderContext(null);
-        activeOrderContextRef.current = null;
-        setOrderPlacedId("");
-        setCart({});
-        setTableOrders([]);
-        tableOrdersRef.current = [];
-        syncOrderSnapshot([]);
-        if (typeof window !== "undefined") {
-          window.localStorage.removeItem(activeCartStorageKey);
-          window.localStorage.removeItem(activeBillStorageKey);
-          window.localStorage.removeItem(activeSessionStorageKey);
-        }
-        return "closed" as const;
-      }
-
-      setActiveOrderContext(latestContext);
-      activeOrderContextRef.current = latestContext;
-      setOrderPlacedId(latestContext.id);
+    for (const settledOrder of settledRecords) {
+      scheduleSettledOrderDelete(settledOrder);
     }
 
+    tableOrdersRef.current = activeRecords;
+    setTableOrders(activeRecords);
+
+    const latestContext = getLatestOrderContextFromRecords(activeRecords);
+    if (!latestContext) {
+      setActiveOrderContext(null);
+      activeOrderContextRef.current = null;
+      setOrderPlacedId("");
+      syncOrderSnapshot(activeRecords);
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(activeBillStorageKey);
+        window.sessionStorage.removeItem(activeSessionStorageKey);
+        window.localStorage.removeItem(activeBillStorageKey);
+        window.localStorage.removeItem(activeSessionStorageKey);
+      }
+      return settledRecords.length > 0 ? ("closed" as const) : ("applied" as const);
+    }
+
+    setActiveOrderContext(latestContext);
+    activeOrderContextRef.current = latestContext;
+    setOrderPlacedId(latestContext.id);
     return "applied" as const;
   }
 
@@ -3408,6 +3581,11 @@ export default function QrOrderingExperience({
       tableOrdersRef.current = mergedLocalOrders;
       syncOrderSnapshot(mergedLocalOrders);
       setBillSyncMessage("Order added to your bill.");
+      showStatusPopup({
+        title: "Order Placed",
+        description: `${orderNumber} has been sent to the kitchen.`,
+        tone: "success",
+      });
 
       if (typeof window !== "undefined") {
         const resolvedBrowserId = browserIdForOrder || ensureBrowserCustomerId();
@@ -3934,10 +4112,18 @@ export default function QrOrderingExperience({
             }}
           >
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold">{statusPopup.title}</p>
               <p className="mt-1 text-sm text-zinc-200/95">{statusPopup.description}</p>
             </div>
+            <button
+              type="button"
+              className="rounded-lg border px-2.5 py-1 text-xs font-medium text-zinc-100 transition hover:bg-zinc-800"
+              style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.3) }}
+              onClick={() => setStatusPopup(null)}
+            >
+              Dismiss
+            </button>
           </div>
         ) : null}
 
@@ -4331,7 +4517,7 @@ export default function QrOrderingExperience({
                 {"My Bill"}
               </span>
               <span className="rounded-lg bg-black/20 px-2 py-1 text-xs font-semibold">
-                {formatMoney(billFinalTotal)}
+                {formatMoney(unpaidTotal)}
               </span>
             </button>
 
@@ -4686,9 +4872,6 @@ export default function QrOrderingExperience({
                                         {isUpdating ? "Updating..." : "Switch to UPI"}
                                       </button>
                                     ) : null}
-                                    <span className="rounded-lg border px-2 py-1 text-[11px] font-medium text-zinc-300" style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.2) }}>
-                                      Awaiting cashier confirmation
-                                    </span>
                                   </div>
                                 </div>
                               );

@@ -43,6 +43,7 @@ const READ_ALLOWED_COLLECTIONS = new Set([
   ORDERS_COLLECTION_ID,
 ]);
 const CREATE_ALLOWED_COLLECTIONS = new Set([ORDERS_COLLECTION_ID, PAYMENTS_COLLECTION_ID]);
+const DELETE_ALLOWED_COLLECTIONS = new Set([ORDERS_COLLECTION_ID]);
 
 const SAFE_ORDER_PAYMENT_SWITCH_FIELDS = new Set([
   "payment_method",
@@ -51,6 +52,8 @@ const SAFE_ORDER_PAYMENT_SWITCH_FIELDS = new Set([
 
 const ALLOWED_PAYMENT_METHODS = new Set(["UPI", "COUNTER"]);
 const ALLOWED_PENDING_PAYMENT_STATUSES = new Set(["UNPAID", "PENDING"]);
+const ALLOWED_SETTLED_PAYMENT_STATUSES = new Set(["PAID", "SETTLED", "COMPLETED"]);
+const SETTLED_ORDER_DELETE_MIN_AGE_MS = 60 * 60 * 1000;
 
 const MAX_BODY_SIZE_BYTES = 48 * 1024;
 const MAX_QUERY_COUNT = 10;
@@ -180,6 +183,10 @@ function sanitizeIdentifier(value: unknown, maxLength: number) {
   return cleaned;
 }
 
+function normalizeIdentityToken(value: string) {
+  return value.trim().toLowerCase();
+}
+
 function sanitizeEnum(value: unknown, allowedValues: Set<string>) {
   if (typeof value !== "string") {
     return "";
@@ -240,6 +247,14 @@ function sanitizeIsoTimestamp(value: unknown) {
   }
   const parsed = Date.parse(trimmed);
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : "";
+}
+
+function toTimestamp(value: unknown) {
+  if (typeof value !== "string") {
+    return 0;
+  }
+  const parsed = Date.parse(value.trim());
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function sanitizeJsonSnapshotString(value: unknown) {
@@ -895,6 +910,23 @@ function sanitizeCreatePayload(
   return null;
 }
 
+function sanitizeOrderDeletePayload(source: Record<string, unknown>) {
+  const collectionId = normalizeCollectionId(source.collectionId);
+  const documentId = normalizeDocumentId(source.documentId);
+  const clientId = sanitizeIdentifier(source.clientId, 64);
+  const tableId = sanitizeIdentifier(source.tableId, 64);
+
+  if (!collectionId || !documentId || !clientId || !tableId) {
+    return null;
+  }
+
+  if (!DELETE_ALLOWED_COLLECTIONS.has(collectionId)) {
+    return null;
+  }
+
+  return { collectionId, documentId, clientId, tableId };
+}
+
 export async function GET(request: NextRequest) {
   const configError = ensureServerConfig();
   if (configError) {
@@ -1089,4 +1121,99 @@ export async function PATCH(request: NextRequest) {
   }
 
   return NextResponse.json(payload, { status: upstreamResponse.status });
+}
+
+export async function DELETE(request: NextRequest) {
+  const configError = ensureServerConfig();
+  if (configError) {
+    return configError;
+  }
+
+  const writeOriginError = getWriteOriginValidationError(request);
+  if (writeOriginError) {
+    return jsonError(writeOriginError, 403);
+  }
+  if (!hasAcceptableContentType(request)) {
+    return jsonError("Unsupported content type.", 415);
+  }
+  if (isBodyTooLarge(request)) {
+    return jsonError("Payload too large.", 413);
+  }
+
+  const body = await parseJsonBody(request);
+  if (!body || typeof body !== "object") {
+    return jsonError("Invalid JSON body.", 400);
+  }
+
+  const payload = sanitizeOrderDeletePayload(body as Record<string, unknown>);
+  if (!payload) {
+    return jsonError("Document delete is not allowed.", 403);
+  }
+
+  logRouteDatabaseDebug("DELETE", payload.collectionId);
+
+  const upstreamDocumentUrl = `${APPWRITE_ENDPOINT}/databases/${encodeURIComponent(
+    APPWRITE_DATABASE_ID,
+  )}/collections/${encodeURIComponent(payload.collectionId)}/documents/${encodeURIComponent(
+    payload.documentId,
+  )}`;
+
+  const currentDocResponse = await fetch(upstreamDocumentUrl, {
+    method: "GET",
+    headers: buildAppwriteHeaders(true),
+    cache: "no-store",
+  });
+  const currentDocPayload = await parseResponse(currentDocResponse);
+  if (!currentDocResponse.ok) {
+    return jsonError(
+      sanitizeUpstreamErrorMessage(currentDocResponse.status, currentDocPayload),
+      currentDocResponse.status,
+    );
+  }
+
+  const currentDoc = currentDocPayload as Record<string, unknown>;
+  const docClientId = sanitizeIdentifier(currentDoc.client_id, 64);
+  const docTableId = sanitizeIdentifier(currentDoc.table_id, 64);
+  if (
+    normalizeIdentityToken(docClientId) !== normalizeIdentityToken(payload.clientId) ||
+    normalizeIdentityToken(docTableId) !== normalizeIdentityToken(payload.tableId)
+  ) {
+    return jsonError("Document scope mismatch for delete request.", 403);
+  }
+
+  const paymentStatus = sanitizeEnum(
+    currentDoc.payment_status,
+    ALLOWED_SETTLED_PAYMENT_STATUSES,
+  );
+  if (!paymentStatus) {
+    return jsonError("Only settled bills are eligible for deletion.", 409);
+  }
+
+  const now = Date.now();
+  const anchor =
+    toTimestamp(currentDoc.$updatedAt) ||
+    toTimestamp(currentDoc.updated_at) ||
+    toTimestamp(currentDoc.created_at_custom) ||
+    toTimestamp(currentDoc.$createdAt);
+  if (!anchor || now - anchor < SETTLED_ORDER_DELETE_MIN_AGE_MS) {
+    return jsonError("Settled bill retention window has not elapsed yet.", 409);
+  }
+
+  const upstreamDeleteResponse = await fetch(upstreamDocumentUrl, {
+    method: "DELETE",
+    headers: buildAppwriteHeaders(true),
+    cache: "no-store",
+  });
+  if (!upstreamDeleteResponse.ok) {
+    const deletePayload = await parseResponse(upstreamDeleteResponse);
+    return jsonError(
+      sanitizeUpstreamErrorMessage(upstreamDeleteResponse.status, deletePayload),
+      upstreamDeleteResponse.status,
+    );
+  }
+
+  return NextResponse.json(
+    { ok: true, deletedDocumentId: payload.documentId },
+    { status: 200 },
+  );
 }
