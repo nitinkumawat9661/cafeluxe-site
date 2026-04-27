@@ -2,9 +2,30 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const APPWRITE_ENDPOINT = process.env.APPWRITE_ENDPOINT ?? "";
-const APPWRITE_PROJECT_ID = process.env.APPWRITE_PROJECT_ID ?? "";
-const APPWRITE_DATABASE_ID = process.env.APPWRITE_DATABASE_ID ?? "";
+function normalizeEnvValue(value: string | undefined) {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const quoteWrapped =
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"));
+  const angleWrapped = trimmed.startsWith("<") && trimmed.endsWith(">");
+
+  const unwrapped = quoteWrapped || angleWrapped ? trimmed.slice(1, -1).trim() : trimmed;
+  return unwrapped;
+}
+
+const RAW_APPWRITE_ENDPOINT = process.env.APPWRITE_ENDPOINT ?? "";
+const RAW_APPWRITE_PROJECT_ID = process.env.APPWRITE_PROJECT_ID ?? "";
+const RAW_APPWRITE_DATABASE_ID = process.env.APPWRITE_DATABASE_ID ?? "";
+const RAW_NEXT_PUBLIC_APPWRITE_DATABASE_ID =
+  process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID ?? "";
+
+const APPWRITE_ENDPOINT = normalizeEnvValue(RAW_APPWRITE_ENDPOINT);
+const APPWRITE_PROJECT_ID = normalizeEnvValue(RAW_APPWRITE_PROJECT_ID);
+const APPWRITE_DATABASE_ID = normalizeEnvValue(RAW_APPWRITE_DATABASE_ID);
 const APPWRITE_API_KEY = process.env.APPWRITE_API_KEY ?? "";
 
 const TABLES_COLLECTION_ID = "tables";
@@ -75,6 +96,31 @@ function buildAppwriteHeaders(useApiKey = false) {
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ message }, { status });
+}
+
+function logRouteDatabaseDebug(method: string, collectionId: string) {
+  const publicDatabaseId = normalizeEnvValue(RAW_NEXT_PUBLIC_APPWRITE_DATABASE_ID);
+  console.info("[AppwriteDocumentsRouteDebug]", {
+    method,
+    collectionId,
+    APPWRITE_DATABASE_ID: RAW_APPWRITE_DATABASE_ID,
+    NEXT_PUBLIC_APPWRITE_DATABASE_ID: RAW_NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+    finalDatabaseId: APPWRITE_DATABASE_ID,
+    finalDatabaseIdLength: APPWRITE_DATABASE_ID.length,
+    isRawServerDbQuoted:
+      (RAW_APPWRITE_DATABASE_ID.trim().startsWith('"') &&
+        RAW_APPWRITE_DATABASE_ID.trim().endsWith('"')) ||
+      (RAW_APPWRITE_DATABASE_ID.trim().startsWith("'") &&
+        RAW_APPWRITE_DATABASE_ID.trim().endsWith("'")),
+    isRawServerDbAngleWrapped:
+      RAW_APPWRITE_DATABASE_ID.trim().startsWith("<") &&
+      RAW_APPWRITE_DATABASE_ID.trim().endsWith(">"),
+    isRawServerDbTrimmed: RAW_APPWRITE_DATABASE_ID === RAW_APPWRITE_DATABASE_ID.trim(),
+    serverVsPublicDatabaseIdMatch:
+      APPWRITE_DATABASE_ID.length > 0 &&
+      publicDatabaseId.length > 0 &&
+      APPWRITE_DATABASE_ID === publicDatabaseId,
+  });
 }
 
 function ensureServerConfig() {
@@ -883,6 +929,8 @@ export async function GET(request: NextRequest) {
     params.append("queries[]", query);
   }
 
+  logRouteDatabaseDebug("GET", collectionId);
+
   const upstreamUrl = `${APPWRITE_ENDPOINT}/databases/${encodeURIComponent(
     APPWRITE_DATABASE_ID,
   )}/collections/${encodeURIComponent(collectionId)}/documents${
@@ -943,6 +991,8 @@ export async function POST(request: NextRequest) {
   if (!sanitizedData) {
     return jsonError("Invalid document payload.", 400);
   }
+
+  logRouteDatabaseDebug("POST", collectionId);
 
   const upstreamUrl = `${APPWRITE_ENDPOINT}/databases/${encodeURIComponent(
     APPWRITE_DATABASE_ID,
@@ -1012,6 +1062,8 @@ export async function PATCH(request: NextRequest) {
   if (!sanitizedData) {
     return jsonError("Invalid update payload.", 400);
   }
+
+  logRouteDatabaseDebug("PATCH", collectionId);
 
   const upstreamUrl = `${APPWRITE_ENDPOINT}/databases/${encodeURIComponent(
     APPWRITE_DATABASE_ID,
