@@ -38,9 +38,11 @@ import {
   parseClientSettings,
   parseBrandingSettings,
   parseCategories,
+  parseActiveOffers,
   parseMenuItems,
   parseTables,
   type MenuItem,
+  type Offer,
   type RestaurantBranding,
   type RestaurantSettings,
   type RestaurantTable,
@@ -98,6 +100,25 @@ type TableOrderRecord = {
   instructions: string;
   items: BillLineItem[];
   source: "local" | "backend";
+};
+
+type OfferEvaluationType = "flat_discount" | "bxgy" | "combo" | "time_based";
+
+type OfferEvaluationLine = {
+  itemId: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  categoryRefs: string[];
+};
+
+type ApplicableOfferPreview = {
+  offerId: string;
+  offerName: string;
+  offerType: OfferEvaluationType;
+  matchedReason: string;
+  estimatedBenefit: number | null;
 };
 
 type StatusPopupState = {
@@ -339,6 +360,565 @@ function toAmount(value: unknown) {
 function toTimestamp(value: string) {
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function normalizeOfferToken(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function parseInteger(value: unknown, fallback: number) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.floor(value));
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.floor(parsed));
+    }
+  }
+  return fallback;
+}
+
+function roundCurrency(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function getRecordString(source: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+  return "";
+}
+
+function getRecordNumber(source: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string") {
+      const parsed = Number(value.trim());
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+  return Number.NaN;
+}
+
+function parseUnknownStringList(value: unknown): string[] {
+  if (value === null || value === undefined) {
+    return [];
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+    if ((trimmed.startsWith("[") && trimmed.endsWith("]")) || (trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+      try {
+        return parseUnknownStringList(JSON.parse(trimmed) as unknown);
+      } catch {
+        // fall through to plain split handling
+      }
+    }
+    return trimmed
+      .split(/[|,]/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => parseUnknownStringList(entry));
+  }
+
+  if (typeof value === "object") {
+    const source = value as Record<string, unknown>;
+    return [
+      ...parseUnknownStringList(source.$id),
+      ...parseUnknownStringList(source.id),
+      ...parseUnknownStringList(source.name),
+      ...parseUnknownStringList(source.value),
+      ...parseUnknownStringList(source.slug),
+      ...parseUnknownStringList(source.code),
+    ];
+  }
+
+  return [];
+}
+
+function getRecordStringList(source: Record<string, unknown>, keys: string[]) {
+  const collected: string[] = [];
+  for (const key of keys) {
+    const values = parseUnknownStringList(source[key]);
+    for (const value of values) {
+      if (value) {
+        collected.push(value);
+      }
+    }
+  }
+  return Array.from(new Set(collected));
+}
+
+function resolveOfferTypeToken(offer: Offer): OfferEvaluationType | null {
+  const raw = offer.raw as Record<string, unknown>;
+  const candidate =
+    getRecordString(raw, ["offer_type", "offerType", "type", "discount_type"]) || offer.offerType;
+  const normalized = candidate.trim().toLowerCase().replace(/[\s-]+/g, "_");
+
+  if (normalized === "flat_discount" || normalized === "flat" || normalized === "discount") {
+    return "flat_discount";
+  }
+  if (
+    normalized === "bxgy" ||
+    normalized === "bogo" ||
+    normalized === "buy_x_get_y" ||
+    (normalized.includes("buy") && normalized.includes("get"))
+  ) {
+    return "bxgy";
+  }
+  if (normalized === "combo" || normalized === "bundle" || normalized === "set_menu") {
+    return "combo";
+  }
+  if (normalized === "time_based" || normalized === "timebased" || normalized.includes("time")) {
+    return "time_based";
+  }
+
+  return null;
+}
+
+function readOfferCriteria(
+  source: Record<string, unknown>,
+  itemKeys: string[],
+  categoryKeys: string[],
+) {
+  const itemTokens = new Set(
+    getRecordStringList(source, itemKeys)
+      .map((value) => normalizeOfferToken(value))
+      .filter(Boolean),
+  );
+  const categoryTokens = new Set(
+    getRecordStringList(source, categoryKeys)
+      .map((value) => normalizeOfferToken(value))
+      .filter(Boolean),
+  );
+  return { itemTokens, categoryTokens };
+}
+
+function lineMatchesOfferCriteria(
+  line: OfferEvaluationLine,
+  criteria: { itemTokens: Set<string>; categoryTokens: Set<string> },
+) {
+  const hasItemCriteria = criteria.itemTokens.size > 0;
+  const hasCategoryCriteria = criteria.categoryTokens.size > 0;
+  if (!hasItemCriteria && !hasCategoryCriteria) {
+    return true;
+  }
+
+  const itemIdToken = normalizeOfferToken(line.itemId);
+  const itemNameToken = normalizeOfferToken(line.name);
+  const lineCategoryTokens = line.categoryRefs
+    .map((entry) => normalizeOfferToken(entry))
+    .filter(Boolean);
+
+  const itemMatch =
+    hasItemCriteria &&
+    (criteria.itemTokens.has(itemIdToken) || criteria.itemTokens.has(itemNameToken));
+  const categoryMatch =
+    hasCategoryCriteria &&
+    lineCategoryTokens.some((token) => criteria.categoryTokens.has(token));
+
+  if (hasItemCriteria && hasCategoryCriteria) {
+    return itemMatch || categoryMatch;
+  }
+  if (hasItemCriteria) {
+    return itemMatch;
+  }
+  return categoryMatch;
+}
+
+function getOfferMinimumCartValue(source: Record<string, unknown>) {
+  const value = getRecordNumber(source, [
+    "minimum_cart_value",
+    "minimum_order_amount",
+    "minimum_amount",
+    "min_cart_value",
+    "min_order_amount",
+    "min_amount",
+    "threshold_amount",
+  ]);
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function estimateOfferDiscount(
+  source: Record<string, unknown>,
+  baseAmount: number,
+) {
+  if (baseAmount <= 0) {
+    return null;
+  }
+
+  const percentage = getRecordNumber(source, [
+    "discount_percent",
+    "discount_percentage",
+    "percentage",
+    "percent",
+    "off_percent",
+  ]);
+  const maxDiscount = getRecordNumber(source, ["max_discount", "maximum_discount"]);
+  if (Number.isFinite(percentage) && percentage > 0) {
+    const computed = (baseAmount * percentage) / 100;
+    const capped =
+      Number.isFinite(maxDiscount) && maxDiscount > 0
+        ? Math.min(computed, maxDiscount)
+        : computed;
+    return roundCurrency(Math.max(0, Math.min(baseAmount, capped)));
+  }
+
+  const flat = getRecordNumber(source, [
+    "discount_amount",
+    "flat_discount",
+    "flat_discount_amount",
+    "off_amount",
+    "amount",
+    "value",
+  ]);
+  if (Number.isFinite(flat) && flat > 0) {
+    return roundCurrency(Math.max(0, Math.min(baseAmount, flat)));
+  }
+
+  return null;
+}
+
+function evaluateFlatDiscountOffer(
+  offer: Offer,
+  lines: OfferEvaluationLine[],
+  subtotalAmount: number,
+): ApplicableOfferPreview | null {
+  const raw = offer.raw as Record<string, unknown>;
+  const minimumCartValue = getOfferMinimumCartValue(raw);
+  if (minimumCartValue > 0 && subtotalAmount < minimumCartValue) {
+    return null;
+  }
+
+  const criteria = readOfferCriteria(
+    raw,
+    ["item_id", "item_ids", "menu_item_id", "menu_item_ids", "product_id", "product_ids"],
+    ["category", "categories", "category_id", "catogry_id", "category_ids"],
+  );
+  const eligibleLines = lines.filter((line) => lineMatchesOfferCriteria(line, criteria));
+  if ((criteria.itemTokens.size > 0 || criteria.categoryTokens.size > 0) && eligibleLines.length === 0) {
+    return null;
+  }
+
+  const eligibleSubtotal =
+    eligibleLines.length > 0
+      ? eligibleLines.reduce((sum, line) => sum + line.lineTotal, 0)
+      : subtotalAmount;
+  const estimatedBenefit = estimateOfferDiscount(raw, eligibleSubtotal);
+  const matchedReason =
+    minimumCartValue > 0
+      ? `Cart value matched minimum ${minimumCartValue.toFixed(2)}.`
+      : "Cart matched flat discount criteria.";
+
+  return {
+    offerId: offer.id,
+    offerName: offer.name,
+    offerType: "flat_discount",
+    matchedReason,
+    estimatedBenefit,
+  };
+}
+
+function evaluateBxgyOffer(
+  offer: Offer,
+  lines: OfferEvaluationLine[],
+  subtotalAmount: number,
+): ApplicableOfferPreview | null {
+  const raw = offer.raw as Record<string, unknown>;
+  const minimumCartValue = getOfferMinimumCartValue(raw);
+  if (minimumCartValue > 0 && subtotalAmount < minimumCartValue) {
+    return null;
+  }
+
+  const buyQty = parseInteger(
+    raw.buy_qty ?? raw.buy_quantity ?? raw.minimum_buy_qty ?? raw.buy_count,
+    1,
+  ) || 1;
+  const getQty = parseInteger(
+    raw.get_qty ?? raw.get_quantity ?? raw.free_qty ?? raw.free_quantity,
+    1,
+  ) || 1;
+
+  const buyCriteria = readOfferCriteria(
+    raw,
+    [
+      "buy_item_id",
+      "buy_item_ids",
+      "buy_menu_item_id",
+      "buy_menu_item_ids",
+      "buy_product_id",
+      "buy_product_ids",
+      "item_id",
+      "item_ids",
+    ],
+    ["buy_category", "buy_categories", "buy_category_id", "buy_catogry_id"],
+  );
+  const getCriteria = readOfferCriteria(
+    raw,
+    [
+      "get_item_id",
+      "get_item_ids",
+      "get_menu_item_id",
+      "get_menu_item_ids",
+      "get_product_id",
+      "get_product_ids",
+      "free_item_id",
+      "free_item_ids",
+    ],
+    ["get_category", "get_categories", "get_category_id", "get_catogry_id"],
+  );
+
+  const buyLines = lines.filter((line) => lineMatchesOfferCriteria(line, buyCriteria));
+  const buyQuantity = buyLines.reduce((sum, line) => sum + line.quantity, 0);
+  if (buyQuantity < buyQty) {
+    return null;
+  }
+
+  const getCriteriaFallback =
+    getCriteria.itemTokens.size === 0 && getCriteria.categoryTokens.size === 0
+      ? buyCriteria
+      : getCriteria;
+  const getLines = lines.filter((line) => lineMatchesOfferCriteria(line, getCriteriaFallback));
+  const getQuantity = getLines.reduce((sum, line) => sum + line.quantity, 0);
+  if (getQuantity <= 0) {
+    return null;
+  }
+
+  const bundleCount = Math.floor(buyQuantity / buyQty);
+  const freeQuantity = Math.min(getQuantity, bundleCount * getQty);
+  if (freeQuantity <= 0) {
+    return null;
+  }
+
+  const cheapestEligibleUnit = getLines.reduce((min, line) => {
+    return line.unitPrice > 0 ? Math.min(min, line.unitPrice) : min;
+  }, Number.POSITIVE_INFINITY);
+  const estimatedBenefit =
+    Number.isFinite(cheapestEligibleUnit) && cheapestEligibleUnit > 0
+      ? roundCurrency(freeQuantity * cheapestEligibleUnit)
+      : null;
+
+  return {
+    offerId: offer.id,
+    offerName: offer.name,
+    offerType: "bxgy",
+    matchedReason: `Buy ${buyQty}, get ${getQty} criteria matched.`,
+    estimatedBenefit,
+  };
+}
+
+function evaluateComboOffer(
+  offer: Offer,
+  lines: OfferEvaluationLine[],
+  subtotalAmount: number,
+): ApplicableOfferPreview | null {
+  const raw = offer.raw as Record<string, unknown>;
+  const minimumCartValue = getOfferMinimumCartValue(raw);
+  if (minimumCartValue > 0 && subtotalAmount < minimumCartValue) {
+    return null;
+  }
+
+  const requiredItemTokens = getRecordStringList(raw, [
+    "combo_item_ids",
+    "combo_items",
+    "required_item_ids",
+    "required_items",
+    "item_ids",
+  ])
+    .map((entry) => normalizeOfferToken(entry))
+    .filter(Boolean);
+  const requiredCategoryTokens = getRecordStringList(raw, [
+    "combo_categories",
+    "combo_category_ids",
+    "required_categories",
+    "category_ids",
+    "catogry_ids",
+  ])
+    .map((entry) => normalizeOfferToken(entry))
+    .filter(Boolean);
+
+  const lineItemTokens = new Set<string>();
+  const lineCategoryTokens = new Set<string>();
+  for (const line of lines) {
+    lineItemTokens.add(normalizeOfferToken(line.itemId));
+    lineItemTokens.add(normalizeOfferToken(line.name));
+    for (const category of line.categoryRefs) {
+      lineCategoryTokens.add(normalizeOfferToken(category));
+    }
+  }
+
+  let matched = false;
+  let matchedReason = "Combo criteria matched.";
+  if (requiredItemTokens.length > 0) {
+    matched = requiredItemTokens.every((token) => lineItemTokens.has(token));
+    matchedReason = "Required combo items are present in cart.";
+  } else if (requiredCategoryTokens.length > 0) {
+    matched = requiredCategoryTokens.every((token) => lineCategoryTokens.has(token));
+    matchedReason = "Required combo categories are present in cart.";
+  } else {
+    const minDistinctItems =
+      parseInteger(
+        raw.min_distinct_items ?? raw.minimum_items ?? raw.min_items ?? raw.combo_size,
+        0,
+      );
+    matched = minDistinctItems > 0 ? lines.length >= minDistinctItems : lines.length > 0;
+    matchedReason =
+      minDistinctItems > 0
+        ? `Cart has required ${minDistinctItems} combo items.`
+        : "Cart has combo-eligible items.";
+  }
+
+  if (!matched) {
+    return null;
+  }
+
+  const estimatedBenefit = estimateOfferDiscount(raw, subtotalAmount);
+  return {
+    offerId: offer.id,
+    offerName: offer.name,
+    offerType: "combo",
+    matchedReason,
+    estimatedBenefit,
+  };
+}
+
+function evaluateTimeBasedOffer(
+  offer: Offer,
+  lines: OfferEvaluationLine[],
+  subtotalAmount: number,
+): ApplicableOfferPreview | null {
+  const raw = offer.raw as Record<string, unknown>;
+  const minimumCartValue = getOfferMinimumCartValue(raw);
+  if (minimumCartValue > 0 && subtotalAmount < minimumCartValue) {
+    return null;
+  }
+
+  const criteria = readOfferCriteria(
+    raw,
+    ["item_id", "item_ids", "menu_item_id", "menu_item_ids", "product_id", "product_ids"],
+    ["category", "categories", "category_id", "catogry_id", "category_ids"],
+  );
+  const eligibleLines = lines.filter((line) => lineMatchesOfferCriteria(line, criteria));
+  if ((criteria.itemTokens.size > 0 || criteria.categoryTokens.size > 0) && eligibleLines.length === 0) {
+    return null;
+  }
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const eligibleSubtotal =
+    eligibleLines.length > 0
+      ? eligibleLines.reduce((sum, line) => sum + line.lineTotal, 0)
+      : subtotalAmount;
+  const estimatedBenefit = estimateOfferDiscount(raw, eligibleSubtotal);
+
+  return {
+    offerId: offer.id,
+    offerName: offer.name,
+    offerType: "time_based",
+    matchedReason: "Live time-window offer matched your current cart.",
+    estimatedBenefit,
+  };
+}
+
+function evaluateApplicableOffers(
+  offers: Offer[],
+  lines: OfferEvaluationLine[],
+  subtotalAmount: number,
+) {
+  const normalizedSubtotal = roundCurrency(Math.max(0, subtotalAmount));
+  if (offers.length === 0 || lines.length === 0 || normalizedSubtotal <= 0) {
+    return [] as ApplicableOfferPreview[];
+  }
+
+  const previews: ApplicableOfferPreview[] = [];
+  for (const offer of offers) {
+    const offerType = resolveOfferTypeToken(offer);
+    if (!offerType) {
+      continue;
+    }
+
+    let preview: ApplicableOfferPreview | null = null;
+    switch (offerType) {
+      case "flat_discount":
+        preview = evaluateFlatDiscountOffer(offer, lines, normalizedSubtotal);
+        break;
+      case "bxgy":
+        preview = evaluateBxgyOffer(offer, lines, normalizedSubtotal);
+        break;
+      case "combo":
+        preview = evaluateComboOffer(offer, lines, normalizedSubtotal);
+        break;
+      case "time_based":
+        preview = evaluateTimeBasedOffer(offer, lines, normalizedSubtotal);
+        break;
+      default:
+        preview = null;
+        break;
+    }
+
+    if (preview) {
+      previews.push(preview);
+    }
+  }
+
+  const deduped = new Map<string, ApplicableOfferPreview>();
+  for (const preview of previews) {
+    if (!deduped.has(preview.offerId)) {
+      deduped.set(preview.offerId, preview);
+    }
+  }
+  return [...deduped.values()];
+}
+
+function pickBestApplicableOffer(
+  previews: ApplicableOfferPreview[],
+  maxPayableAmount: number,
+) {
+  const safeMax = roundCurrency(Math.max(0, maxPayableAmount));
+  if (previews.length === 0 || safeMax <= 0) {
+    return null as { offer: ApplicableOfferPreview; discountAmount: number } | null;
+  }
+
+  const ranked = previews
+    .map((preview) => {
+      const estimate = Number.isFinite(preview.estimatedBenefit ?? Number.NaN)
+        ? Math.max(0, preview.estimatedBenefit ?? 0)
+        : 0;
+      return {
+        offer: preview,
+        estimatedBenefit: roundCurrency(Math.min(safeMax, estimate)),
+      };
+    })
+    .filter((entry) => entry.estimatedBenefit > 0)
+    .sort((a, b) => b.estimatedBenefit - a.estimatedBenefit);
+
+  if (ranked.length === 0) {
+    return null;
+  }
+
+  return {
+    offer: ranked[0].offer,
+    discountAmount: ranked[0].estimatedBenefit,
+  };
 }
 
 function normalizeThemeColor(value: string, fallback = "#34d399") {
@@ -2035,6 +2615,7 @@ export default function QrOrderingExperience({
   const [tableInfo, setTableInfo] = useState<RestaurantTable | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [offersToday, setOffersToday] = useState<Offer[]>([]);
 
   const [searchText, setSearchText] = useState("");
   const [activeCategory, setActiveCategory] = useState<string>("all");
@@ -2208,6 +2789,7 @@ export default function QrOrderingExperience({
       setBillOpen(false);
       setSelectedModifiersByItem({});
       setKitchenInstructions("");
+      setOffersToday([]);
 
       try {
         if (!routeClient || !routeTable) {
@@ -2245,6 +2827,17 @@ export default function QrOrderingExperience({
             return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
           }
           console.warn("Settings fetch failed, continuing with defaults:", error);
+          return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+        });
+        const offersPromise = fetchClientScopedDocuments(
+          appwriteConfig.collections.offers,
+          routeClient,
+          { pageSize: 80, maxDocs: 240 },
+        ).catch((error) => {
+          if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
+            return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+          }
+          console.warn("Offers fetch failed, continuing without offers:", error);
           return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
         });
         const [categoryDocs, menuDocs] = await withTimeout(
@@ -2496,6 +3089,13 @@ export default function QrOrderingExperience({
             normalizedSettings.restaurantName ||
               inferRestaurantName(routeClient, brandingSettings, ensuredCategories, parsedItems),
           );
+        });
+
+        void offersPromise.then((offerDocs) => {
+          if (cancelled) {
+            return;
+          }
+          setOffersToday(parseActiveOffers(offerDocs, routeClient, new Date()));
         });
 
         // Sync backend orders in background so first load does not wait on order-history calls.
@@ -2961,6 +3561,31 @@ export default function QrOrderingExperience({
   );
   const total = subtotal + taxAmount;
   const formatMoney = (value: number) => formatInr(value, normalizedCurrency);
+  const cartOfferEvaluationLines = useMemo(() => {
+    return cartItems.map((cartItem) => {
+      const selected = resolvedSelectedModifiersByItem[cartItem.item.id] ?? [];
+      const modifierUnitTotal = getSelectedModifierTotal(selected);
+      const unitPrice = cartItem.item.price + modifierUnitTotal;
+      return {
+        itemId: cartItem.item.id,
+        name: cartItem.item.name,
+        quantity: cartItem.quantity,
+        unitPrice,
+        lineTotal: roundCurrency(unitPrice * cartItem.quantity),
+        categoryRefs: cartItem.item.categoryRefs,
+      } satisfies OfferEvaluationLine;
+    });
+  }, [cartItems, resolvedSelectedModifiersByItem]);
+  const applicableCartOffers = useMemo(
+    () => evaluateApplicableOffers(offersToday, cartOfferEvaluationLines, subtotal),
+    [cartOfferEvaluationLines, offersToday, subtotal],
+  );
+  const bestCartOffer = useMemo(
+    () => pickBestApplicableOffer(applicableCartOffers, total),
+    [applicableCartOffers, total],
+  );
+  const cartOfferDiscountAmount = bestCartOffer?.discountAmount ?? 0;
+  const cartPayableTotal = roundCurrency(Math.max(0, total - cartOfferDiscountAmount));
 
   const mergedBillItems = useMemo(
     () => mergeBillItemsFromOrders(tableOrders, menuItems),
@@ -3075,6 +3700,33 @@ export default function QrOrderingExperience({
   const currentBillSubtotal = hasAggregatedUnpaidBill ? unpaidSubtotal : billSubtotal;
   const currentBillTaxAmount = hasAggregatedUnpaidBill ? unpaidTaxAmount : billTaxAmount;
   const currentBillFinalTotal = hasAggregatedUnpaidBill ? unpaidFinalTotal : billFinalTotal;
+  const menuItemLookup = useMemo(
+    () => new Map(menuItems.map((item) => [item.id, item])),
+    [menuItems],
+  );
+  const billOfferEvaluationLines = useMemo(() => {
+    return currentBillItems.map((lineItem) => {
+      const menuItem = menuItemLookup.get(lineItem.itemId);
+      return {
+        itemId: lineItem.itemId,
+        name: lineItem.name,
+        quantity: lineItem.quantity,
+        unitPrice: lineItem.unitPrice,
+        lineTotal: lineItem.lineTotal,
+        categoryRefs: menuItem?.categoryRefs ?? [],
+      } satisfies OfferEvaluationLine;
+    });
+  }, [currentBillItems, menuItemLookup]);
+  const applicableBillOffers = useMemo(
+    () => evaluateApplicableOffers(offersToday, billOfferEvaluationLines, currentBillSubtotal),
+    [billOfferEvaluationLines, currentBillSubtotal, offersToday],
+  );
+  const bestBillOffer = useMemo(
+    () => pickBestApplicableOffer(applicableBillOffers, currentBillFinalTotal),
+    [applicableBillOffers, currentBillFinalTotal],
+  );
+  const billOfferDiscountAmount = bestBillOffer?.discountAmount ?? 0;
+  const billPayableTotal = roundCurrency(Math.max(0, currentBillFinalTotal - billOfferDiscountAmount));
   const currentBillInstructions = useMemo(() => {
     if (!hasAggregatedUnpaidBill) {
       return latestBillOrder?.instructions?.trim() ?? "";
@@ -3096,7 +3748,7 @@ export default function QrOrderingExperience({
     () => unpaidOrders.filter((order) => order.paymentMethod === "UPI"),
     [unpaidOrders],
   );
-  const unpaidTotal = unpaidFinalTotal;
+  const unpaidTotal = billPayableTotal;
 
   function updateItemQuantity(itemId: string, delta: number) {
     setCart((current) => {
@@ -3601,7 +4253,17 @@ export default function QrOrderingExperience({
     ) / 100;
     const computedTaxAmount = Math.round((computedSubtotal * taxPercentage) / 100 * 100) / 100;
     const computedTotal = Math.round((computedSubtotal + computedTaxAmount) * 100) / 100;
-    if (computedSubtotal <= 0 || computedTotal <= 0) {
+    const computedOfferDiscount = roundCurrency(
+      Math.min(
+        computedTotal,
+        Math.max(0, Number.isFinite(bestCartOffer?.discountAmount ?? Number.NaN) ? (bestCartOffer?.discountAmount ?? 0) : 0),
+      ),
+    );
+    const computedPayableTotal = roundCurrency(
+      Math.max(0, computedTotal - computedOfferDiscount),
+    );
+
+    if (computedSubtotal <= 0 || computedPayableTotal <= 0) {
       setErrorMessage("Cart total is invalid. Please refresh menu and try again.");
       setPlacingOrder(false);
       placeOrderLockRef.current = false;
@@ -3615,7 +4277,7 @@ export default function QrOrderingExperience({
       status: "PLACED",
       payment_status: "UNPAID",
       subtotal: computedSubtotal,
-      total_amount: computedTotal,
+      total_amount: computedPayableTotal,
     };
     const orderPayloadCandidates: Record<string, unknown>[] = [
       {
@@ -3671,7 +4333,7 @@ export default function QrOrderingExperience({
           {
             client_id: clientId,
             order_id: createdOrder.$id,
-            amount: computedTotal,
+            amount: computedPayableTotal,
             payment_method: "UPI",
             payment_status: "PENDING",
             customer_marked_paid: false,
@@ -3707,7 +4369,7 @@ export default function QrOrderingExperience({
         tableInfo.tableNo,
         paymentMethod,
         computedSubtotal,
-        computedTotal,
+        computedPayableTotal,
         nowIso,
         cartItems,
         resolvedSelectedModifiersByItem,
@@ -3734,7 +4396,7 @@ export default function QrOrderingExperience({
           orderId: createdOrder.$id,
           client: clientId,
           table: tableInfo.tableNo,
-          totalAmount: computedTotal,
+          totalAmount: computedPayableTotal,
           itemCount: cartCount,
           paymentMethod,
           status: "PLACED",
@@ -3908,7 +4570,7 @@ export default function QrOrderingExperience({
       ? buildUpiPaymentLink({
           upiId: configuredUpiId,
           upiName: configuredUpiName,
-          amount: total,
+          amount: cartPayableTotal,
         })
       : "";
   const currentBillUpiLink =
@@ -3916,7 +4578,7 @@ export default function QrOrderingExperience({
       ? buildUpiPaymentLink({
           upiId: configuredUpiId,
           upiName: configuredUpiName,
-          amount: currentBillFinalTotal,
+          amount: billPayableTotal,
         })
       : "";
   const upiQrImageSrc = useMemo(() => buildUpiQrImageUrl(upiQrUri), [upiQrUri]);
@@ -4415,6 +5077,50 @@ export default function QrOrderingExperience({
           </div>
         </section>
 
+        {offersToday.length > 0 ? (
+          <section className="mb-4 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className={clsx("text-sm font-semibold uppercase tracking-[0.12em]", contentTextClass)}>
+                {"Offers Today"}
+              </h2>
+              <span className={clsx("text-[11px]", mutedTextClass)}>
+                {offersToday.length} live
+              </span>
+            </div>
+            <div className="space-y-2">
+              {offersToday.map((offer) => (
+                <article
+                  key={offer.id}
+                  className="rounded-2xl border px-3.5 py-3 shadow-[0_20px_48px_-34px_rgba(12,31,55,0.32)]"
+                  style={{
+                    borderColor: withAlpha(WARM_HIGHLIGHT, 0.3),
+                    background: sectionGradient,
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className={clsx("truncate text-sm font-semibold", contentTextClass)}>{offer.name}</p>
+                      <p className={clsx("mt-1 text-xs leading-5", secondaryTextClass)}>
+                        {offer.bannerText || "Live offer available for this table."}
+                      </p>
+                    </div>
+                    <span
+                      className="shrink-0 rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em]"
+                      style={{
+                        borderColor: withAlpha(WARM_HIGHLIGHT, 0.42),
+                        backgroundColor: withAlpha(WARM_HIGHLIGHT, 0.14),
+                        color: isLightTheme ? "#7B5A24" : WARM_HIGHLIGHT,
+                      }}
+                    >
+                      {offer.offerType}
+                    </span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         {visibleItems.length === 0 ? (
           <section
             className={clsx(
@@ -4736,7 +5442,7 @@ export default function QrOrderingExperience({
                 {"Cart"} {cartCount > 0 ? `(${cartCount})` : ""}
               </span>
               <span className="rounded-lg bg-black/10 px-2 py-1 text-xs font-semibold">
-                {formatMoney(total)}
+                {formatMoney(cartPayableTotal)}
               </span>
             </button>
           </div>
@@ -4872,7 +5578,7 @@ export default function QrOrderingExperience({
                         )}
                       >
                         <div className="flex items-center justify-between">
-                          <span className={clsx(isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>Subtotal</span>
+                          <span className={clsx(isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>Original Subtotal</span>
                           <span className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
                             {formatMoney(currentBillSubtotal)}
                           </span>
@@ -4885,15 +5591,31 @@ export default function QrOrderingExperience({
                             {formatMoney(currentBillTaxAmount)}
                           </span>
                         </div>
+                        {bestBillOffer ? (
+                          <>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className={clsx(isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>Applied Offer</span>
+                              <span className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
+                                {bestBillOffer.offer.offerName}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className={clsx(isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>Offer Discount</span>
+                              <span className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
+                                -{formatMoney(billOfferDiscountAmount)}
+                              </span>
+                            </div>
+                          </>
+                        ) : null}
                         <div
                           className={clsx(
                             "flex items-center justify-between border-t pt-2",
                             isLightTheme ? "border-[#E2D5BD]" : "border-zinc-800",
                           )}
                         >
-                          <span className={clsx(isLightTheme ? "text-brand-dark/85" : "text-zinc-200")}>Grand Total</span>
+                          <span className={clsx(isLightTheme ? "text-brand-dark/85" : "text-zinc-200")}>Final Payable</span>
                           <span className="text-base font-bold" style={{ color: WARM_HIGHLIGHT }}>
-                            {formatMoney(currentBillFinalTotal)}
+                            {formatMoney(billPayableTotal)}
                           </span>
                         </div>
                         <div className={clsx("flex items-center justify-between text-xs", isLightTheme ? "text-brand-dark/65" : "text-zinc-400")}>
@@ -4925,6 +5647,48 @@ export default function QrOrderingExperience({
                             {currentBillInstructions}
                           </div>
                         ) : null}
+
+                        {applicableBillOffers.length > 0 ? (
+                          <div
+                            className={clsx(
+                              "rounded-lg border px-2.5 py-2 text-xs",
+                              isLightTheme
+                                ? "border-[#E2D4BA] bg-[#FEF8ED] text-brand-dark/85"
+                                : "border-zinc-800 bg-zinc-900/70 text-zinc-300",
+                            )}
+                          >
+                            <p className={clsx("mb-1 font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
+                              Applicable Offers
+                            </p>
+                            <div className="space-y-1.5">
+                              {applicableBillOffers.map((offerPreview) => (
+                                <div
+                                  key={`bill_offer_${offerPreview.offerId}`}
+                                  className="rounded-md border px-2 py-1.5"
+                                  style={{
+                                    borderColor: withAlpha(WARM_HIGHLIGHT, 0.26),
+                                    backgroundColor: withAlpha(WARM_HIGHLIGHT, isLightTheme ? 0.1 : 0.05),
+                                  }}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="truncate font-medium">{offerPreview.offerName}</p>
+                                    <span className="shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em]">
+                                      {offerPreview.offerType}
+                                    </span>
+                                  </div>
+                                  <p className={clsx("mt-0.5 text-[11px]", isLightTheme ? "text-brand-dark/70" : "text-zinc-400")}>
+                                    {offerPreview.matchedReason}
+                                  </p>
+                                  <p className={clsx("mt-0.5 text-[11px] font-medium", isLightTheme ? "text-brand-dark" : "text-zinc-200")}>
+                                    {offerPreview.estimatedBenefit !== null
+                                      ? `Estimated benefit: ${formatMoney(offerPreview.estimatedBenefit)}`
+                                      : "Estimated benefit: based on offer terms"}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
 
                       {currentBillUpiLink ? (
@@ -4945,7 +5709,7 @@ export default function QrOrderingExperience({
                           <p className={clsx("mt-1 text-xs", isLightTheme ? "text-brand-dark/70" : "text-zinc-400")}>
                             Amount:{" "}
                             <span className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-200")}>
-                              {formatMoney(currentBillFinalTotal)}
+                              {formatMoney(billPayableTotal)}
                             </span>
                           </p>
                           <button
@@ -4967,7 +5731,7 @@ export default function QrOrderingExperience({
                                 ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
                                 : "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800",
                             )}
-                            onClick={() => handleShowUpiQr(currentBillUpiLink, currentBillFinalTotal)}
+                            onClick={() => handleShowUpiQr(currentBillUpiLink, billPayableTotal)}
                           >
                             {"Pay By QR (Recommended)"}
                           </button>
@@ -4993,7 +5757,7 @@ export default function QrOrderingExperience({
                                   : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                               )}
                               onClick={() =>
-                                copyTextWithNotice(Number(currentBillFinalTotal).toFixed(2), "Amount copied.")
+                                copyTextWithNotice(Number(billPayableTotal).toFixed(2), "Amount copied.")
                               }
                             >
                               {"Copy Amount"}
@@ -5039,7 +5803,7 @@ export default function QrOrderingExperience({
                                   className="rounded-lg border border-zinc-700 px-2 py-1 font-medium text-zinc-200 transition hover:bg-zinc-800"
                                   onClick={() =>
                                     copyTextWithNotice(
-                                      Number(currentBillFinalTotal).toFixed(2),
+                                      Number(billPayableTotal).toFixed(2),
                                       "Amount copied.",
                                     )
                                   }
@@ -5546,6 +6310,49 @@ export default function QrOrderingExperience({
                   isLightTheme ? "border-[#DFCFAF]" : "border-zinc-800",
                 )}
               >
+                {applicableCartOffers.length > 0 ? (
+                  <section
+                    className={clsx(
+                      "space-y-2 rounded-2xl border p-3.5",
+                      isLightTheme
+                        ? "border-[#E1D3B8] bg-[#FFF9EE]"
+                        : "border-zinc-800 bg-zinc-900/55",
+                    )}
+                  >
+                    <p className={clsx("text-sm font-medium", isLightTheme ? "text-brand-dark/80" : "text-zinc-200")}>
+                      Applicable Offers
+                    </p>
+                    <div className="space-y-2">
+                      {applicableCartOffers.map((offerPreview) => (
+                        <div
+                          key={`cart_offer_${offerPreview.offerId}`}
+                          className={clsx(
+                            "rounded-xl border px-3 py-2",
+                            isLightTheme
+                              ? "border-[#E3D6BE] bg-[#FFFDF8]"
+                              : "border-zinc-800/30 bg-white/10",
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <p className={clsx("truncate text-sm font-semibold", contentTextClass)}>
+                              {offerPreview.offerName}
+                            </p>
+                            <span className={clsx("shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]", mutedTextClass)}>
+                              {offerPreview.offerType}
+                            </span>
+                          </div>
+                          <p className={clsx("mt-1 text-[11px]", secondaryTextClass)}>{offerPreview.matchedReason}</p>
+                          <p className={clsx("mt-1 text-[11px] font-medium", isLightTheme ? "text-brand-dark" : "text-zinc-200")}>
+                            {offerPreview.estimatedBenefit !== null
+                              ? `Estimated benefit: ${formatMoney(offerPreview.estimatedBenefit)}`
+                              : "Estimated benefit: based on offer terms"}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
                 <section
                   className={clsx(
                     "space-y-3 rounded-2xl border p-3.5",
@@ -5610,7 +6417,7 @@ export default function QrOrderingExperience({
                       )}
                     >
                       <span className="text-xs opacity-70">Payable Amount</span>
-                      <span className="text-sm font-semibold">{formatMoney(total)}</span>
+                      <span className="text-sm font-semibold">{formatMoney(cartPayableTotal)}</span>
                     </div>
                     {cartUpiLink ? (
                       <>
@@ -5633,7 +6440,7 @@ export default function QrOrderingExperience({
                               ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
                               : "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800",
                           )}
-                          onClick={() => handleShowUpiQr(cartUpiLink, total)}
+                          onClick={() => handleShowUpiQr(cartUpiLink, cartPayableTotal)}
                         >
                           {"Pay By QR (Recommended)"}
                         </button>
@@ -5658,7 +6465,7 @@ export default function QrOrderingExperience({
                                 ? "border-[#DCCCAA] bg-white/90 text-brand-dark hover:bg-[#F9F0DF]"
                                 : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                             )}
-                            onClick={() => copyTextWithNotice(Number(total).toFixed(2), "Amount copied.")}
+                            onClick={() => copyTextWithNotice(Number(cartPayableTotal).toFixed(2), "Amount copied.")}
                           >
                             {"Copy Amount"}
                           </button>
@@ -5727,7 +6534,7 @@ export default function QrOrderingExperience({
                             )}
                             onClick={() =>
                               copyTextWithNotice(
-                                Number(total).toFixed(2),
+                                Number(cartPayableTotal).toFixed(2),
                                 "Amount copied.",
                               )
                             }
@@ -5783,7 +6590,7 @@ export default function QrOrderingExperience({
                   )}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="opacity-80">Subtotal</span>
+                    <span className="opacity-80">Original Subtotal</span>
                     <span className="font-semibold">{formatMoney(subtotal)}</span>
                   </div>
                   {hasCustomizationsInCart ? (
@@ -5798,10 +6605,22 @@ export default function QrOrderingExperience({
                     <span className="opacity-80">Tax</span>
                     <span className="font-semibold">{formatMoney(taxAmount)}</span>
                   </div>
+                  {bestCartOffer ? (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="opacity-80">Applied Offer</span>
+                        <span className="font-semibold">{bestCartOffer.offer.offerName}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="opacity-80">Offer Discount</span>
+                        <span className="font-semibold">-{formatMoney(cartOfferDiscountAmount)}</span>
+                      </div>
+                    </>
+                  ) : null}
                   <div className="flex items-center justify-between">
-                    <span className="opacity-80">Total</span>
+                    <span className="opacity-80">Final Payable</span>
                     <span className="font-semibold" style={{ color: isLightTheme ? "#1C1C1C" : "#FDE4C3" }}>
-                      {formatMoney(total)}
+                      {formatMoney(cartPayableTotal)}
                     </span>
                   </div>
                 </section>

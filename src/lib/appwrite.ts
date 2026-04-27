@@ -3,6 +3,7 @@ const COLLECTION_IDS = {
   tables: "tables",
   categories: "categories",
   menuItems: "menu_items",
+  offers: "offers",
   orders: "orders",
   payments: "payments",
   reports: "reports",

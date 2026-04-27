@@ -66,6 +66,17 @@ export type MenuItem = {
   raw: AppwriteDocument;
 };
 
+export type Offer = {
+  id: string;
+  name: string;
+  bannerText: string;
+  offerType: string;
+  sortOrder: number;
+  startAt: string;
+  endAt: string;
+  raw: AppwriteDocument;
+};
+
 const clientKeys = [
   "client",
   "clientId",
@@ -115,6 +126,25 @@ const categoryRefKeys = [
 ] as const;
 
 const DEFAULT_MENU_IMAGE_BUCKET_ID = "restaurant-assets";
+const DAY_TOKEN_TO_INDEX: Record<string, number> = {
+  sun: 0,
+  sunday: 0,
+  mon: 1,
+  monday: 1,
+  tue: 2,
+  tues: 2,
+  tuesday: 2,
+  wed: 3,
+  wednesday: 3,
+  thu: 4,
+  thur: 4,
+  thurs: 4,
+  thursday: 4,
+  fri: 5,
+  friday: 5,
+  sat: 6,
+  saturday: 6,
+};
 
 function toSafeString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -143,6 +173,126 @@ function slugify(value: string) {
     .toLowerCase()
     .replace(/[_\s]+/g, "-")
     .replace(/[^a-z0-9-]/g, "");
+}
+
+function parseDateToTimestamp(value: string) {
+  const parsed = Date.parse(value.trim());
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseDayIndices(value: unknown): number[] {
+  const tokens: string[] = [];
+
+  const pushToken = (raw: unknown) => {
+    if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0 && raw <= 6) {
+      tokens.push(String(raw));
+      return;
+    }
+
+    if (typeof raw === "string") {
+      const normalized = raw.trim().toLowerCase();
+      if (!normalized) {
+        return;
+      }
+      const split = normalized
+        .split(/[,\s|/]+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+      if (split.length > 1) {
+        tokens.push(...split);
+      } else {
+        tokens.push(normalized);
+      }
+      return;
+    }
+
+    if (Array.isArray(raw)) {
+      for (const entry of raw) {
+        pushToken(entry);
+      }
+    }
+  };
+
+  pushToken(value);
+
+  const result = new Set<number>();
+  for (const token of tokens) {
+    if (/^[0-6]$/.test(token)) {
+      result.add(Number(token));
+      continue;
+    }
+    const mapped = DAY_TOKEN_TO_INDEX[token];
+    if (Number.isInteger(mapped)) {
+      result.add(mapped);
+    }
+  }
+
+  return [...result];
+}
+
+function parseTimeToMinutes(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return -1;
+  }
+
+  const normalized = trimmed.toLowerCase();
+  const twelveHourMatch = normalized.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/);
+  if (twelveHourMatch) {
+    let hours = Number(twelveHourMatch[1]);
+    const minutes = Number(twelveHourMatch[2] ?? "0");
+    const meridiem = twelveHourMatch[3];
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes) || minutes < 0 || minutes > 59) {
+      return -1;
+    }
+    if (hours < 1 || hours > 12) {
+      return -1;
+    }
+    if (meridiem === "am") {
+      hours = hours === 12 ? 0 : hours;
+    } else {
+      hours = hours === 12 ? 12 : hours + 12;
+    }
+    return hours * 60 + minutes;
+  }
+
+  const twentyFourHourMatch = normalized.match(/^(\d{1,2}):(\d{2})$/);
+  if (!twentyFourHourMatch) {
+    return -1;
+  }
+
+  const hours = Number(twentyFourHourMatch[1]);
+  const minutes = Number(twentyFourHourMatch[2]);
+  if (
+    !Number.isFinite(hours) ||
+    !Number.isFinite(minutes) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    return -1;
+  }
+  return hours * 60 + minutes;
+}
+
+function isWithinDailyWindow(currentMinutes: number, startMinutes: number, endMinutes: number) {
+  if (startMinutes < 0 && endMinutes < 0) {
+    return true;
+  }
+  if (startMinutes >= 0 && endMinutes >= 0) {
+    if (startMinutes === endMinutes) {
+      return true;
+    }
+    if (startMinutes < endMinutes) {
+      return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+    }
+    return currentMinutes >= startMinutes || currentMinutes <= endMinutes;
+  }
+  if (startMinutes >= 0) {
+    return currentMinutes >= startMinutes;
+  }
+  return currentMinutes <= endMinutes;
 }
 
 function normalizeStorageId(value: string) {
@@ -740,6 +890,104 @@ export function parseMenuItems(docs: AppwriteDocument[], client: string) {
       a.sortOrder - b.sortOrder ||
       a.name.localeCompare(b.name) ||
       a.price - b.price,
+  );
+}
+
+export function parseActiveOffers(
+  docs: AppwriteDocument[],
+  client: string,
+  now = new Date(),
+) {
+  const nowTimestamp = now.getTime();
+  const nowDayIndex = now.getDay();
+  const nowMinuteOfDay = now.getHours() * 60 + now.getMinutes();
+
+  const offers = docs
+    .filter((doc) => isClientMatch(doc, client))
+    .filter((doc) => getFieldBoolean(doc, ["is_active", "isActive", "active"], true))
+    .map((doc) => {
+      const name = getFieldString(doc, ["name", "offer_name", "offerName", "title"]) || "Offer";
+      const offerType =
+        getFieldString(doc, ["offer_type", "offerType", "type"]).toLowerCase() || "general";
+      const startAt = getFieldString(doc, ["start_at", "startAt", "starts_at", "startsAt"]);
+      const endAt = getFieldString(doc, ["end_at", "endAt", "expires_at", "expiresAt"]);
+      const bannerText = getFieldString(doc, [
+        "banner_text",
+        "bannerText",
+        "subtitle",
+        "description",
+      ]);
+
+      const dayIndices = parseDayIndices(
+        doc.active_days ??
+          doc.days_of_week ??
+          doc.days ??
+          doc.weekdays ??
+          doc.valid_days,
+      );
+      const startMinutes = parseTimeToMinutes(
+        getFieldString(doc, [
+          "start_time",
+          "startTime",
+          "time_start",
+          "from_time",
+          "valid_from_time",
+        ]),
+      );
+      const endMinutes = parseTimeToMinutes(
+        getFieldString(doc, [
+          "end_time",
+          "endTime",
+          "time_end",
+          "to_time",
+          "valid_to_time",
+        ]),
+      );
+
+      const startAtTimestamp = startAt ? parseDateToTimestamp(startAt) : 0;
+      if (startAtTimestamp && nowTimestamp < startAtTimestamp) {
+        return null;
+      }
+
+      const endAtTimestamp = endAt ? parseDateToTimestamp(endAt) : 0;
+      if (endAtTimestamp && nowTimestamp > endAtTimestamp) {
+        return null;
+      }
+
+      const hasTimeWindow = dayIndices.length > 0 || startMinutes >= 0 || endMinutes >= 0;
+      const isTimeBasedType =
+        offerType === "time_based" || offerType === "timebased" || offerType.includes("time");
+      if (hasTimeWindow || isTimeBasedType) {
+        if (dayIndices.length > 0 && !dayIndices.includes(nowDayIndex)) {
+          return null;
+        }
+        if (!isWithinDailyWindow(nowMinuteOfDay, startMinutes, endMinutes)) {
+          return null;
+        }
+      }
+
+      return {
+        id: doc.$id,
+        name,
+        bannerText,
+        offerType: offerType.toUpperCase().replace(/[_-]+/g, " "),
+        sortOrder: getFieldNumber(doc, [
+          "display_order",
+          "displayOrder",
+          "sort_order",
+          "sortOrder",
+          "priority",
+          "rank",
+        ]),
+        startAt,
+        endAt,
+        raw: doc,
+      } satisfies Offer;
+    })
+    .filter((entry): entry is Offer => !!entry);
+
+  return [...offers].sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
   );
 }
 
