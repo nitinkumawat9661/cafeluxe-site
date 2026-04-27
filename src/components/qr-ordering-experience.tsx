@@ -2,6 +2,7 @@
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
+import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   CheckCircle2,
@@ -50,6 +51,7 @@ import {
 
 type PaymentMethod = "UPI" | "COUNTER";
 type LoadState = "loading" | "ready" | "invalid-table" | "error";
+type ExperienceViewMode = "menu" | "cart";
 
 type ModifierOption = {
   id: string;
@@ -2585,12 +2587,20 @@ async function resolveRouteTable(clientId: string, tableParam: string) {
 export default function QrOrderingExperience({
   client,
   table,
+  initialView = "menu",
 }: {
   client: string;
   table: string;
+  initialView?: ExperienceViewMode;
 }) {
+  const router = useRouter();
   const routeClient = sanitizeRouteSegment(client, MAX_ROUTE_CLIENT_LENGTH);
   const routeTable = sanitizeRouteSegment(table, MAX_ROUTE_TABLE_LENGTH);
+  const routeClientForPath = routeClient || client.trim();
+  const routeTableForPath = routeTable || table.trim();
+  const tableRoutePath = `/c/${encodeURIComponent(routeClientForPath)}/t/${encodeURIComponent(routeTableForPath)}`;
+  const cartRoutePath = `${tableRoutePath}/cart`;
+  const isStandaloneCartRoute = initialView === "cart";
 
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [loadingMessage, setLoadingMessage] = useState("Loading menu...");
@@ -4186,6 +4196,24 @@ export default function QrOrderingExperience({
     setBillSyncMessage("");
   }
 
+  function openCartPage() {
+    touchBillActivity();
+    setBillOpen(false);
+    if (isStandaloneCartRoute) {
+      setCartOpen(true);
+      return;
+    }
+    router.push(cartRoutePath);
+  }
+
+  function closeCartView() {
+    if (isStandaloneCartRoute) {
+      router.replace(tableRoutePath);
+      return;
+    }
+    setCartOpen(false);
+  }
+
   function backToMenuFromBill() {
     setBillOpen(false);
     setCartOpen(false);
@@ -4195,8 +4223,11 @@ export default function QrOrderingExperience({
   }
 
   function browseMenuFromCart() {
-    setCartOpen(false);
-    setBillOpen(false);
+    if (isStandaloneCartRoute) {
+      router.replace(tableRoutePath);
+      return;
+    }
+    closeCartView();
     if (typeof window !== "undefined") {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
@@ -4609,6 +4640,7 @@ export default function QrOrderingExperience({
   const secondaryTextClass = isLightTheme ? "text-brand-accent" : "text-zinc-300";
   const mutedTextClass = isLightTheme ? "text-zinc-500" : "text-zinc-400";
   const themeScopeClass = isLightTheme ? "cafe-theme-light" : "";
+  const shouldShowCartPanel = cartOpen || isStandaloneCartRoute;
 
   if (loadState === "loading") {
     return (
@@ -5134,7 +5166,7 @@ export default function QrOrderingExperience({
               : "No items match this search/category. Try another filter."}
           </section>
         ) : (
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
             {visibleItems.map((item) => {
               const quantity = cart[item.id] ?? 0;
               const parsedImageSrc = item.image.trim();
@@ -5148,17 +5180,17 @@ export default function QrOrderingExperience({
                 <article
                   key={item.id}
                   data-menu-item-id={item.id}
-                  className="group overflow-hidden rounded-2xl border shadow-[0_30px_70px_-44px_rgba(0,0,0,0.98)] transition duration-300 hover:-translate-y-1 active:translate-y-[1px]"
+                  className="group overflow-hidden rounded-xl border shadow-[0_26px_60px_-44px_rgba(0,0,0,0.98)] transition duration-300 hover:-translate-y-0.5 active:translate-y-[1px]"
                   style={{
                     borderColor: withAlpha(WARM_HIGHLIGHT, 0.23),
                     background: cardGradient,
-                    boxShadow: `0 30px 70px -44px rgba(0,0,0,0.98), 0 0 0 1px ${withAlpha(WARM_HIGHLIGHT, 0.12)} inset`,
+                    boxShadow: `0 24px 58px -44px rgba(0,0,0,0.98), 0 0 0 1px ${withAlpha(WARM_HIGHLIGHT, 0.12)} inset`,
                     contentVisibility: "auto",
-                    containIntrinsicSize: "340px",
+                    containIntrinsicSize: "300px",
                   }}
                 >
                   <div
-                    className="relative aspect-[4/3]"
+                    className="relative aspect-square sm:aspect-[4/3]"
                     style={{
                       background: isLightTheme
                         ? "linear-gradient(135deg, rgba(243,231,208,0.95) 0%, rgba(231,201,138,0.32) 100%)"
@@ -5196,10 +5228,10 @@ export default function QrOrderingExperience({
                         background: `linear-gradient(180deg, ${withAlpha(WARM_HIGHLIGHT, 0.18)} 0%, rgba(0,0,0,0) 100%)`,
                       }}
                     />
-                    <div className="absolute left-3 top-3 flex gap-2">
+                    <div className="absolute left-2 top-2 flex flex-wrap gap-1">
                       {item.isVeg ? (
                         <span
-                          className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium"
+                          className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
                           style={{
                             borderColor: withAlpha(WARM_HIGHLIGHT, 0.42),
                             backgroundColor: withAlpha(WARM_HIGHLIGHT, 0.12),
@@ -5212,7 +5244,7 @@ export default function QrOrderingExperience({
                       ) : null}
                       {item.isSpicy ? (
                         <span
-                          className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium"
+                          className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
                           style={{
                             borderColor: withAlpha(LUXURY_GOLD, 0.36),
                             backgroundColor: withAlpha(LUXURY_GOLD, 0.13),
@@ -5225,7 +5257,7 @@ export default function QrOrderingExperience({
                       ) : null}
                       {item.isBestseller ? (
                         <span
-                          className="rounded-full border px-2 py-1 text-[11px] font-medium"
+                          className="rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
                           style={{
                             borderColor: withAlpha(LUXURY_GOLD, 0.42),
                             backgroundColor: withAlpha(LUXURY_GOLD, 0.18),
@@ -5236,28 +5268,28 @@ export default function QrOrderingExperience({
                         </span>
                       ) : null}
                       {!item.isAvailable ? (
-                        <span className="rounded-full border border-zinc-300/30 bg-zinc-900/75 px-2 py-1 text-[11px] font-medium text-zinc-200">
+                        <span className="rounded-full border border-zinc-300/30 bg-zinc-900/75 px-1.5 py-0.5 text-[10px] font-medium text-zinc-200">
                           Out Of Stock
                         </span>
                       ) : null}
                     </div>
                   </div>
 
-                  <div className="space-y-3 p-4">
+                  <div className="space-y-2.5 p-3">
                     <div>
-                      <h3 className={clsx("line-clamp-1 text-base font-semibold", contentTextClass)}>{item.name}</h3>
-                      <p className={clsx("line-clamp-1 text-sm", secondaryTextClass)}>{item.nameHi}</p>
+                      <h3 className={clsx("line-clamp-1 text-sm font-semibold sm:text-base", contentTextClass)}>{item.name}</h3>
+                      <p className={clsx("line-clamp-1 text-[11px] sm:text-sm", secondaryTextClass)}>{item.nameHi}</p>
                     </div>
 
                     {item.description ? (
-                      <p className={clsx("line-clamp-2 min-h-10 text-sm opacity-85", secondaryTextClass)}>{item.description}</p>
+                      <p className={clsx("line-clamp-2 min-h-8 text-[11px] opacity-85 sm:min-h-10 sm:text-sm", secondaryTextClass)}>{item.description}</p>
                     ) : (
-                      <div className="min-h-10" />
+                      <div className="min-h-8 sm:min-h-10" />
                     )}
 
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center justify-between gap-2">
                       <div>
-                        <p className="text-base font-semibold" style={{ color: isLightTheme ? "#1C1C1C" : "#FDE4C3" }}>
+                        <p className="text-sm font-semibold sm:text-base" style={{ color: isLightTheme ? "#1C1C1C" : "#FDE4C3" }}>
                           {formatMoney(displayPrice)}
                         </p>
                         {selectedModifiers.length > 0 ? (
@@ -5272,7 +5304,7 @@ export default function QrOrderingExperience({
                         <button
                           type="button"
                           className={clsx(
-                            "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
+                            "inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-xs font-semibold sm:text-sm",
                             isLightTheme
                               ? "border-[#D9CCB4] bg-[#F5EBDA] text-brand-dark/60"
                               : "border-zinc-700 bg-zinc-900 text-zinc-400",
@@ -5284,7 +5316,7 @@ export default function QrOrderingExperience({
                       ) : quantity === 0 ? (
                         <button
                           type="button"
-                          className="inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-sm font-semibold text-brand-dark shadow-[0_14px_34px_-20px_rgba(0,0,0,0.9)] transition active:translate-y-px"
+                          className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs font-semibold text-brand-dark shadow-[0_14px_34px_-20px_rgba(0,0,0,0.9)] transition active:translate-y-px sm:px-3.5 sm:py-2 sm:text-sm"
                           style={{
                             backgroundColor: LUXURY_GOLD,
                             borderColor: withAlpha(LUXURY_GOLD, 0.55),
@@ -5308,7 +5340,7 @@ export default function QrOrderingExperience({
                           <button
                             type="button"
                             className={clsx(
-                              "p-2 transition",
+                              "p-1.5 transition sm:p-2",
                               contentTextClass,
                               isLightTheme ? "hover:bg-[#F3E8D6]" : "hover:bg-zinc-800",
                             )}
@@ -5317,13 +5349,13 @@ export default function QrOrderingExperience({
                           >
                             <Minus className="h-4 w-4" />
                           </button>
-                          <span className={clsx("w-8 text-center text-sm font-semibold", contentTextClass)}>
+                          <span className={clsx("w-7 text-center text-xs font-semibold sm:w-8 sm:text-sm", contentTextClass)}>
                             {quantity}
                           </span>
                           <button
                             type="button"
                             className={clsx(
-                              "p-2 transition",
+                              "p-1.5 transition sm:p-2",
                               contentTextClass,
                               isLightTheme ? "hover:bg-[#F3E8D6]" : "hover:bg-zinc-800",
                             )}
@@ -5337,7 +5369,7 @@ export default function QrOrderingExperience({
                     </div>
 
                     {itemModifierOptions.length > 0 ? (
-                      <div className="flex flex-wrap gap-2 pt-1">
+                      <div className="flex flex-wrap gap-1.5 pt-1">
                         {itemModifierOptions.slice(0, 3).map((option) => {
                           const selected = selectedModifiers.some((entry) => entry.id === option.id);
                           return (
@@ -5390,6 +5422,7 @@ export default function QrOrderingExperience({
         )}
       </div>
 
+      {!isStandaloneCartRoute ? (
       <div className="fixed inset-x-0 bottom-0 z-30 px-4 pb-4 sm:px-6">
         <div
           className="mx-auto w-full max-w-4xl rounded-2xl border p-2 shadow-[0_30px_80px_-44px_rgba(0,0,0,0.98)] backdrop-blur-xl"
@@ -5432,10 +5465,7 @@ export default function QrOrderingExperience({
                 borderColor: withAlpha(LUXURY_GOLD, 0.42),
                 background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
               }}
-              onClick={() => {
-                setBillOpen(false);
-                setCartOpen(true);
-              }}
+              onClick={openCartPage}
             >
               <span className="inline-flex items-center gap-2 text-sm font-semibold">
                 <ShoppingBag className="h-5 w-5" />
@@ -5448,6 +5478,7 @@ export default function QrOrderingExperience({
           </div>
         </div>
       </div>
+      ) : null}
 
       {billOpen ? (
         <div
@@ -5466,7 +5497,7 @@ export default function QrOrderingExperience({
 
           <aside
             className={clsx(
-              "absolute inset-0 h-[100dvh] overflow-hidden rounded-none border-0 shadow-none md:bottom-4 md:left-auto md:right-4 md:top-4 md:h-auto md:w-[430px] md:max-h-[unset] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]",
+              "absolute inset-0 h-[100dvh] overflow-hidden rounded-none border-0 shadow-none md:bottom-4 md:left-auto md:right-4 md:top-4 md:h-auto md:w-[480px] md:max-h-[unset] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]",
               isLightTheme ? "text-brand-dark" : "text-zinc-100",
             )}
             style={{
@@ -5478,7 +5509,7 @@ export default function QrOrderingExperience({
             <div className="flex h-full flex-col">
               <div
                 className={clsx(
-                  "flex items-center justify-between border-b px-4 py-4",
+                  "flex items-center justify-between border-b px-5 py-4",
                   isLightTheme ? "border-[#DFCFAF]" : "border-zinc-800/90",
                 )}
               >
@@ -5498,7 +5529,7 @@ export default function QrOrderingExperience({
                 </button>
               </div>
 
-              <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+              <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
                 {billSyncMessage ? (
                   <div
                     className="rounded-xl border p-3 text-xs"
@@ -5571,7 +5602,7 @@ export default function QrOrderingExperience({
 
                       <div
                         className={clsx(
-                          "mt-4 space-y-2 rounded-xl border p-3 text-sm",
+                          "mt-4 space-y-3 rounded-xl border p-3.5 text-sm",
                           isLightTheme
                             ? "border-[#E1D4BA] bg-white/80"
                             : "border-zinc-800 bg-zinc-950/60",
@@ -6058,36 +6089,47 @@ export default function QrOrderingExperience({
         </div>
       ) : null}
 
-      {cartOpen ? (
+      {shouldShowCartPanel ? (
         <div
-          className="fixed inset-0 z-40 backdrop-blur-sm"
-          style={{
-            backgroundColor: overlayShade,
-            animation: "luxe-fade-in 0.22s ease-out",
-          }}
+          className={clsx(
+            "fixed inset-0 z-40",
+            isStandaloneCartRoute ? "" : "backdrop-blur-sm",
+          )}
+          style={
+            isStandaloneCartRoute
+              ? { background: appBackground }
+              : {
+                  backgroundColor: overlayShade,
+                  animation: "luxe-fade-in 0.22s ease-out",
+                }
+          }
         >
-          <button
-            type="button"
-            className="absolute inset-0 h-full w-full cursor-default"
-            onClick={() => setCartOpen(false)}
-            aria-label="Close cart"
-          />
+          {!isStandaloneCartRoute ? (
+            <button
+              type="button"
+              className="absolute inset-0 h-full w-full cursor-default"
+              onClick={closeCartView}
+              aria-label="Close cart"
+            />
+          ) : null}
 
           <aside
             className={clsx(
-              "absolute inset-0 h-[100dvh] overflow-hidden rounded-none border-0 shadow-none md:bottom-4 md:left-auto md:right-4 md:top-4 md:h-auto md:w-[430px] md:max-h-[unset] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]",
+              isStandaloneCartRoute
+                ? "absolute inset-0 h-[100dvh] overflow-hidden rounded-none border-0 shadow-none"
+                : "absolute inset-0 h-[100dvh] overflow-hidden rounded-none border-0 shadow-none md:bottom-4 md:left-auto md:right-4 md:top-4 md:h-auto md:w-[480px] md:max-h-[unset] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]",
               isLightTheme ? "text-brand-dark" : "text-zinc-100",
             )}
             style={{
               borderColor: accentBorder,
-              animation: "luxe-sheet-up 0.25s ease-out",
+              animation: isStandaloneCartRoute ? undefined : "luxe-sheet-up 0.25s ease-out",
               background: sheetGradient,
             }}
           >
             <div className="flex h-full flex-col">
               <div
                 className={clsx(
-                  "border-b px-4 pb-3 pt-[calc(env(safe-area-inset-top)+12px)] md:rounded-t-3xl md:px-4 md:pb-4 md:pt-4",
+                  "border-b px-5 pb-4 pt-[calc(env(safe-area-inset-top)+12px)] md:rounded-t-3xl md:px-5 md:pt-5",
                   isLightTheme ? "border-[#DFCFAF]" : "border-zinc-800/90",
                 )}
                 style={{
@@ -6098,7 +6140,7 @@ export default function QrOrderingExperience({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-[1.05rem] font-semibold leading-tight">{"Your Cart"}</h2>
+                    <h2 className="text-[1.1rem] font-semibold leading-tight">{"Your Cart"}</h2>
                     <p className={clsx("mt-1 text-[11px]", isLightTheme ? "text-brand-dark/70" : "text-zinc-400")}>
                       {cartCount} item{cartCount === 1 ? "" : "s"}
                     </p>
@@ -6128,15 +6170,15 @@ export default function QrOrderingExperience({
                           : "text-zinc-300 hover:bg-zinc-800",
                       )}
                       style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.25) }}
-                      onClick={() => setCartOpen(false)}
+                      onClick={closeCartView}
                     >
-                      Close
+                      {isStandaloneCartRoute ? "Back To Menu" : "Close"}
                     </button>
                   </div>
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-4 py-4 md:px-4">
+              <div className="flex-1 overflow-y-auto px-5 py-5 md:px-5">
                 {cartItems.length === 0 ? (
                   <div
                     className={clsx(
@@ -6306,7 +6348,7 @@ export default function QrOrderingExperience({
 
               <div
                 className={clsx(
-                  "space-y-4 border-t px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 md:px-4",
+                  "space-y-4 border-t px-5 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 md:px-5",
                   isLightTheme ? "border-[#DFCFAF]" : "border-zinc-800",
                 )}
               >
