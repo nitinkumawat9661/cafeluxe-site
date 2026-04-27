@@ -79,11 +79,11 @@ async function fetchHomepageTables(clientId: string) {
 }
 
 export default function Home() {
-  const accent = "#E5AB99";
-  const base = "#F2E4D3";
-  const success = "#DFE5CE";
-  const premium = "#E3DFF2";
-  const text = "#352A25";
+  const background = "#F8F5F0";
+  const surface = "#E8D9C5";
+  const accent = "#C6A57B";
+  const text = "#2E2A26";
+  const secondary = "#7A6D60";
   const [loadState, setLoadState] = useState<HomeLoadState>("loading");
   const [tables, setTables] = useState<RestaurantTable[]>([]);
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
@@ -158,17 +158,19 @@ export default function Home() {
     <div
       className="relative min-h-screen overflow-hidden px-4 py-8 text-zinc-900"
       style={{
-        background: `radial-gradient(1200px 520px at 20% -20%, ${premium} 0%, rgba(255,255,255,0) 55%), linear-gradient(180deg, ${base} 0%, #FAF3E9 100%)`,
+        background: `radial-gradient(1100px 520px at 20% -18%, rgba(198,165,123,0.16) 0%, rgba(248,245,240,0) 56%), linear-gradient(180deg, ${background} 0%, #F8F5F0 100%)`,
       }}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(53,42,37,0.03)_0%,rgba(255,255,255,0)_42%,rgba(183,207,229,0.16)_100%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(46,42,38,0.03)_0%,rgba(248,245,240,0)_42%,rgba(198,165,123,0.12)_100%)]" />
 
       <main className="relative mx-auto w-full max-w-md">
         <section
-          className="mb-5 rounded-3xl border p-6 shadow-[0_28px_70px_-42px_rgba(28,28,28,0.45)]"
+          className="mb-5 rounded-3xl border p-6"
           style={{
-            borderColor: "rgba(229,171,153,0.34)",
-            background: `linear-gradient(165deg, #FFFFFF 0%, ${base} 58%, ${premium} 100%)`,
+            borderColor: "rgba(122,109,96,0.32)",
+            background: `linear-gradient(165deg, rgba(248,245,240,0.98) 0%, ${surface} 62%, rgba(198,165,123,0.14) 100%)`,
+            boxShadow:
+              "0 28px 70px -42px rgba(46,42,38,0.42), inset 0 1px 0 rgba(248,245,240,0.84), inset 0 -1px 0 rgba(122,109,96,0.12)",
           }}
         >
           <p className="text-xs uppercase tracking-[0.24em]" style={{ color: text }}>
@@ -177,12 +179,12 @@ export default function Home() {
           <h1 className="mt-2 text-2xl font-semibold tracking-[0.02em]" style={{ color: text }}>
             Select Your Table
           </h1>
-          <p className="mt-2 text-sm text-zinc-600">
+          <p className="mt-2 text-sm" style={{ color: secondary }}>
             Tap your table to open the live menu and order instantly.
           </p>
           {supportPhone ? (
-            <p className="mt-3 text-xs text-zinc-500">
-              Support: <span className="font-medium text-zinc-700">{supportPhone}</span>
+            <p className="mt-3 text-xs" style={{ color: secondary }}>
+              Support: <span className="font-medium" style={{ color: text }}>{supportPhone}</span>
             </p>
           ) : null}
         </section>
@@ -191,8 +193,8 @@ export default function Home() {
           <section
             className="flex items-center gap-3 rounded-2xl border p-4 text-sm"
             style={{
-              borderColor: "rgba(183,207,229,0.46)",
-              background: "rgba(255,252,246,0.95)",
+              borderColor: "rgba(122,109,96,0.24)",
+              background: "rgba(232,217,197,0.56)",
               color: text,
             }}
           >
@@ -205,26 +207,26 @@ export default function Home() {
           <section
             className="rounded-2xl border p-4"
             style={{
-              borderColor: "rgba(185,28,28,0.25)",
-              background: "rgba(255,246,246,0.95)",
-              color: "#9f1239",
+              borderColor: "rgba(122,109,96,0.28)",
+              background: "rgba(232,217,197,0.56)",
+              color: text,
             }}
           >
             <div className="flex items-start gap-3">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
                 <p className="text-sm font-semibold">Unable To Load Tables</p>
-                <p className="mt-1 text-sm text-rose-700">{errorMessage}</p>
+                <p className="mt-1 text-sm" style={{ color: secondary }}>{errorMessage}</p>
                 {errorReason ? (
-                  <p className="mt-1 text-xs text-rose-700/90">Reason: {errorReason}</p>
+                  <p className="mt-1 text-xs" style={{ color: secondary }}>Reason: {errorReason}</p>
                 ) : null}
                 <button
                   type="button"
                   className="mt-3 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition"
                   style={{
-                    borderColor: "rgba(159,18,57,0.28)",
-                    color: "#9f1239",
-                    backgroundColor: "rgba(255,255,255,0.8)",
+                    borderColor: "rgba(122,109,96,0.32)",
+                    color: text,
+                    backgroundColor: "rgba(248,245,240,0.9)",
                   }}
                   onClick={() => setReloadKey((current) => current + 1)}
                 >
@@ -240,8 +242,8 @@ export default function Home() {
           <section
             className="rounded-2xl border p-5 text-sm"
             style={{
-              borderColor: "rgba(183,207,229,0.4)",
-              background: "rgba(255,255,255,0.92)",
+              borderColor: "rgba(122,109,96,0.26)",
+              background: "rgba(232,217,197,0.48)",
             }}
           >
             <div className="flex items-start gap-3">
@@ -250,7 +252,7 @@ export default function Home() {
                 <p className="font-semibold" style={{ color: text }}>
                   No Active Tables
                 </p>
-                <p className="mt-1 text-zinc-600">
+                <p className="mt-1" style={{ color: secondary }}>
                   No active table is available right now for this client.
                 </p>
               </div>
@@ -269,26 +271,24 @@ export default function Home() {
                   prefetch={false}
                   className="group rounded-2xl border p-4 transition active:translate-y-px"
                   style={{
-                    borderColor: "rgba(229,171,153,0.32)",
-                    background:
-                      `linear-gradient(160deg, #FFFFFF 0%, ${base} 62%, ${success} 100%)`,
-                    boxShadow:
-                      "0 22px 56px -38px rgba(53,42,37,0.26), inset 0 0 0 1px rgba(229,171,153,0.14)",
+                    borderColor: "rgba(122,109,96,0.3)",
+                    background: `linear-gradient(160deg, rgba(248,245,240,0.98) 0%, ${surface} 70%, rgba(198,165,123,0.14) 100%)`,
+                    boxShadow: "0 24px 58px -38px rgba(46,42,38,0.3), inset 0 1px 0 rgba(248,245,240,0.86), inset 0 -1px 0 rgba(122,109,96,0.16)",
                   }}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">Table</p>
+                      <p className="text-xs uppercase tracking-[0.14em]" style={{ color: secondary }}>Table</p>
                       <p className="mt-1 text-lg font-semibold" style={{ color: text }}>
                         {table.tableNo}
                       </p>
-                      <p className="mt-1 text-xs text-zinc-500">Code: {table.tableCode}</p>
+                      <p className="mt-1 text-xs" style={{ color: secondary }}>Code: {table.tableCode}</p>
                     </div>
                     <div
                       className="rounded-xl border px-3 py-1.5 text-xs font-semibold"
                       style={{
-                        borderColor: "rgba(229,171,153,0.4)",
-                        backgroundColor: "rgba(229,171,153,0.16)",
+                        borderColor: "rgba(122,109,96,0.32)",
+                        backgroundColor: "rgba(198,165,123,0.2)",
                         color: text,
                       }}
                     >

@@ -3,12 +3,12 @@
 @tailwind utilities;
 
 :root {
-  --background: #F6F6F6;
-  --foreground: #1C1C1C;
-  --brand-dark: #1C1C1C;
-  --brand-accent: #302A18;
-  --brand-surface: #FDE4C3;
-  --brand-bg: #F6F6F6;
+  --background: #F8F5F0;
+  --foreground: #2E2A26;
+  --brand-dark: #2E2A26;
+  --brand-accent: #7A6D60;
+  --brand-surface: #E8D9C5;
+  --brand-bg: #F8F5F0;
 }
 
 body {
@@ -19,7 +19,7 @@ body {
 }
 
 * {
-  border-color: rgba(148, 163, 184, 0.2);
+  border-color: rgba(122, 109, 96, 0.2);
 }
 
 ::-webkit-scrollbar {
@@ -31,11 +31,11 @@ body {
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: content-box;
-  background-color: rgba(148, 163, 184, 0.45);
+  background-color: rgba(122, 109, 96, 0.45);
 }
 
 ::-webkit-scrollbar-track {
-  background-color: rgba(2, 6, 23, 0.2);
+  background-color: rgba(232, 217, 197, 0.6);
 }
 
 @keyframes luxe-fade-in {
@@ -59,41 +59,41 @@ body {
 }
 
 .cafe-theme-light {
-  color: #15263b;
+  color: #2E2A26;
 }
 
 .cafe-theme-light [class*="text-zinc-100"],
 .cafe-theme-light [class*="text-zinc-200"],
 .cafe-theme-light [class*="text-zinc-300"] {
-  color: #1b2d44 !important;
+  color: #2E2A26 !important;
 }
 
 .cafe-theme-light [class*="text-zinc-400"],
 .cafe-theme-light [class*="text-zinc-500"] {
-  color: #5a6880 !important;
+  color: #7A6D60 !important;
 }
 
 .cafe-theme-light [class*="border-zinc-700"],
 .cafe-theme-light [class*="border-zinc-800"],
 .cafe-theme-light [class*="border-zinc-900"] {
-  border-color: rgba(149, 115, 58, 0.26) !important;
+  border-color: rgba(122, 109, 96, 0.28) !important;
 }
 
 .cafe-theme-light [class*="bg-zinc-900"] {
-  background-color: rgba(251, 244, 232, 0.88) !important;
-  box-shadow: 0 18px 42px -32px rgba(12, 31, 55, 0.28);
+  background-color: rgba(232, 217, 197, 0.78) !important;
+  box-shadow: 0 18px 42px -32px rgba(46, 42, 38, 0.22);
 }
 
 .cafe-theme-light [class*="bg-zinc-950"] {
-  background-color: rgba(245, 234, 214, 0.9) !important;
-  box-shadow: inset 0 0 0 1px rgba(198, 160, 92, 0.16);
+  background-color: rgba(232, 217, 197, 0.9) !important;
+  box-shadow: inset 0 0 0 1px rgba(122, 109, 96, 0.18);
 }
 
 .cafe-theme-light [class*="placeholder:text-zinc-500"]::placeholder {
-  color: #6f7c94 !important;
+  color: #7A6D60 !important;
 }
 
 .cafe-theme-light .hover\:bg-zinc-800:hover,
 .cafe-theme-light .hover\:bg-zinc-900:hover {
-  background-color: rgba(238, 225, 201, 0.92) !important;
+  background-color: rgba(232, 217, 197, 0.92) !important;
 }

@@ -242,19 +242,23 @@ const MAX_SEARCH_INPUT_LENGTH = 64;
 const MAX_INSTRUCTION_LENGTH = 240;
 const DEFAULT_UPI_ID = "7665853321@superyes";
 const DEFAULT_UPI_NAME = "Nitin Kumawat";
-const PALETTE_ACCENT = "#E5AB99";
-const PALETTE_BASE = "#F2E4D3";
-const PALETTE_SUCCESS = "#DFE5CE";
-const PALETTE_INFO = "#B7CFE5";
-const PALETTE_PREMIUM = "#E3DFF2";
-const ROYAL_NAVY = PALETTE_INFO;
+const PALETTE_BACKGROUND = "#F8F5F0";
+const PALETTE_SURFACE = "#E8D9C5";
+const PALETTE_ACCENT = "#C6A57B";
+const PALETTE_TEXT = "#2E2A26";
+const PALETTE_SECONDARY = "#7A6D60";
+const PALETTE_BASE = PALETTE_SURFACE;
+const PALETTE_SUCCESS = PALETTE_SURFACE;
+const PALETTE_INFO = PALETTE_BACKGROUND;
+const PALETTE_PREMIUM = PALETTE_BACKGROUND;
+const ROYAL_NAVY = PALETTE_SECONDARY;
 const LUXURY_GOLD = PALETTE_ACCENT;
-const DEEP_CHARCOAL = "#352A25";
-const SOFT_DARK_SURFACE = PALETTE_PREMIUM;
+const DEEP_CHARCOAL = PALETTE_TEXT;
+const SOFT_DARK_SURFACE = PALETTE_SURFACE;
 const WARM_HIGHLIGHT = PALETTE_ACCENT;
-const LIGHT_TEXT = "#352A25";
-const BRAND_BG = PALETTE_BASE;
-const BRAND_SURFACE = "#FAF3EA";
+const LIGHT_TEXT = PALETTE_TEXT;
+const BRAND_BG = PALETTE_BACKGROUND;
+const BRAND_SURFACE = PALETTE_SURFACE;
 
 const PIZZA_FALLBACK_MODIFIER_OPTIONS: ModifierOption[] = [
   { id: "extra_cheese", label: "Extra Cheese", price: 40, kind: "paid" },
@@ -928,7 +932,7 @@ function pickBestApplicableOffer(
   };
 }
 
-function normalizeThemeColor(value: string, fallback = "#34d399") {
+function normalizeThemeColor(value: string, fallback = PALETTE_ACCENT) {
   const candidate = value.trim();
   if (!candidate) {
     return fallback;
@@ -4623,24 +4627,24 @@ export default function QrOrderingExperience({
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   }, [upiQrAmount]);
   const appBackground = isLightTheme
-    ? `linear-gradient(180deg, ${PALETTE_BASE} 0%, #FAF3EA 58%, #F7EFE4 100%)`
-    : `linear-gradient(180deg, #1C1C1C 0%, #302A18 36%, #1C1C1C 100%)`;
+    ? `linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, #F8F5F0 56%, #E8D9C5 100%)`
+    : `linear-gradient(180deg, #2E2A26 0%, #7A6D60 36%, #2E2A26 100%)`;
   const panelGradient = isLightTheme
-    ? `linear-gradient(165deg, #FFFDFC 0%, ${PALETTE_BASE} 58%, ${PALETTE_PREMIUM} 100%)`
-    : `linear-gradient(165deg, #302A18 0%, #1C1C1C 100%)`;
+    ? `linear-gradient(165deg, rgba(248,245,240,0.98) 0%, ${PALETTE_SURFACE} 64%, rgba(198,165,123,0.18) 100%)`
+    : `linear-gradient(165deg, #7A6D60 0%, #2E2A26 100%)`;
   const sectionGradient = isLightTheme
-    ? `linear-gradient(160deg, #FFFDFC 0%, ${PALETTE_BASE} 62%, #F8EFE4 100%)`
-    : `linear-gradient(160deg, #302A18 0%, #1C1C1C 100%)`;
+    ? `linear-gradient(160deg, rgba(248,245,240,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(198,165,123,0.16) 100%)`
+    : `linear-gradient(160deg, #7A6D60 0%, #2E2A26 100%)`;
   const cardGradient = isLightTheme
-    ? `linear-gradient(168deg, #FFFDFC 0%, ${PALETTE_BASE} 72%, #F8EEE2 100%)`
-    : `linear-gradient(168deg, #302A18 0%, #1C1C1C 100%)`;
+    ? `linear-gradient(168deg, rgba(248,245,240,0.98) 0%, ${PALETTE_SURFACE} 72%, rgba(198,165,123,0.16) 100%)`
+    : `linear-gradient(168deg, #7A6D60 0%, #2E2A26 100%)`;
   const sheetGradient = isLightTheme
-    ? `linear-gradient(176deg, #FFFDFC 0%, ${PALETTE_BASE} 62%, #F8EEE2 100%)`
-    : `linear-gradient(176deg, #302A18 0%, #1C1C1C 100%)`;
+    ? `linear-gradient(176deg, rgba(248,245,240,0.99) 0%, ${PALETTE_SURFACE} 68%, rgba(198,165,123,0.16) 100%)`
+    : `linear-gradient(176deg, #7A6D60 0%, #2E2A26 100%)`;
   const bottomBarGradient = isLightTheme
-    ? `linear-gradient(170deg, #FFFDFC 0%, ${PALETTE_BASE} 62%, #F8EEE2 100%)`
-    : `linear-gradient(170deg, #302A18 0%, #1C1C1C 100%)`;
-  const overlayShade = isLightTheme ? "rgba(53,42,37,0.18)" : "rgba(0, 0, 0, 0.72)";
+    ? `linear-gradient(170deg, rgba(248,245,240,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(198,165,123,0.16) 100%)`
+    : `linear-gradient(170deg, #7A6D60 0%, #2E2A26 100%)`;
+  const overlayShade = isLightTheme ? "rgba(46,42,38,0.2)" : "rgba(0, 0, 0, 0.72)";
   const contentTextClass = isLightTheme ? "text-brand-dark" : "text-white";
   const secondaryTextClass = isLightTheme ? "text-brand-accent" : "text-zinc-300";
   const mutedTextClass = isLightTheme ? "text-zinc-500" : "text-zinc-400";
@@ -4756,8 +4760,8 @@ export default function QrOrderingExperience({
           className="pointer-events-none fixed inset-x-0 top-0 h-64 opacity-30"
           style={{
             backgroundImage: isLightTheme
-              ? `linear-gradient(180deg, rgba(248,250,252,0.64) 0%, rgba(248,250,252,0.98) 92%), url(${heroImageUrl})`
-              : `linear-gradient(180deg, rgba(12,31,55,0.16) 0%, rgba(17,24,39,0.95) 92%), url(${heroImageUrl})`,
+              ? `linear-gradient(180deg, rgba(248,245,240,0.62) 0%, rgba(248,245,240,0.97) 92%), url(${heroImageUrl})`
+              : `linear-gradient(180deg, rgba(46,42,38,0.2) 0%, rgba(24,22,20,0.94) 92%), url(${heroImageUrl})`,
             backgroundSize: "cover",
             backgroundPosition: "center",
           }}
@@ -4767,8 +4771,8 @@ export default function QrOrderingExperience({
         className="pointer-events-none fixed inset-0"
         style={{
           background: isLightTheme
-            ? "linear-gradient(140deg, rgba(198,160,92,0.12) 0%, rgba(255,255,255,0) 38%, rgba(12,31,55,0.06) 100%)"
-            : "linear-gradient(140deg, rgba(231,201,138,0.05) 0%, rgba(255,255,255,0) 38%, rgba(12,31,55,0.22) 100%)",
+            ? "linear-gradient(140deg, rgba(198,165,123,0.14) 0%, rgba(248,245,240,0) 38%, rgba(46,42,38,0.08) 100%)"
+            : "linear-gradient(140deg, rgba(198,165,123,0.08) 0%, rgba(248,245,240,0) 38%, rgba(46,42,38,0.24) 100%)",
         }}
       />
       <div
@@ -4790,7 +4794,7 @@ export default function QrOrderingExperience({
             boxShadow: `0 32px 74px -42px rgba(0,0,0,0.98), 0 0 0 1px ${accentInset} inset`,
             ...(isLightTheme
               ? {
-                  boxShadow: `0 28px 66px -42px rgba(12,31,55,0.32), 0 0 0 1px ${withAlpha(LUXURY_GOLD, 0.2)} inset`,
+                  boxShadow: `0 28px 66px -42px rgba(46,42,38,0.28), 0 0 0 1px ${withAlpha(LUXURY_GOLD, 0.2)} inset`,
                 }
               : null),
           }}
@@ -4806,7 +4810,7 @@ export default function QrOrderingExperience({
                   style={{
                     borderColor: withAlpha(LUXURY_GOLD, 0.45),
                     background: `linear-gradient(160deg, ${withAlpha(LUXURY_GOLD, 0.34)} 0%, ${withAlpha(LUXURY_GOLD, 0.18)} 100%)`,
-                    color: isLightTheme ? "#1C1C1C" : "#FFFFFF",
+                    color: isLightTheme ? "#2E2A26" : "#F8F5F0",
                     boxShadow: `0 14px 30px -18px ${withAlpha(LUXURY_GOLD, 0.55)}`,
                   }}
                 >
@@ -4826,7 +4830,7 @@ export default function QrOrderingExperience({
                 <div className="min-w-0">
                   <h1
                     className="truncate text-[1.78rem] font-bold leading-none tracking-[0.04em]"
-                    style={{ color: isLightTheme ? "#1C1C1C" : "#FFFFFF" }}
+                    style={{ color: isLightTheme ? "#2E2A26" : "#F8F5F0" }}
                   >
                     Cafe Luxe
                   </h1>
@@ -4849,14 +4853,14 @@ export default function QrOrderingExperience({
                 style={{
                   borderColor: accentBorder,
                   backgroundColor: isLightTheme
-                    ? withAlpha("#F9F1E2", 0.88)
+                    ? withAlpha("#F8F5F0", 0.88)
                     : withAlpha(ROYAL_NAVY, 0.56),
                 }}
               >
                 <p className={clsx("text-[10px] uppercase tracking-[0.16em]", mutedTextClass)}>Table</p>
                 <p
                   className="text-sm font-semibold"
-                  style={{ color: isLightTheme ? "#1C1C1C" : "#FFFFFF" }}
+                  style={{ color: isLightTheme ? "#2E2A26" : "#F8F5F0" }}
                 >
                   {tableLabel}
                 </p>
@@ -4866,12 +4870,12 @@ export default function QrOrderingExperience({
           {supportPhone ? (
             <div
               className={clsx("mt-3 border-t pt-2 text-xs", secondaryTextClass)}
-              style={{ borderColor: withAlpha(isLightTheme ? "#C6A05C" : SOFT_DARK_SURFACE, 0.24) }}
+              style={{ borderColor: withAlpha(isLightTheme ? "#C6A57B" : SOFT_DARK_SURFACE, 0.24) }}
             >
               {"Support"}:{" "}
               <span
                 className="font-medium"
-                style={{ color: isLightTheme ? "#1C1C1C" : "#FFFFFF" }}
+                style={{ color: isLightTheme ? "#2E2A26" : "#F8F5F0" }}
               >
                 {supportPhone}
               </span>
@@ -4885,7 +4889,7 @@ export default function QrOrderingExperience({
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.28),
               backgroundColor: withAlpha(LUXURY_GOLD, isLightTheme ? 0.24 : 0.12),
-              color: isLightTheme ? "#6B4E22" : WARM_HIGHLIGHT,
+              color: isLightTheme ? "#7A6D60" : WARM_HIGHLIGHT,
             }}
           >
             <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
@@ -4904,7 +4908,7 @@ export default function QrOrderingExperience({
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.28),
               backgroundColor: withAlpha(LUXURY_GOLD, isLightTheme ? 0.24 : 0.12),
-              color: isLightTheme ? "#6B4E22" : WARM_HIGHLIGHT,
+              color: isLightTheme ? "#7A6D60" : WARM_HIGHLIGHT,
             }}
           >
             <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
@@ -4923,7 +4927,7 @@ export default function QrOrderingExperience({
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.34),
               backgroundColor: withAlpha(LUXURY_GOLD, isLightTheme ? 0.24 : 0.13),
-              color: isLightTheme ? "#6B4E22" : WARM_HIGHLIGHT,
+              color: isLightTheme ? "#7A6D60" : WARM_HIGHLIGHT,
             }}
           >
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
@@ -4962,13 +4966,13 @@ export default function QrOrderingExperience({
             style={{
               borderColor:
                 statusPopup.tone === "success"
-                  ? withAlpha("#22c55e", 0.36)
+                  ? withAlpha("#C6A57B", 0.36)
                   : withAlpha(WARM_HIGHLIGHT, 0.34),
               backgroundColor:
                 statusPopup.tone === "success"
-                  ? withAlpha("#22c55e", isLightTheme ? 0.14 : 0.18)
+                  ? withAlpha("#C6A57B", isLightTheme ? 0.14 : 0.18)
                   : withAlpha(LUXURY_GOLD, isLightTheme ? 0.16 : 0.14),
-              color: statusPopup.tone === "success" ? "#22c55e" : WARM_HIGHLIGHT,
+              color: statusPopup.tone === "success" ? "#C6A57B" : WARM_HIGHLIGHT,
             }}
           >
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
@@ -5007,7 +5011,7 @@ export default function QrOrderingExperience({
             <div>
               <div
                 className="flex items-center gap-2"
-                style={{ color: isLightTheme ? "#89672F" : WARM_HIGHLIGHT }}
+                style={{ color: isLightTheme ? "#7A6D60" : WARM_HIGHLIGHT }}
               >
                 <Sparkles className="h-4 w-4" />
                 <p className="text-sm font-medium">{"Fresh Picks For Your Table"}</p>
@@ -5019,7 +5023,7 @@ export default function QrOrderingExperience({
             <div className="shrink-0 space-y-1 text-right">
               <p
                 className="text-[11px] uppercase tracking-[0.16em]"
-                style={{ color: isLightTheme ? "#89672F" : WARM_HIGHLIGHT }}
+                style={{ color: isLightTheme ? "#7A6D60" : WARM_HIGHLIGHT }}
               >
                 {normalizedCurrency}
               </p>
@@ -5061,7 +5065,7 @@ export default function QrOrderingExperience({
 
         <section className="sticky top-[98px] z-10 mb-4 -mx-1 overflow-x-auto px-1">
           <div
-            className="inline-flex min-w-full gap-2 rounded-2xl border p-1.5 shadow-[0_20px_48px_-34px_rgba(12,31,55,0.32)] backdrop-blur"
+            className="inline-flex min-w-full gap-2 rounded-2xl border p-1.5 shadow-[0_20px_48px_-34px_rgba(46,42,38,0.28)] backdrop-blur"
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.22),
               background: sectionGradient,
@@ -5079,14 +5083,14 @@ export default function QrOrderingExperience({
                 activeCategory === "all"
                   ? isLightTheme
                     ? {
-                        background: `linear-gradient(180deg, #FFFFFF 0%, #FDE4C3 100%)`,
-                        boxShadow: `0 10px 24px -16px ${withAlpha("#0C1F37", 0.3)}`,
+                        background: `linear-gradient(180deg, #F8F5F0 0%, #E8D9C5 100%)`,
+                        boxShadow: `0 10px 24px -16px ${withAlpha("#2E2A26", 0.3)}`,
                       }
                     : { backgroundColor: LUXURY_GOLD }
                   : {
                       backgroundColor: isLightTheme
-                        ? withAlpha("#FFFFFF", 0.94)
-                        : withAlpha("#302A18", 0.9),
+                        ? withAlpha("#F8F5F0", 0.94)
+                        : withAlpha("#7A6D60", 0.9),
                     }
               }
               onClick={() => setActiveCategory("all")}
@@ -5107,14 +5111,14 @@ export default function QrOrderingExperience({
                   activeCategory === category.id
                     ? isLightTheme
                       ? {
-                          background: `linear-gradient(180deg, #FFFFFF 0%, #FDE4C3 100%)`,
-                          boxShadow: `0 10px 24px -16px ${withAlpha("#0C1F37", 0.3)}`,
+                          background: `linear-gradient(180deg, #F8F5F0 0%, #E8D9C5 100%)`,
+                          boxShadow: `0 10px 24px -16px ${withAlpha("#2E2A26", 0.3)}`,
                         }
                       : { backgroundColor: LUXURY_GOLD }
                     : {
                         backgroundColor: isLightTheme
-                          ? withAlpha("#FFFFFF", 0.94)
-                          : withAlpha("#302A18", 0.9),
+                          ? withAlpha("#F8F5F0", 0.94)
+                          : withAlpha("#7A6D60", 0.9),
                       }
                 }
                 onClick={() => setActiveCategory(category.id)}
@@ -5151,7 +5155,7 @@ export default function QrOrderingExperience({
               {offersToday.map((offer) => (
                 <article
                   key={offer.id}
-                  className="rounded-2xl border px-3.5 py-3.5 shadow-[0_20px_48px_-34px_rgba(12,31,55,0.25)]"
+                  className="rounded-2xl border px-3.5 py-3.5 shadow-[0_20px_48px_-34px_rgba(46,42,38,0.24)]"
                   style={{
                     borderColor: withAlpha(PALETTE_ACCENT, 0.26),
                     background: `linear-gradient(160deg, ${withAlpha(PALETTE_BASE, 0.96)} 0%, ${withAlpha(PALETTE_PREMIUM, 0.44)} 100%)`,
@@ -5186,7 +5190,7 @@ export default function QrOrderingExperience({
             className={clsx(
               "rounded-2xl border p-5 text-sm",
               secondaryTextClass,
-              isLightTheme ? "border-[#DDCFB4] bg-[#FFFCF6]" : "border-zinc-800/30 bg-white/10",
+              isLightTheme ? "border-[#E8D9C5] bg-[#F8F5F0]" : "border-zinc-800/30 bg-white/10",
             )}
           >
             {menuItems.length === 0
@@ -5221,7 +5225,7 @@ export default function QrOrderingExperience({
                     className="relative aspect-square sm:aspect-[4/3]"
                     style={{
                       background: isLightTheme
-                        ? "linear-gradient(135deg, rgba(243,231,208,0.95) 0%, rgba(231,201,138,0.32) 100%)"
+                        ? "linear-gradient(135deg, rgba(248,245,240,0.96) 0%, rgba(198,165,123,0.28) 100%)"
                         : "linear-gradient(135deg, rgb(39 39 42) 0%, rgb(9 9 11) 100%)",
                     }}
                   >
@@ -5246,8 +5250,8 @@ export default function QrOrderingExperience({
                       className="pointer-events-none absolute inset-0"
                       style={{
                         background: isLightTheme
-                          ? "linear-gradient(180deg, rgba(255,248,236,0.02) 0%, rgba(12,31,55,0.22) 100%)"
-                          : "linear-gradient(180deg, rgba(12,31,55,0.08) 0%, rgba(17,24,39,0.86) 100%)",
+                          ? "linear-gradient(180deg, rgba(248,245,240,0.04) 0%, rgba(46,42,38,0.22) 100%)"
+                          : "linear-gradient(180deg, rgba(46,42,38,0.08) 0%, rgba(17,24,39,0.86) 100%)",
                       }}
                     />
                     <div
@@ -5317,7 +5321,7 @@ export default function QrOrderingExperience({
 
                     <div className="flex items-center justify-between gap-2">
                       <div>
-                        <p className="text-sm font-semibold sm:text-base" style={{ color: isLightTheme ? "#1C1C1C" : "#FDE4C3" }}>
+                        <p className="text-sm font-semibold sm:text-base" style={{ color: isLightTheme ? "#2E2A26" : "#E8D9C5" }}>
                           {formatMoney(displayPrice)}
                         </p>
                         {selectedModifiers.length > 0 ? (
@@ -5334,7 +5338,7 @@ export default function QrOrderingExperience({
                           className={clsx(
                             "inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-xs font-semibold sm:text-sm",
                             isLightTheme
-                              ? "border-[#D9CCB4] bg-[#F5EBDA] text-brand-dark/60"
+                              ? "border-[#E8D9C5] bg-[#E8D9C5] text-brand-dark/60"
                               : "border-zinc-700 bg-zinc-900 text-zinc-400",
                           )}
                           disabled
@@ -5361,7 +5365,7 @@ export default function QrOrderingExperience({
                           className={clsx(
                             "inline-flex items-center rounded-xl border",
                             isLightTheme
-                              ? "border-[#D9CCB4] bg-white/85"
+                              ? "border-[#E8D9C5] bg-white/85"
                               : "border-zinc-700 bg-zinc-950/20",
                           )}
                         >
@@ -5370,7 +5374,7 @@ export default function QrOrderingExperience({
                             className={clsx(
                               "p-1.5 transition sm:p-2",
                               contentTextClass,
-                              isLightTheme ? "hover:bg-[#F3E8D6]" : "hover:bg-zinc-800",
+                              isLightTheme ? "hover:bg-[#E8D9C5]" : "hover:bg-zinc-800",
                             )}
                             onClick={() => updateItemQuantity(item.id, -1)}
                             aria-label={`Remove one ${item.name}`}
@@ -5385,7 +5389,7 @@ export default function QrOrderingExperience({
                             className={clsx(
                               "p-1.5 transition sm:p-2",
                               contentTextClass,
-                              isLightTheme ? "hover:bg-[#F3E8D6]" : "hover:bg-zinc-800",
+                              isLightTheme ? "hover:bg-[#E8D9C5]" : "hover:bg-zinc-800",
                             )}
                             onClick={() => updateItemQuantity(item.id, 1)}
                             aria-label={`Add one ${item.name}`}
@@ -5421,7 +5425,7 @@ export default function QrOrderingExperience({
                                   : {
                                       borderColor: withAlpha(WARM_HIGHLIGHT, 0.25),
                                       backgroundColor: isLightTheme
-                                        ? withAlpha("#EEDFC2", 0.95)
+                                        ? withAlpha("#E8D9C5", 0.95)
                                         : withAlpha(SOFT_DARK_SURFACE, 0.7),
                                     }
                               }
@@ -5467,9 +5471,9 @@ export default function QrOrderingExperience({
               style={{
                 borderColor: withAlpha(ROYAL_NAVY, 0.34),
                 background: isLightTheme
-                  ? "linear-gradient(180deg, #FFFFFF 0%, #FDE4C3 100%)"
-                  : `linear-gradient(180deg, #1C1C1C 0%, #302A18 100%)`,
-                color: isLightTheme ? "#1C1C1C" : undefined,
+                  ? "linear-gradient(180deg, #F8F5F0 0%, #E8D9C5 100%)"
+                  : `linear-gradient(180deg, #2E2A26 0%, #7A6D60 100%)`,
+                color: isLightTheme ? "#2E2A26" : undefined,
               }}
               onClick={openBillDrawer}
             >
@@ -5480,7 +5484,7 @@ export default function QrOrderingExperience({
               <span
                 className={clsx(
                   "rounded-lg px-2 py-1 text-xs font-semibold",
-                  isLightTheme ? "bg-[#EBD8B6] text-brand-dark" : "bg-black/20",
+                  isLightTheme ? "bg-[#E8D9C5] text-brand-dark" : "bg-black/20",
                 )}
               >
                 {formatMoney(unpaidTotal)}
@@ -5539,7 +5543,7 @@ export default function QrOrderingExperience({
               <div
                 className={clsx(
                   "flex items-center justify-between border-b px-5 py-4",
-                  isLightTheme ? "border-[#DFCFAF]" : "border-zinc-800/90",
+                  isLightTheme ? "border-[#E8D9C5]" : "border-zinc-800/90",
                 )}
               >
                 <h2 className="text-lg font-semibold">{"My Bill"}</h2>
@@ -5577,7 +5581,7 @@ export default function QrOrderingExperience({
                     className={clsx(
                       "space-y-3 rounded-xl border p-4 text-sm",
                       isLightTheme
-                        ? "border-[#DDCFB4] bg-[#FFFBF3] text-brand-dark/75"
+                        ? "border-[#E8D9C5] bg-[#F8F5F0] text-brand-dark/75"
                         : "border-zinc-800 bg-zinc-900/70 text-zinc-300",
                     )}
                   >
@@ -5591,7 +5595,7 @@ export default function QrOrderingExperience({
                     <div
                       className={clsx(
                         "rounded-xl border p-4",
-                        isLightTheme ? "bg-[#FFFBF3]" : "bg-zinc-900/70",
+                        isLightTheme ? "bg-[#F8F5F0]" : "bg-zinc-900/70",
                       )}
                       style={{ borderColor: accentSubtle }}
                     >
@@ -5633,7 +5637,7 @@ export default function QrOrderingExperience({
                         className={clsx(
                           "mt-4 space-y-3 rounded-xl border p-3.5 text-sm",
                           isLightTheme
-                            ? "border-[#E1D4BA] bg-white/80"
+                            ? "border-[#E8D9C5] bg-white/80"
                             : "border-zinc-800 bg-zinc-950/60",
                         )}
                       >
@@ -5670,7 +5674,7 @@ export default function QrOrderingExperience({
                         <div
                           className={clsx(
                             "flex items-center justify-between border-t pt-2",
-                            isLightTheme ? "border-[#E2D5BD]" : "border-zinc-800",
+                            isLightTheme ? "border-[#E8D9C5]" : "border-zinc-800",
                           )}
                         >
                           <span className={clsx(isLightTheme ? "text-brand-dark/85" : "text-zinc-200")}>Final Payable</span>
@@ -5697,7 +5701,7 @@ export default function QrOrderingExperience({
                             className={clsx(
                               "rounded-lg border px-2 py-2 text-xs",
                               isLightTheme
-                                ? "border-[#E2D4BA] bg-[#FEF8ED] text-brand-dark/80"
+                                ? "border-[#E8D9C5] bg-[#F8F5F0] text-brand-dark/80"
                                 : "border-zinc-800 bg-zinc-900/70 text-zinc-300",
                             )}
                           >
@@ -5713,7 +5717,7 @@ export default function QrOrderingExperience({
                             className={clsx(
                               "rounded-lg border px-2.5 py-2 text-xs",
                               isLightTheme
-                                ? "border-[#E2D4BA] bg-[#FEF8ED] text-brand-dark/85"
+                                ? "border-[#E8D9C5] bg-[#F8F5F0] text-brand-dark/85"
                                 : "border-zinc-800 bg-zinc-900/70 text-zinc-300",
                             )}
                           >
@@ -5756,7 +5760,7 @@ export default function QrOrderingExperience({
                           className={clsx(
                             "mt-3 rounded-xl border p-3 text-sm",
                             isLightTheme
-                              ? "border-[#E2D5BC] bg-[#FFFBF3]"
+                              ? "border-[#E8D9C5] bg-[#F8F5F0]"
                               : "border-zinc-800 bg-zinc-900/60",
                           )}
                         >
@@ -5788,7 +5792,7 @@ export default function QrOrderingExperience({
                             className={clsx(
                               "mt-2 inline-flex w-full items-center justify-center rounded-xl border px-3 py-2 text-sm font-semibold transition",
                               isLightTheme
-                                ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                                ? "border-[#E8D9C5] bg-white text-brand-dark hover:bg-[#F8F5F0]"
                                 : "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800",
                             )}
                             onClick={() => handleShowUpiQr(currentBillUpiLink, billPayableTotal)}
@@ -5801,7 +5805,7 @@ export default function QrOrderingExperience({
                               className={clsx(
                                 "rounded-lg border px-2 py-1 text-[11px] font-medium transition",
                                 isLightTheme
-                                  ? "border-[#DCCCAA] bg-white/90 text-brand-dark hover:bg-[#F9F0DF]"
+                                  ? "border-[#E8D9C5] bg-white/90 text-brand-dark hover:bg-[#F8F5F0]"
                                   : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                               )}
                               onClick={() => copyTextWithNotice(configuredUpiId, "UPI ID copied.")}
@@ -5813,7 +5817,7 @@ export default function QrOrderingExperience({
                               className={clsx(
                                 "rounded-lg border px-2 py-1 text-[11px] font-medium transition",
                                 isLightTheme
-                                  ? "border-[#DCCCAA] bg-white/90 text-brand-dark hover:bg-[#F9F0DF]"
+                                  ? "border-[#E8D9C5] bg-white/90 text-brand-dark hover:bg-[#F8F5F0]"
                                   : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                               )}
                               onClick={() =>
@@ -5891,7 +5895,7 @@ export default function QrOrderingExperience({
                             className={clsx(
                               "rounded-xl border p-3",
                               isLightTheme
-                                ? "border-[#E3D6BE] bg-[#FFFDF8]"
+                                ? "border-[#E8D9C5] bg-[#F8F5F0]"
                                 : "border-zinc-800/30 bg-white/10",
                             )}
                           >
@@ -5915,7 +5919,7 @@ export default function QrOrderingExperience({
                                   </p>
                                 ) : null}
                               </div>
-                              <p className="text-sm font-semibold" style={{ color: isLightTheme ? "#1C1C1C" : "#FDE4C3" }}>
+                              <p className="text-sm font-semibold" style={{ color: isLightTheme ? "#2E2A26" : "#E8D9C5" }}>
                                 {formatMoney(lineItem.lineTotal)}
                               </p>
                             </div>
@@ -5933,7 +5937,7 @@ export default function QrOrderingExperience({
                           className={clsx(
                             "rounded-xl border p-3",
                             isLightTheme
-                              ? "border-[#E2D4BA] bg-[#FFF9EE]"
+                              ? "border-[#E8D9C5] bg-[#F8F5F0]"
                               : "border-zinc-800 bg-zinc-900/60",
                           )}
                         >
@@ -5991,7 +5995,7 @@ export default function QrOrderingExperience({
                                   className={clsx(
                                     "rounded-xl border p-3 transition",
                                     isLightTheme
-                                      ? "border-[#E1D2B5] bg-white/85"
+                                      ? "border-[#E8D9C5] bg-white/85"
                                       : "bg-zinc-900/55",
                                   )}
                                   style={{
@@ -6034,7 +6038,7 @@ export default function QrOrderingExperience({
                             className={clsx(
                               "rounded-xl border p-3",
                               isLightTheme
-                                ? "border-[#E3D6BE] bg-[#FFFDF8]"
+                                ? "border-[#E8D9C5] bg-[#F8F5F0]"
                                 : "border-zinc-800/30 bg-white/10",
                             )}
                           >
@@ -6053,7 +6057,7 @@ export default function QrOrderingExperience({
                                 ) : null}
                               </div>
                               <div className="text-right">
-                                <p className="text-sm font-semibold" style={{ color: isLightTheme ? "#1C1C1C" : "#FDE4C3" }}>
+                                <p className="text-sm font-semibold" style={{ color: isLightTheme ? "#2E2A26" : "#E8D9C5" }}>
                                   {formatMoney(order.totalAmount)}
                                 </p>
                                 <p className={clsx("text-[11px]", mutedTextClass)}>
@@ -6072,7 +6076,7 @@ export default function QrOrderingExperience({
               <div
                 className={clsx(
                   "space-y-2 border-t px-4 py-4",
-                  isLightTheme ? "border-[#DFCFAF]" : "border-zinc-800",
+                  isLightTheme ? "border-[#E8D9C5]" : "border-zinc-800",
                 )}
               >
                 <button
@@ -6093,7 +6097,7 @@ export default function QrOrderingExperience({
                   className={clsx(
                     "inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
                     isLightTheme
-                      ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                      ? "border-[#E8D9C5] bg-white text-brand-dark hover:bg-[#F8F5F0]"
                       : "border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800",
                   )}
                   onClick={refreshBillFromBackend}
@@ -6160,11 +6164,11 @@ export default function QrOrderingExperience({
               <div
                 className={clsx(
                   "border-b px-5 pb-4 pt-[calc(env(safe-area-inset-top)+12px)] md:rounded-t-3xl md:px-5 md:pt-5",
-                  isLightTheme ? "border-[#DFCFAF]" : "border-zinc-800/90",
+                  isLightTheme ? "border-[#E8D9C5]" : "border-zinc-800/90",
                 )}
                 style={{
                   background: isLightTheme
-                    ? "linear-gradient(180deg, rgba(255,249,238,0.96) 0%, rgba(247,236,216,0.94) 100%)"
+                    ? "linear-gradient(180deg, rgba(248,245,240,0.97) 0%, rgba(232,217,197,0.9) 100%)"
                     : withAlpha(SOFT_DARK_SURFACE, 0.9),
                 }}
               >
@@ -6218,7 +6222,7 @@ export default function QrOrderingExperience({
                     className={clsx(
                       "space-y-3 rounded-2xl border p-4 text-sm",
                       isLightTheme
-                        ? "border-[#E1D2B5] bg-[#FFF9EE] text-brand-dark/75"
+                        ? "border-[#E8D9C5] bg-[#F8F5F0] text-brand-dark/75"
                         : "border-zinc-800 bg-zinc-900/60 text-zinc-300",
                     )}
                   >
@@ -6252,7 +6256,7 @@ export default function QrOrderingExperience({
                           className={clsx(
                             "rounded-2xl border p-3.5",
                             isLightTheme
-                              ? "border-[#E3D6BE] bg-[#FFFDF8]"
+                              ? "border-[#E8D9C5] bg-[#F8F5F0]"
                               : "border-zinc-800/30 bg-white/10",
                           )}
                         >
@@ -6266,7 +6270,7 @@ export default function QrOrderingExperience({
                               ) : null}
                             </div>
                             <div className="shrink-0 text-right">
-                              <p className="text-sm font-semibold" style={{ color: isLightTheme ? "#1C1C1C" : "#FDE4C3" }}>
+                              <p className="text-sm font-semibold" style={{ color: isLightTheme ? "#2E2A26" : "#E8D9C5" }}>
                                 {formatMoney(effectiveUnit * quantity)}
                               </p>
                               <p className={clsx("mt-0.5 text-[11px]", mutedTextClass)}>
@@ -6284,7 +6288,7 @@ export default function QrOrderingExperience({
                                   style={{
                                     borderColor: withAlpha(WARM_HIGHLIGHT, 0.28),
                                     backgroundColor: withAlpha(WARM_HIGHLIGHT, isLightTheme ? 0.22 : 0.12),
-                                    color: isLightTheme ? "#1e293b" : "#e5e7eb",
+                                    color: isLightTheme ? "#2E2A26" : "#E8D9C5",
                                   }}
                                 >
                                   {modifier.label}
@@ -6299,7 +6303,7 @@ export default function QrOrderingExperience({
                               className={clsx(
                                 "inline-flex items-center rounded-xl border",
                                 isLightTheme
-                                  ? "border-[#DCCCAA] bg-white/90"
+                                  ? "border-[#E8D9C5] bg-white/90"
                                   : "border-zinc-800/30 bg-white/20",
                               )}
                             >
@@ -6357,7 +6361,7 @@ export default function QrOrderingExperience({
                                           : {
                                               borderColor: withAlpha(WARM_HIGHLIGHT, 0.25),
                                               backgroundColor: isLightTheme
-                                                ? withAlpha("#EEDFC2", 0.95)
+                                                ? withAlpha("#E8D9C5", 0.95)
                                                 : withAlpha(SOFT_DARK_SURFACE, 0.7),
                                             }
                                       }
@@ -6383,7 +6387,7 @@ export default function QrOrderingExperience({
               <div
                 className={clsx(
                   "space-y-4 border-t px-5 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 md:px-5",
-                  isLightTheme ? "border-[#DFCFAF]" : "border-zinc-800",
+                  isLightTheme ? "border-[#E8D9C5]" : "border-zinc-800",
                 )}
               >
                 {applicableCartOffers.length > 0 ? (
@@ -6391,7 +6395,7 @@ export default function QrOrderingExperience({
                     className={clsx(
                       "space-y-2 rounded-2xl border p-3.5",
                       isLightTheme
-                        ? "border-[#E1D3B8] bg-[#FFF9EE]"
+                        ? "border-[#E8D9C5] bg-[#F8F5F0]"
                         : "border-zinc-800 bg-zinc-900/55",
                     )}
                   >
@@ -6405,7 +6409,7 @@ export default function QrOrderingExperience({
                           className={clsx(
                             "rounded-xl border px-3 py-2",
                             isLightTheme
-                              ? "border-[#E3D6BE] bg-[#FFFDF8]"
+                              ? "border-[#E8D9C5] bg-[#F8F5F0]"
                               : "border-zinc-800/30 bg-white/10",
                           )}
                         >
@@ -6433,7 +6437,7 @@ export default function QrOrderingExperience({
                   className={clsx(
                     "space-y-3 rounded-2xl border p-3.5",
                     isLightTheme
-                      ? "border-[#E1D3B8] bg-[#FFF9EE]"
+                      ? "border-[#E8D9C5] bg-[#F8F5F0]"
                       : "border-zinc-800 bg-zinc-900/55",
                   )}
                 >
@@ -6450,7 +6454,7 @@ export default function QrOrderingExperience({
                           paymentMethod === method
                             ? "text-zinc-950"
                             : isLightTheme
-                              ? "border-[#DCCCAA] bg-white/90 text-brand-dark hover:bg-[#F9F0DF]"
+                              ? "border-[#E8D9C5] bg-white/90 text-brand-dark hover:bg-[#F8F5F0]"
                               : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800",
                         )}
                         style={
@@ -6477,7 +6481,7 @@ export default function QrOrderingExperience({
                       "rounded-2xl border p-3.5 text-sm",
                       contentTextClass,
                       isLightTheme
-                        ? "border-[#E3D6BE] bg-[#FFFDF8]"
+                        ? "border-[#E8D9C5] bg-[#F8F5F0]"
                         : "border-zinc-800/30 bg-white/10",
                     )}
                   >
@@ -6488,7 +6492,7 @@ export default function QrOrderingExperience({
                       className={clsx(
                         "mt-3 flex items-center justify-between rounded-xl border px-3 py-2",
                         isLightTheme
-                          ? "border-[#E1D2B4] bg-[#FFF8EA]"
+                          ? "border-[#E8D9C5] bg-[#F8F5F0]"
                           : "border-zinc-800/20 bg-black/10",
                       )}
                     >
@@ -6513,7 +6517,7 @@ export default function QrOrderingExperience({
                           className={clsx(
                             "mt-2 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold transition",
                             isLightTheme
-                              ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                              ? "border-[#E8D9C5] bg-white text-brand-dark hover:bg-[#F8F5F0]"
                               : "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800",
                           )}
                           onClick={() => handleShowUpiQr(cartUpiLink, cartPayableTotal)}
@@ -6526,7 +6530,7 @@ export default function QrOrderingExperience({
                             className={clsx(
                               "rounded-lg border px-2 py-1 text-[11px] font-medium transition",
                               isLightTheme
-                                ? "border-[#DCCCAA] bg-white/90 text-brand-dark hover:bg-[#F9F0DF]"
+                                ? "border-[#E8D9C5] bg-white/90 text-brand-dark hover:bg-[#F8F5F0]"
                                 : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                             )}
                             onClick={() => copyTextWithNotice(configuredUpiId, "UPI ID copied.")}
@@ -6538,7 +6542,7 @@ export default function QrOrderingExperience({
                             className={clsx(
                               "rounded-lg border px-2 py-1 text-[11px] font-medium transition",
                               isLightTheme
-                                ? "border-[#DCCCAA] bg-white/90 text-brand-dark hover:bg-[#F9F0DF]"
+                                ? "border-[#E8D9C5] bg-white/90 text-brand-dark hover:bg-[#F8F5F0]"
                                 : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                             )}
                             onClick={() => copyTextWithNotice(Number(cartPayableTotal).toFixed(2), "Amount copied.")}
@@ -6558,7 +6562,7 @@ export default function QrOrderingExperience({
                         className={clsx(
                           "mt-3 rounded-lg border p-2 text-[11px]",
                           isLightTheme
-                            ? "border-[#DCCCAA] bg-[#FFF7E7] text-brand-dark/75"
+                            ? "border-[#E8D9C5] bg-[#F8F5F0] text-brand-dark/75"
                             : "border-zinc-800 bg-zinc-950/70 text-zinc-400",
                         )}
                       >
@@ -6571,7 +6575,7 @@ export default function QrOrderingExperience({
                             className={clsx(
                               "rounded-lg border px-2 py-1 font-medium transition",
                               isLightTheme
-                                ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                                ? "border-[#E8D9C5] bg-white text-brand-dark hover:bg-[#F8F5F0]"
                                 : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                             )}
                             onClick={() =>
@@ -6588,7 +6592,7 @@ export default function QrOrderingExperience({
                             className={clsx(
                               "rounded-lg border px-2 py-1 font-medium transition",
                               isLightTheme
-                                ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                                ? "border-[#E8D9C5] bg-white text-brand-dark hover:bg-[#F8F5F0]"
                                 : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                             )}
                             onClick={() =>
@@ -6605,7 +6609,7 @@ export default function QrOrderingExperience({
                             className={clsx(
                               "rounded-lg border px-2 py-1 font-medium transition",
                               isLightTheme
-                                ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                                ? "border-[#E8D9C5] bg-white text-brand-dark hover:bg-[#F8F5F0]"
                                 : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                             )}
                             onClick={() =>
@@ -6630,7 +6634,7 @@ export default function QrOrderingExperience({
                   className={clsx(
                     "rounded-2xl border p-3.5",
                     isLightTheme
-                      ? "border-[#E1D3B8] bg-[#FFF9EE]"
+                      ? "border-[#E8D9C5] bg-[#F8F5F0]"
                       : "border-zinc-800 bg-zinc-900/55",
                   )}
                 >
@@ -6650,7 +6654,7 @@ export default function QrOrderingExperience({
                     className={clsx(
                       "min-h-[88px] w-full resize-none rounded-xl border px-3 py-2.5 text-sm leading-5 outline-none",
                       isLightTheme
-                        ? "border-[#DCCCAA] bg-white text-brand-dark placeholder:text-brand-dark/45 focus:border-[#C6A05C]"
+                        ? "border-[#E8D9C5] bg-white text-brand-dark placeholder:text-brand-dark/45 focus:border-[#C6A57B]"
                         : "border-zinc-700 bg-zinc-950/70 text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500",
                     )}
                   />
@@ -6661,7 +6665,7 @@ export default function QrOrderingExperience({
                     "space-y-2 rounded-2xl border px-3.5 py-3.5 text-sm",
                     contentTextClass,
                     isLightTheme
-                      ? "border-[#E3D6BE] bg-[#FFFDF8]"
+                      ? "border-[#E8D9C5] bg-[#F8F5F0]"
                       : "border-zinc-800/30 bg-white/10",
                   )}
                 >
@@ -6695,7 +6699,7 @@ export default function QrOrderingExperience({
                   ) : null}
                   <div className="flex items-center justify-between">
                     <span className="opacity-80">Final Payable</span>
-                    <span className="font-semibold" style={{ color: isLightTheme ? "#1C1C1C" : "#FDE4C3" }}>
+                    <span className="font-semibold" style={{ color: isLightTheme ? "#2E2A26" : "#E8D9C5" }}>
                       {formatMoney(cartPayableTotal)}
                     </span>
                   </div>
@@ -6741,7 +6745,7 @@ export default function QrOrderingExperience({
             className={clsx(
               "absolute inset-x-0 bottom-0 mx-auto w-full max-w-[480px] rounded-t-3xl border px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 shadow-[0_28px_80px_-40px_rgba(0,0,0,0.98)] md:inset-y-0 md:my-auto md:h-fit md:rounded-3xl",
               isLightTheme
-                ? "border-[#DCCCAA] bg-[#FFF9EE] text-brand-dark"
+                ? "border-[#E8D9C5] bg-[#F8F5F0] text-brand-dark"
                 : "border-zinc-800 bg-zinc-950/95 text-zinc-100",
             )}
             style={{ borderColor: accentSubtle }}
@@ -6758,7 +6762,7 @@ export default function QrOrderingExperience({
                 className={clsx(
                   "rounded-lg border px-2.5 py-1 text-xs font-medium transition",
                   isLightTheme
-                    ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                    ? "border-[#E8D9C5] bg-white text-brand-dark hover:bg-[#F8F5F0]"
                     : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                 )}
                 onClick={closeUpiQrSheet}
@@ -6786,7 +6790,7 @@ export default function QrOrderingExperience({
               className={clsx(
                 "mt-3 space-y-1 rounded-xl border px-3 py-2 text-xs",
                 isLightTheme
-                  ? "border-[#E1D3B8] bg-white/90 text-brand-dark/80"
+                  ? "border-[#E8D9C5] bg-white/90 text-brand-dark/80"
                   : "border-zinc-800 bg-zinc-900/70",
               )}
             >
@@ -6803,7 +6807,7 @@ export default function QrOrderingExperience({
                 className={clsx(
                   "rounded-lg border px-3 py-2 text-xs font-semibold transition",
                   isLightTheme
-                    ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                    ? "border-[#E8D9C5] bg-white text-brand-dark hover:bg-[#F8F5F0]"
                     : "border-zinc-700 text-zinc-100 hover:bg-zinc-800",
                 )}
                 onClick={() => copyTextWithNotice(configuredUpiId, "UPI ID copied.")}
@@ -6815,7 +6819,7 @@ export default function QrOrderingExperience({
                 className={clsx(
                   "rounded-lg border px-3 py-2 text-xs font-semibold transition",
                   isLightTheme
-                    ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                    ? "border-[#E8D9C5] bg-white text-brand-dark hover:bg-[#F8F5F0]"
                     : "border-zinc-700 text-zinc-100 hover:bg-zinc-800",
                 )}
                 onClick={() => copyTextWithNotice(upiQrAmount, "Amount copied.")}
