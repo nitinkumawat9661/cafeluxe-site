@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import {
   AlertCircle,
@@ -1874,15 +1874,26 @@ function isUnauthorizedError(error: unknown) {
   return message.includes("user_unauthorized") || message.includes("not authorized");
 }
 
-async function fetchClientScopedDocuments(collectionId: string, routeClient: string) {
+type ClientScopedFetchOptions = {
+  pageSize?: number;
+  maxDocs?: number;
+};
+
+async function fetchClientScopedDocuments(
+  collectionId: string,
+  routeClient: string,
+  options?: ClientScopedFetchOptions,
+) {
   const candidates = buildClientCandidates(routeClient);
   const clientFields = ["client_id", "client"];
+  const pageSize = options?.pageSize ?? 120;
+  const maxDocs = options?.maxDocs ?? 800;
 
   for (const clientField of clientFields) {
     try {
       const docs = await fetchAllDocuments(collectionId, {
-        pageSize: 120,
-        maxDocs: 800,
+        pageSize,
+        maxDocs,
         queries: [Query.equal(clientField, candidates)],
         timeoutMs: REQUEST_TIMEOUT_MS,
       });
@@ -1898,8 +1909,8 @@ async function fetchClientScopedDocuments(collectionId: string, routeClient: str
   }
 
   return fetchAllDocuments(collectionId, {
-    pageSize: 120,
-    maxDocs: 800,
+    pageSize,
+    maxDocs,
     timeoutMs: REQUEST_TIMEOUT_MS,
   });
 }
@@ -2060,6 +2071,9 @@ export default function QrOrderingExperience({
   const activeOrderContextRef = useRef<ActiveOrderContext | null>(null);
   const billLastActivityRef = useRef("");
   const orderSyncSnapshotRef = useRef<Record<string, { status: string; paymentStatus: string }>>({});
+  const persistedCartStateRef = useRef<string | null>(null);
+  const persistedBillStateRef = useRef<string | null>(null);
+  const persistedSessionStateRef = useRef<string | null>(null);
 
   const activeCartStorageKey = useMemo(
     () => buildActiveCartStorageKey(routeClient, routeTable),
@@ -2125,6 +2139,15 @@ export default function QrOrderingExperience({
 
     window.localStorage.setItem(CLIENT_CACHE_RESET_MARKER_KEY, "done");
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    persistedCartStateRef.current = window.localStorage.getItem(activeCartStorageKey);
+    persistedBillStateRef.current = window.localStorage.getItem(activeBillStorageKey);
+    persistedSessionStateRef.current = window.localStorage.getItem(activeSessionStorageKey);
+  }, [activeBillStorageKey, activeCartStorageKey, activeSessionStorageKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -2216,6 +2239,7 @@ export default function QrOrderingExperience({
         const settingsPromise = fetchClientScopedDocuments(
           appwriteConfig.collections.settings,
           routeClient,
+          { pageSize: 40, maxDocs: 120 },
         ).catch((error) => {
           if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
             return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
@@ -2225,8 +2249,14 @@ export default function QrOrderingExperience({
         });
         const [categoryDocs, menuDocs] = await withTimeout(
           Promise.all([
-            fetchClientScopedDocuments(appwriteConfig.collections.categories, routeClient),
-            fetchClientScopedDocuments(appwriteConfig.collections.menuItems, routeClient),
+            fetchClientScopedDocuments(appwriteConfig.collections.categories, routeClient, {
+              pageSize: 80,
+              maxDocs: 300,
+            }),
+            fetchClientScopedDocuments(appwriteConfig.collections.menuItems, routeClient, {
+              pageSize: 120,
+              maxDocs: 800,
+            }),
           ]),
           REQUEST_TIMEOUT_MS,
           "Menu load",
@@ -2538,6 +2568,12 @@ export default function QrOrderingExperience({
 
     const intervalId = setInterval(() => {
       void (async () => {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+          return;
+        }
+        if (typeof navigator !== "undefined" && "onLine" in navigator && !navigator.onLine) {
+          return;
+        }
         try {
           const backendRecords = await withTimeout(
             fetchTableOrderRecords(tableInfo.clientId || routeClient, tableInfo.id),
@@ -2621,28 +2657,47 @@ export default function QrOrderingExperience({
       updatedAt: nowIso,
     };
 
+    const cartStatePayload = JSON.stringify(activeCartState);
+    const billStatePayload = JSON.stringify(activeBillState);
+    const sessionStatePayload = JSON.stringify(activeSessionState);
+
     if (hasCart || hasModifierSelections || hasInstructions) {
-      window.localStorage.setItem(activeCartStorageKey, JSON.stringify(activeCartState));
+      if (persistedCartStateRef.current !== cartStatePayload) {
+        window.localStorage.setItem(activeCartStorageKey, cartStatePayload);
+        persistedCartStateRef.current = cartStatePayload;
+      }
     } else {
-      window.localStorage.removeItem(activeCartStorageKey);
+      if (persistedCartStateRef.current !== null) {
+        window.localStorage.removeItem(activeCartStorageKey);
+        persistedCartStateRef.current = null;
+      }
     }
 
     if (hasOpenOrder || hasBillOrders) {
-      window.localStorage.setItem(activeBillStorageKey, JSON.stringify(activeBillState));
+      if (persistedBillStateRef.current !== billStatePayload) {
+        window.localStorage.setItem(activeBillStorageKey, billStatePayload);
+        persistedBillStateRef.current = billStatePayload;
+      }
       window.sessionStorage.removeItem(activeBillStorageKey);
     } else {
-      window.localStorage.removeItem(activeBillStorageKey);
+      if (persistedBillStateRef.current !== null) {
+        window.localStorage.removeItem(activeBillStorageKey);
+        persistedBillStateRef.current = null;
+      }
       window.sessionStorage.removeItem(activeBillStorageKey);
     }
 
     if (hasCart || hasOpenOrder || hasBillOrders) {
-      window.localStorage.setItem(
-        activeSessionStorageKey,
-        JSON.stringify(activeSessionState),
-      );
+      if (persistedSessionStateRef.current !== sessionStatePayload) {
+        window.localStorage.setItem(activeSessionStorageKey, sessionStatePayload);
+        persistedSessionStateRef.current = sessionStatePayload;
+      }
       window.sessionStorage.removeItem(activeSessionStorageKey);
     } else {
-      window.localStorage.removeItem(activeSessionStorageKey);
+      if (persistedSessionStateRef.current !== null) {
+        window.localStorage.removeItem(activeSessionStorageKey);
+        persistedSessionStateRef.current = null;
+      }
       window.sessionStorage.removeItem(activeSessionStorageKey);
     }
 
@@ -2743,11 +2798,40 @@ export default function QrOrderingExperience({
       }
     };
 
-    void cleanupStaleServiceWorkerCache();
+    let cancelled = false;
+    const runCleanup = () => {
+      if (cancelled) {
+        return;
+      }
+      void cleanupStaleServiceWorkerCache();
+    };
+
+    if ("requestIdleCallback" in window && typeof window.requestIdleCallback === "function") {
+      const idleId = window.requestIdleCallback(() => {
+        runCleanup();
+      }, { timeout: 2000 });
+
+      return () => {
+        cancelled = true;
+        if ("cancelIdleCallback" in window && typeof window.cancelIdleCallback === "function") {
+          window.cancelIdleCallback(idleId);
+        }
+      };
+    }
+
+    const timerId = window.setTimeout(() => {
+      runCleanup();
+    }, 1200);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timerId);
+    };
   }, []);
 
+  const deferredSearchText = useDeferredValue(searchText);
   const visibleItems = useMemo(() => {
-    const normalizedSearch = searchText.trim().toLowerCase();
+    const normalizedSearch = deferredSearchText.trim().toLowerCase();
     const selectedCategory =
       activeCategory === "all"
         ? null
@@ -2767,7 +2851,7 @@ export default function QrOrderingExperience({
       const haystack = `${item.name} ${item.nameHi} ${item.description}`.toLowerCase();
       return haystack.includes(normalizedSearch);
     });
-  }, [activeCategory, categories, menuItems, searchText]);
+  }, [activeCategory, categories, deferredSearchText, menuItems]);
 
   const cartItems = useMemo(() => {
     const items: CartItem[] = [];
@@ -3922,7 +4006,7 @@ export default function QrOrderingExperience({
 
       <div className="relative mx-auto flex w-full max-w-6xl flex-col px-4 pb-44 pt-5 sm:px-6 sm:pb-36">
         <header
-          className="sticky top-3 z-20 mb-5 rounded-[20px] border px-4 py-4 shadow-[0_32px_74px_-42px_rgba(0,0,0,0.98)] backdrop-blur-xl"
+          className="sticky top-3 z-20 mb-5 rounded-3xl border px-4 py-4 shadow-[0_32px_74px_-42px_rgba(0,0,0,0.98)] backdrop-blur-xl"
           style={{
             background: panelGradient,
             borderColor: withAlpha(WARM_HIGHLIGHT, 0.22),
@@ -3956,6 +4040,7 @@ export default function QrOrderingExperience({
                       alt={restaurantName}
                       className="h-full w-full rounded-[10px] object-cover"
                       loading="lazy"
+                      decoding="async"
                     />
                   ) : (
                     <span className="tracking-[0.15em]">CL</span>
@@ -3983,7 +4068,7 @@ export default function QrOrderingExperience({
 
             <div className="shrink-0 space-y-2 text-right">
               <div
-                className="rounded-xl border px-3 py-2 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]"
+                className="rounded-2xl border px-3 py-2 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]"
                 style={{
                   borderColor: accentBorder,
                   backgroundColor: isLightTheme
@@ -4002,7 +4087,10 @@ export default function QrOrderingExperience({
             </div>
           </div>
           {supportPhone ? (
-            <div className={clsx("mt-3 border-t pt-2 text-xs", secondaryTextClass)} style={{ borderColor: withAlpha(SOFT_DARK_SURFACE, 0.2) }}>
+            <div
+              className={clsx("mt-3 border-t pt-2 text-xs", secondaryTextClass)}
+              style={{ borderColor: withAlpha(isLightTheme ? "#C6A05C" : SOFT_DARK_SURFACE, 0.24) }}
+            >
               {"Support"}:{" "}
               <span
                 className="font-medium"
@@ -4016,64 +4104,70 @@ export default function QrOrderingExperience({
 
         {errorMessage ? (
           <div
-            className="mb-4 flex items-start gap-3 rounded-xl border p-4"
+            className="mb-4 flex items-start gap-3 rounded-2xl border p-4"
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.28),
-              backgroundColor: withAlpha(LUXURY_GOLD, 0.12),
-              color: WARM_HIGHLIGHT,
+              backgroundColor: withAlpha(LUXURY_GOLD, isLightTheme ? 0.24 : 0.12),
+              color: isLightTheme ? "#6B4E22" : WARM_HIGHLIGHT,
             }}
           >
             <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
             <div>
               <p className="text-sm font-medium">Issue</p>
-              <p className="mt-1 text-sm text-zinc-200/90">{errorMessage}</p>
+              <p className={clsx("mt-1 text-sm", isLightTheme ? "text-brand-dark/90" : "text-zinc-200/90")}>
+                {errorMessage}
+              </p>
             </div>
           </div>
         ) : null}
 
         {noticeMessage ? (
           <div
-            className="mb-4 flex items-start gap-3 rounded-xl border p-4"
+            className="mb-4 flex items-start gap-3 rounded-2xl border p-4"
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.28),
-              backgroundColor: withAlpha(LUXURY_GOLD, 0.12),
-              color: WARM_HIGHLIGHT,
+              backgroundColor: withAlpha(LUXURY_GOLD, isLightTheme ? 0.24 : 0.12),
+              color: isLightTheme ? "#6B4E22" : WARM_HIGHLIGHT,
             }}
           >
             <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
             <div>
               <p className="text-sm font-medium">Note</p>
-              <p className="mt-1 text-sm text-zinc-200/90">{noticeMessage}</p>
+              <p className={clsx("mt-1 text-sm", isLightTheme ? "text-brand-dark/90" : "text-zinc-200/90")}>
+                {noticeMessage}
+              </p>
             </div>
           </div>
         ) : null}
 
         {orderPlacedId ? (
           <div
-            className="mb-4 flex items-start gap-3 rounded-xl border p-4"
+            className="mb-4 flex items-start gap-3 rounded-2xl border p-4"
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.34),
-              backgroundColor: withAlpha(LUXURY_GOLD, 0.13),
-              color: WARM_HIGHLIGHT,
+              backgroundColor: withAlpha(LUXURY_GOLD, isLightTheme ? 0.24 : 0.13),
+              color: isLightTheme ? "#6B4E22" : WARM_HIGHLIGHT,
             }}
           >
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
             <div>
-              <p className="text-sm font-semibold">{"Order Confirmed"}</p>
-              <p className="mt-1 text-sm text-zinc-200/95">
+              <p className={clsx("text-sm font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
+                {"Order Confirmed"}
+              </p>
+              <p className={clsx("mt-1 text-sm", isLightTheme ? "text-brand-dark/90" : "text-zinc-200/95")}>
                 Order ID: <span className="font-mono">{orderPlacedId}</span>
               </p>
               {showTopCardStatus ? (
-                <div className="mt-2 grid gap-1 text-xs text-zinc-100/95">
+                <div className={clsx("mt-2 grid gap-1 text-xs", isLightTheme ? "text-brand-dark/90" : "text-zinc-100/95")}>
                   <p>
-                    <span className="text-zinc-200/85">Order Status:</span>{" "}
+                    <span className={clsx(isLightTheme ? "text-brand-dark/70" : "text-zinc-200/85")}>Order Status:</span>{" "}
                     <span className="font-semibold">
                       {getOrderStatusLabel(topCardOrderStatusRaw)}
                     </span>
                   </p>
                   {topCardPaymentStatusRaw ? (
                     <p>
-                      <span className="text-zinc-200/85">Payment Status:</span>{" "}
+                      <span className={clsx(isLightTheme ? "text-brand-dark/70" : "text-zinc-200/85")}>Payment Status:</span>{" "}
                       <span className="font-semibold">
                         {getPaymentStatusLabel(topCardPaymentStatusRaw)}
                       </span>
@@ -4087,7 +4181,7 @@ export default function QrOrderingExperience({
 
         {statusPopup ? (
           <div
-            className="mb-4 flex items-start gap-3 rounded-xl border p-4 shadow-[0_18px_40px_-28px_rgba(0,0,0,0.75)]"
+            className="mb-4 flex items-start gap-3 rounded-2xl border p-4 shadow-[0_18px_40px_-28px_rgba(0,0,0,0.75)]"
             style={{
               borderColor:
                 statusPopup.tone === "success"
@@ -4102,12 +4196,21 @@ export default function QrOrderingExperience({
           >
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold">{statusPopup.title}</p>
-              <p className="mt-1 text-sm text-zinc-200/95">{statusPopup.description}</p>
+              <p className={clsx("text-sm font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
+                {statusPopup.title}
+              </p>
+              <p className={clsx("mt-1 text-sm", isLightTheme ? "text-brand-dark/90" : "text-zinc-200/95")}>
+                {statusPopup.description}
+              </p>
             </div>
             <button
               type="button"
-              className="rounded-lg border px-2.5 py-1 text-xs font-medium text-zinc-100 transition hover:bg-zinc-800"
+              className={clsx(
+                "rounded-lg border px-2.5 py-1 text-xs font-medium transition",
+                isLightTheme
+                  ? "text-brand-dark hover:bg-white/70"
+                  : "text-zinc-100 hover:bg-zinc-800",
+              )}
               style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.3) }}
               onClick={() => setStatusPopup(null)}
             >
@@ -4143,7 +4246,7 @@ export default function QrOrderingExperience({
               >
                 {normalizedCurrency}
               </p>
-              <p className="text-xs text-zinc-300">
+              <p className={clsx("text-xs", isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>
                 Tax: {taxPercentage > 0 ? `${taxPercentage}%` : "Included"}
               </p>
             </div>
@@ -4158,7 +4261,7 @@ export default function QrOrderingExperience({
             {"Search Menu"}
           </label>
           <div
-            className="flex items-center gap-2 rounded-xl border px-3 py-2 shadow-[0_18px_40px_-30px_rgba(0,0,0,0.92)]"
+            className="flex items-center gap-2 rounded-2xl border px-3 py-2.5 shadow-[0_18px_40px_-30px_rgba(0,0,0,0.92)]"
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.32),
               background: sectionGradient,
@@ -4181,7 +4284,7 @@ export default function QrOrderingExperience({
 
         <section className="sticky top-[98px] z-10 mb-4 -mx-1 overflow-x-auto px-1">
           <div
-            className="inline-flex min-w-full gap-2 rounded-2xl border p-1.5 backdrop-blur"
+            className="inline-flex min-w-full gap-2 rounded-2xl border p-1.5 shadow-[0_20px_48px_-34px_rgba(12,31,55,0.32)] backdrop-blur"
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.22),
               background: sectionGradient,
@@ -4190,7 +4293,7 @@ export default function QrOrderingExperience({
             <button
               type="button"
               className={clsx(
-                "flex-none rounded-xl px-4 py-2 text-sm font-medium transition",
+                "flex-none rounded-xl px-4 py-2 text-sm font-semibold transition active:translate-y-px",
                 activeCategory === "all"
                   ? "text-brand-dark shadow-[0_12px_30px_-18px_rgba(0,0,0,0.5)]"
                   : isLightTheme ? "text-brand-dark/70 hover:text-brand-dark" : "text-white/70 hover:text-white",
@@ -4200,6 +4303,7 @@ export default function QrOrderingExperience({
                   ? isLightTheme
                     ? {
                         background: `linear-gradient(180deg, #FFFFFF 0%, #FDE4C3 100%)`,
+                        boxShadow: `0 10px 24px -16px ${withAlpha("#0C1F37", 0.3)}`,
                       }
                     : { backgroundColor: LUXURY_GOLD }
                   : {
@@ -4217,7 +4321,7 @@ export default function QrOrderingExperience({
                 key={category.id}
                 type="button"
                 className={clsx(
-                  "flex-none rounded-xl px-4 py-2 text-sm font-medium transition",
+                  "flex-none rounded-xl px-4 py-2 text-sm font-semibold transition active:translate-y-px",
                   activeCategory === category.id
                     ? "text-brand-dark shadow-[0_12px_30px_-18px_rgba(0,0,0,0.5)]"
                     : isLightTheme ? "text-brand-dark/70 hover:text-brand-dark" : "text-white/70 hover:text-white",
@@ -4227,6 +4331,7 @@ export default function QrOrderingExperience({
                     ? isLightTheme
                       ? {
                           background: `linear-gradient(180deg, #FFFFFF 0%, #FDE4C3 100%)`,
+                          boxShadow: `0 10px 24px -16px ${withAlpha("#0C1F37", 0.3)}`,
                         }
                       : { backgroundColor: LUXURY_GOLD }
                     : {
@@ -4244,7 +4349,13 @@ export default function QrOrderingExperience({
         </section>
 
         {visibleItems.length === 0 ? (
-          <section className={clsx("rounded-2xl border border-zinc-800/30 bg-white/10 p-5 text-sm", secondaryTextClass)}>
+          <section
+            className={clsx(
+              "rounded-2xl border p-5 text-sm",
+              secondaryTextClass,
+              isLightTheme ? "border-[#DDCFB4] bg-[#FFFCF6]" : "border-zinc-800/30 bg-white/10",
+            )}
+          >
             {menuItems.length === 0
               ? "No menu items are available right now. Please check with staff."
               : "No items match this search/category. Try another filter."}
@@ -4264,11 +4375,13 @@ export default function QrOrderingExperience({
                 <article
                   key={item.id}
                   data-menu-item-id={item.id}
-                  className="group overflow-hidden rounded-2xl border shadow-[0_30px_70px_-44px_rgba(0,0,0,0.98)] transition duration-300 hover:-translate-y-1"
+                  className="group overflow-hidden rounded-2xl border shadow-[0_30px_70px_-44px_rgba(0,0,0,0.98)] transition duration-300 hover:-translate-y-1 active:translate-y-[1px]"
                   style={{
                     borderColor: withAlpha(WARM_HIGHLIGHT, 0.23),
                     background: cardGradient,
                     boxShadow: `0 30px 70px -44px rgba(0,0,0,0.98), 0 0 0 1px ${withAlpha(WARM_HIGHLIGHT, 0.12)} inset`,
+                    contentVisibility: "auto",
+                    containIntrinsicSize: "340px",
                   }}
                 >
                   <div
@@ -4289,6 +4402,8 @@ export default function QrOrderingExperience({
                         alt={item.name}
                         className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
                         loading="lazy"
+                        decoding="async"
+                        fetchPriority="low"
                         onError={(event) => {
                           event.currentTarget.style.display = "none";
                         }}
@@ -4383,7 +4498,12 @@ export default function QrOrderingExperience({
                       {!item.isAvailable && quantity === 0 ? (
                         <button
                           type="button"
-                          className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-400"
+                          className={clsx(
+                            "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
+                            isLightTheme
+                              ? "border-[#D9CCB4] bg-[#F5EBDA] text-brand-dark/60"
+                              : "border-zinc-700 bg-zinc-900 text-zinc-400",
+                          )}
                           disabled
                         >
                           Unavailable
@@ -4404,10 +4524,21 @@ export default function QrOrderingExperience({
                           Add
                         </button>
                       ) : (
-                        <div className="inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950/20">
+                        <div
+                          className={clsx(
+                            "inline-flex items-center rounded-xl border",
+                            isLightTheme
+                              ? "border-[#D9CCB4] bg-white/85"
+                              : "border-zinc-700 bg-zinc-950/20",
+                          )}
+                        >
                           <button
                             type="button"
-                            className={clsx("p-2 transition hover:bg-zinc-800", contentTextClass)}
+                            className={clsx(
+                              "p-2 transition",
+                              contentTextClass,
+                              isLightTheme ? "hover:bg-[#F3E8D6]" : "hover:bg-zinc-800",
+                            )}
                             onClick={() => updateItemQuantity(item.id, -1)}
                             aria-label={`Remove one ${item.name}`}
                           >
@@ -4418,7 +4549,11 @@ export default function QrOrderingExperience({
                           </span>
                           <button
                             type="button"
-                            className={clsx("p-2 transition hover:bg-zinc-800", contentTextClass)}
+                            className={clsx(
+                              "p-2 transition",
+                              contentTextClass,
+                              isLightTheme ? "hover:bg-[#F3E8D6]" : "hover:bg-zinc-800",
+                            )}
                             onClick={() => updateItemQuantity(item.id, 1)}
                             aria-label={`Add one ${item.name}`}
                           >
@@ -4440,7 +4575,9 @@ export default function QrOrderingExperience({
                                 "rounded-full border px-2 py-1 text-[11px] font-medium transition",
                                 selected
                                   ? "text-zinc-950"
-                                  : "text-zinc-200",
+                                  : isLightTheme
+                                    ? "text-brand-dark/80"
+                                    : "text-zinc-200",
                               )}
                               style={
                                 selected
@@ -4505,7 +4642,12 @@ export default function QrOrderingExperience({
                 <ReceiptText className="h-5 w-5" />
                 {"My Bill"}
               </span>
-              <span className="rounded-lg bg-black/20 px-2 py-1 text-xs font-semibold">
+              <span
+                className={clsx(
+                  "rounded-lg px-2 py-1 text-xs font-semibold",
+                  isLightTheme ? "bg-[#EBD8B6] text-brand-dark" : "bg-black/20",
+                )}
+              >
                 {formatMoney(unpaidTotal)}
               </span>
             </button>
@@ -4550,7 +4692,10 @@ export default function QrOrderingExperience({
           />
 
           <aside
-            className="absolute inset-0 h-[100dvh] overflow-hidden rounded-none border-0 text-zinc-100 shadow-none md:bottom-4 md:left-auto md:right-4 md:top-4 md:h-auto md:w-[430px] md:max-h-[unset] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]"
+            className={clsx(
+              "absolute inset-0 h-[100dvh] overflow-hidden rounded-none border-0 shadow-none md:bottom-4 md:left-auto md:right-4 md:top-4 md:h-auto md:w-[430px] md:max-h-[unset] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]",
+              isLightTheme ? "text-brand-dark" : "text-zinc-100",
+            )}
             style={{
               borderColor: accentBorder,
               animation: "luxe-sheet-up 0.25s ease-out",
@@ -4558,11 +4703,21 @@ export default function QrOrderingExperience({
             }}
           >
             <div className="flex h-full flex-col">
-              <div className="flex items-center justify-between border-b border-zinc-800/90 px-4 py-4">
+              <div
+                className={clsx(
+                  "flex items-center justify-between border-b px-4 py-4",
+                  isLightTheme ? "border-[#DFCFAF]" : "border-zinc-800/90",
+                )}
+              >
                 <h2 className="text-lg font-semibold">{"My Bill"}</h2>
                 <button
                   type="button"
-                  className="rounded-lg border px-3 py-1 text-sm text-zinc-300 transition hover:bg-zinc-800"
+                  className={clsx(
+                    "rounded-lg border px-3 py-1 text-sm transition",
+                    isLightTheme
+                      ? "text-brand-dark hover:bg-white/70"
+                      : "text-zinc-300 hover:bg-zinc-800",
+                  )}
                   style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.25) }}
                   onClick={() => setBillOpen(false)}
                 >
@@ -4585,14 +4740,26 @@ export default function QrOrderingExperience({
                 ) : null}
 
                 {tableOrders.length === 0 ? (
-                  <div className="space-y-3 rounded-xl border border-zinc-800 bg-zinc-900/70 p-4 text-sm text-zinc-300">
-                    <p className="font-semibold text-zinc-100">No active order yet.</p>
+                  <div
+                    className={clsx(
+                      "space-y-3 rounded-xl border p-4 text-sm",
+                      isLightTheme
+                        ? "border-[#DDCFB4] bg-[#FFFBF3] text-brand-dark/75"
+                        : "border-zinc-800 bg-zinc-900/70 text-zinc-300",
+                    )}
+                  >
+                    <p className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
+                      No active order yet.
+                    </p>
                     <p>{"Tap Add More Items to start your order."}</p>
                   </div>
                 ) : (
                   <>
                     <div
-                      className="rounded-xl border bg-zinc-900/70 p-4"
+                      className={clsx(
+                        "rounded-xl border p-4",
+                        isLightTheme ? "bg-[#FFFBF3]" : "bg-zinc-900/70",
+                      )}
                       style={{ borderColor: accentSubtle }}
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -4600,7 +4767,7 @@ export default function QrOrderingExperience({
                           <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
                             Current Bill
                           </p>
-                          <p className="mt-1 text-sm font-semibold text-zinc-100">
+                          <p className={clsx("mt-1 text-sm font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
                             {currentBillOrderNumber}
                           </p>
                           <p className="mt-1 text-xs text-zinc-400">
@@ -4629,58 +4796,88 @@ export default function QrOrderingExperience({
                         </div>
                       </div>
 
-                      <div className="mt-4 space-y-2 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-sm">
+                      <div
+                        className={clsx(
+                          "mt-4 space-y-2 rounded-xl border p-3 text-sm",
+                          isLightTheme
+                            ? "border-[#E1D4BA] bg-white/80"
+                            : "border-zinc-800 bg-zinc-950/60",
+                        )}
+                      >
                         <div className="flex items-center justify-between">
-                          <span className="text-zinc-300">Subtotal</span>
-                          <span className="font-semibold text-zinc-100">
+                          <span className={clsx(isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>Subtotal</span>
+                          <span className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
                             {formatMoney(currentBillSubtotal)}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-zinc-300">
+                          <span className={clsx(isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>
                             Tax / Charges {taxPercentage > 0 ? `(${taxPercentage}%)` : ""}
                           </span>
-                          <span className="font-semibold text-zinc-100">
+                          <span className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
                             {formatMoney(currentBillTaxAmount)}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between border-t border-zinc-800 pt-2">
-                          <span className="text-zinc-200">Grand Total</span>
+                        <div
+                          className={clsx(
+                            "flex items-center justify-between border-t pt-2",
+                            isLightTheme ? "border-[#E2D5BD]" : "border-zinc-800",
+                          )}
+                        >
+                          <span className={clsx(isLightTheme ? "text-brand-dark/85" : "text-zinc-200")}>Grand Total</span>
                           <span className="text-base font-bold" style={{ color: WARM_HIGHLIGHT }}>
                             {formatMoney(currentBillFinalTotal)}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between text-xs text-zinc-400">
+                        <div className={clsx("flex items-center justify-between text-xs", isLightTheme ? "text-brand-dark/65" : "text-zinc-400")}>
                           <span>Payment Method</span>
                           <span>{currentBillPaymentMethod === "UPI" ? "UPI" : "Pay At Counter"}</span>
                         </div>
-                        <div className="flex items-center justify-between text-xs text-zinc-400">
+                        <div className={clsx("flex items-center justify-between text-xs", isLightTheme ? "text-brand-dark/65" : "text-zinc-400")}>
                           <span>Currency</span>
                           <span>{normalizedCurrency}</span>
                         </div>
-                        <div className="flex items-center justify-between text-xs text-zinc-400">
+                        <div className={clsx("flex items-center justify-between text-xs", isLightTheme ? "text-brand-dark/65" : "text-zinc-400")}>
                           <span>Last Updated</span>
                           <span>
                             {formatBillDateTime(currentBillUpdatedAt)}
                           </span>
                         </div>
                         {currentBillInstructions ? (
-                          <div className="rounded-lg border border-zinc-800 bg-zinc-900/70 px-2 py-2 text-xs text-zinc-300">
-                            <span className="font-medium text-zinc-200">Kitchen instructions: </span>
+                          <div
+                            className={clsx(
+                              "rounded-lg border px-2 py-2 text-xs",
+                              isLightTheme
+                                ? "border-[#E2D4BA] bg-[#FEF8ED] text-brand-dark/80"
+                                : "border-zinc-800 bg-zinc-900/70 text-zinc-300",
+                            )}
+                          >
+                            <span className={clsx("font-medium", isLightTheme ? "text-brand-dark" : "text-zinc-200")}>
+                              Kitchen instructions:{" "}
+                            </span>
                             {currentBillInstructions}
                           </div>
                         ) : null}
                       </div>
 
                       {currentBillUpiLink ? (
-                        <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 text-sm">
-                          <p className="text-xs uppercase tracking-[0.14em] text-zinc-400">UPI Payment</p>
-                          <p className="mt-1 font-semibold text-zinc-100">
+                        <div
+                          className={clsx(
+                            "mt-3 rounded-xl border p-3 text-sm",
+                            isLightTheme
+                              ? "border-[#E2D5BC] bg-[#FFFBF3]"
+                              : "border-zinc-800 bg-zinc-900/60",
+                          )}
+                        >
+                          <p className={clsx("text-xs uppercase tracking-[0.14em]", isLightTheme ? "text-brand-dark/65" : "text-zinc-400")}>
+                            UPI Payment
+                          </p>
+                          <p className={clsx("mt-1 font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
                             {configuredUpiName} ({configuredUpiId})
                           </p>
-                          <p className="mt-1 text-xs text-zinc-400">
+                          <p className={clsx("mt-1 text-xs", isLightTheme ? "text-brand-dark/70" : "text-zinc-400")}>
                             Amount:{" "}
-                            <span className="font-semibold text-zinc-200">
+                            <span className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-200")}>
                               {formatMoney(currentBillFinalTotal)}
                             </span>
                           </p>
@@ -4697,11 +4894,44 @@ export default function QrOrderingExperience({
                           </button>
                           <button
                             type="button"
-                            className="mt-2 inline-flex w-full items-center justify-center rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-800"
+                            className={clsx(
+                              "mt-2 inline-flex w-full items-center justify-center rounded-xl border px-3 py-2 text-sm font-semibold transition",
+                              isLightTheme
+                                ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                                : "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800",
+                            )}
                             onClick={() => handleShowUpiQr(currentBillUpiLink, currentBillFinalTotal)}
                           >
                             {"Pay By QR (Recommended)"}
                           </button>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              className={clsx(
+                                "rounded-lg border px-2 py-1 text-[11px] font-medium transition",
+                                isLightTheme
+                                  ? "border-[#DCCCAA] bg-white/90 text-brand-dark hover:bg-[#F9F0DF]"
+                                  : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                              )}
+                              onClick={() => copyTextWithNotice(configuredUpiId, "UPI ID copied.")}
+                            >
+                              {"Copy UPI ID"}
+                            </button>
+                            <button
+                              type="button"
+                              className={clsx(
+                                "rounded-lg border px-2 py-1 text-[11px] font-medium transition",
+                                isLightTheme
+                                  ? "border-[#DCCCAA] bg-white/90 text-brand-dark hover:bg-[#F9F0DF]"
+                                  : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                              )}
+                              onClick={() =>
+                                copyTextWithNotice(Number(currentBillFinalTotal).toFixed(2), "Amount copied.")
+                              }
+                            >
+                              {"Copy Amount"}
+                            </button>
+                          </div>
                           {canLaunchUpiDeepLink && lastUpiLaunchUri ? (
                             <p className="mt-2 break-all rounded-lg border border-zinc-700/60 bg-zinc-950/75 px-2 py-1.5 text-[10px] text-zinc-300 md:hidden">
                               URI Debug: {lastUpiLaunchUri}
@@ -4752,7 +4982,7 @@ export default function QrOrderingExperience({
                               </div>
                             </div>
                           ) : null}
-                          <p className="mt-2 text-[11px] text-zinc-400">
+                          <p className={clsx("mt-2 text-[11px]", isLightTheme ? "text-brand-dark/70" : "text-zinc-400")}>
                             {"Payment stays pending until cashier confirms your bill."}
                           </p>
                         </div>
@@ -4767,7 +4997,12 @@ export default function QrOrderingExperience({
                         {currentBillItems.map((lineItem) => (
                           <div
                             key={lineItem.lineKey}
-                            className="rounded-xl border border-zinc-800/30 bg-white/10 p-3"
+                            className={clsx(
+                              "rounded-xl border p-3",
+                              isLightTheme
+                                ? "border-[#E3D6BE] bg-[#FFFDF8]"
+                                : "border-zinc-800/30 bg-white/10",
+                            )}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
@@ -4800,11 +5035,18 @@ export default function QrOrderingExperience({
 
                     {unpaidOrders.length > 0 ? (
                       <section className="space-y-2">
-                        <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+                        <p className={clsx("text-xs uppercase tracking-[0.16em]", isLightTheme ? "text-brand-dark/65" : "text-zinc-400")}>
                           Unpaid Bills ({unpaidOrders.length})
                         </p>
-                        <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-                          <div className="mb-3 flex items-center justify-between text-xs text-zinc-400">
+                        <div
+                          className={clsx(
+                            "rounded-xl border p-3",
+                            isLightTheme
+                              ? "border-[#E2D4BA] bg-[#FFF9EE]"
+                              : "border-zinc-800 bg-zinc-900/60",
+                          )}
+                        >
+                          <div className={clsx("mb-3 flex items-center justify-between text-xs", isLightTheme ? "text-brand-dark/65" : "text-zinc-400")}>
                             <span>Total due</span>
                             <span className="font-semibold" style={{ color: WARM_HIGHLIGHT }}>
                               {formatMoney(unpaidTotal)}
@@ -4813,7 +5055,12 @@ export default function QrOrderingExperience({
                           {counterUnpaidOrders.length > 0 ? (
                             <button
                               type="button"
-                              className="mb-3 inline-flex w-full items-center justify-center rounded-lg border px-2 py-2 text-xs font-medium text-zinc-100 transition hover:bg-zinc-800 disabled:opacity-60"
+                              className={clsx(
+                                "mb-3 inline-flex w-full items-center justify-center rounded-lg border px-2 py-2 text-xs font-medium transition disabled:opacity-60",
+                                isLightTheme
+                                  ? "text-brand-dark hover:bg-white/70"
+                                  : "text-zinc-100 hover:bg-zinc-800",
+                              )}
                               style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.3) }}
                               onClick={switchAllUnpaidBillsToUpi}
                               disabled={billActionOrderId.length > 0}
@@ -4828,17 +5075,22 @@ export default function QrOrderingExperience({
                               return (
                                 <div
                                   key={`unpaid_${order.orderId}`}
-                                  className="rounded-xl border bg-zinc-900/55 p-3 transition"
+                                  className={clsx(
+                                    "rounded-xl border p-3 transition",
+                                    isLightTheme
+                                      ? "border-[#E1D2B5] bg-white/85"
+                                      : "bg-zinc-900/55",
+                                  )}
                                   style={{
                                     borderColor: withAlpha(WARM_HIGHLIGHT, 0.2),
                                   }}
                                 >
                                   <div className="flex items-center justify-between gap-2">
                                     <div className="min-w-0">
-                                      <p className="truncate text-sm font-semibold text-zinc-100">
+                                      <p className={clsx("truncate text-sm font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
                                         {order.orderNumber}
                                       </p>
-                                      <p className="text-[11px] text-zinc-400">
+                                      <p className={clsx("text-[11px]", isLightTheme ? "text-brand-dark/65" : "text-zinc-400")}>
                                         {formatBillDateTime(order.createdAt)}
                                       </p>
                                     </div>
@@ -4846,7 +5098,7 @@ export default function QrOrderingExperience({
                                       {formatMoney(order.totalAmount > 0 ? order.totalAmount : order.subtotal)}
                                     </p>
                                   </div>
-                                  <p className="mt-2 text-[11px] text-zinc-400">
+                                  <p className={clsx("mt-2 text-[11px]", isLightTheme ? "text-brand-dark/65" : "text-zinc-400")}>
                                     {order.paymentMethod === "UPI" ? "UPI" : "Pay At Counter"} /{" "}
                                     {getPaymentStatusLabel(order.paymentStatus)}
                                   </p>
@@ -4866,7 +5118,12 @@ export default function QrOrderingExperience({
                         {tableOrders.map((order) => (
                           <div
                             key={order.orderId}
-                            className="rounded-xl border border-zinc-800/30 bg-white/10 p-3"
+                            className={clsx(
+                              "rounded-xl border p-3",
+                              isLightTheme
+                                ? "border-[#E3D6BE] bg-[#FFFDF8]"
+                                : "border-zinc-800/30 bg-white/10",
+                            )}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
@@ -4899,7 +5156,12 @@ export default function QrOrderingExperience({
                 )}
               </div>
 
-              <div className="space-y-2 border-t border-zinc-800 px-4 py-4">
+              <div
+                className={clsx(
+                  "space-y-2 border-t px-4 py-4",
+                  isLightTheme ? "border-[#DFCFAF]" : "border-zinc-800",
+                )}
+              >
                 <button
                   type="button"
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-brand-dark transition"
@@ -4915,7 +5177,12 @@ export default function QrOrderingExperience({
 
                 <button
                   type="button"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className={clsx(
+                    "inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
+                    isLightTheme
+                      ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                      : "border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800",
+                  )}
                   onClick={refreshBillFromBackend}
                   disabled={billSyncing}
                 >
@@ -4954,7 +5221,10 @@ export default function QrOrderingExperience({
           />
 
           <aside
-            className="absolute inset-0 h-[100dvh] overflow-hidden rounded-none border-0 text-zinc-100 shadow-none md:bottom-4 md:left-auto md:right-4 md:top-4 md:h-auto md:w-[430px] md:max-h-[unset] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]"
+            className={clsx(
+              "absolute inset-0 h-[100dvh] overflow-hidden rounded-none border-0 shadow-none md:bottom-4 md:left-auto md:right-4 md:top-4 md:h-auto md:w-[430px] md:max-h-[unset] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]",
+              isLightTheme ? "text-brand-dark" : "text-zinc-100",
+            )}
             style={{
               borderColor: accentBorder,
               animation: "luxe-sheet-up 0.25s ease-out",
@@ -4963,7 +5233,10 @@ export default function QrOrderingExperience({
           >
             <div className="flex h-full flex-col">
               <div
-                className="border-b border-zinc-800/90 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+12px)] md:rounded-t-3xl md:px-4 md:pb-4 md:pt-4"
+                className={clsx(
+                  "border-b px-4 pb-3 pt-[calc(env(safe-area-inset-top)+12px)] md:rounded-t-3xl md:px-4 md:pb-4 md:pt-4",
+                  isLightTheme ? "border-[#DFCFAF]" : "border-zinc-800/90",
+                )}
                 style={{
                   background: isLightTheme
                     ? "linear-gradient(180deg, rgba(255,249,238,0.96) 0%, rgba(247,236,216,0.94) 100%)"
@@ -4973,14 +5246,19 @@ export default function QrOrderingExperience({
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-[1.05rem] font-semibold leading-tight">{"Your Cart"}</h2>
-                    <p className="mt-1 text-[11px] text-zinc-400">
+                    <p className={clsx("mt-1 text-[11px]", isLightTheme ? "text-brand-dark/70" : "text-zinc-400")}>
                       {cartCount} item{cartCount === 1 ? "" : "s"}
                     </p>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      className="inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-50"
+                      className={clsx(
+                        "inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-[11px] font-medium transition disabled:opacity-50",
+                        isLightTheme
+                          ? "text-brand-dark hover:bg-white/70"
+                          : "text-zinc-300 hover:bg-zinc-800",
+                      )}
                       style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.25) }}
                       onClick={clearCart}
                       disabled={cartCount === 0}
@@ -4990,7 +5268,12 @@ export default function QrOrderingExperience({
                     </button>
                     <button
                       type="button"
-                      className="inline-flex h-8 items-center rounded-lg border px-2.5 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800"
+                      className={clsx(
+                        "inline-flex h-8 items-center rounded-lg border px-2.5 text-[11px] font-medium transition",
+                        isLightTheme
+                          ? "text-brand-dark hover:bg-white/70"
+                          : "text-zinc-300 hover:bg-zinc-800",
+                      )}
                       style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.25) }}
                       onClick={() => setCartOpen(false)}
                     >
@@ -5002,11 +5285,23 @@ export default function QrOrderingExperience({
 
               <div className="flex-1 overflow-y-auto px-4 py-4 md:px-4">
                 {cartItems.length === 0 ? (
-                  <div className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 text-sm text-zinc-300">
+                  <div
+                    className={clsx(
+                      "space-y-3 rounded-2xl border p-4 text-sm",
+                      isLightTheme
+                        ? "border-[#E1D2B5] bg-[#FFF9EE] text-brand-dark/75"
+                        : "border-zinc-800 bg-zinc-900/60 text-zinc-300",
+                    )}
+                  >
                     <p>{"Your cart is empty."}</p>
                     <button
                       type="button"
-                      className="inline-flex items-center justify-center rounded-xl border px-3 py-2 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-800"
+                      className={clsx(
+                        "inline-flex items-center justify-center rounded-xl border px-3 py-2 text-sm font-semibold transition",
+                        isLightTheme
+                          ? "text-brand-dark hover:bg-white/70"
+                          : "text-zinc-100 hover:bg-zinc-800",
+                      )}
                       style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.28) }}
                       onClick={browseMenuFromCart}
                     >
@@ -5025,7 +5320,12 @@ export default function QrOrderingExperience({
                       return (
                         <section
                           key={item.id}
-                          className="rounded-2xl border border-zinc-800/30 bg-white/10 p-3.5"
+                          className={clsx(
+                            "rounded-2xl border p-3.5",
+                            isLightTheme
+                              ? "border-[#E3D6BE] bg-[#FFFDF8]"
+                              : "border-zinc-800/30 bg-white/10",
+                          )}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 space-y-1">
@@ -5066,7 +5366,14 @@ export default function QrOrderingExperience({
                           ) : null}
 
                           <div className="mt-3 flex items-center justify-between gap-3">
-                            <div className="inline-flex items-center rounded-xl border border-zinc-800/30 bg-white/20">
+                            <div
+                              className={clsx(
+                                "inline-flex items-center rounded-xl border",
+                                isLightTheme
+                                  ? "border-[#DCCCAA] bg-white/90"
+                                  : "border-zinc-800/30 bg-white/20",
+                              )}
+                            >
                               <button
                                 type="button"
                                 className={clsx("p-2 transition hover:bg-black/10", contentTextClass)}
@@ -5106,7 +5413,11 @@ export default function QrOrderingExperience({
                                       type="button"
                                       className={clsx(
                                         "inline-flex min-h-9 items-center justify-start rounded-lg border px-2.5 py-1.5 text-left text-[11px] font-medium leading-4 transition",
-                                        isSelected ? "text-zinc-950" : "text-zinc-200",
+                                        isSelected
+                                          ? "text-zinc-950"
+                                          : isLightTheme
+                                            ? "text-brand-dark/80"
+                                            : "text-zinc-200",
                                       )}
                                       style={
                                         isSelected
@@ -5140,9 +5451,21 @@ export default function QrOrderingExperience({
                 )}
               </div>
 
-              <div className="space-y-4 border-t border-zinc-800 px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 md:px-4">
-                <section className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900/55 p-3.5">
-                  <p className="mb-2 text-sm font-medium text-zinc-300">
+              <div
+                className={clsx(
+                  "space-y-4 border-t px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 md:px-4",
+                  isLightTheme ? "border-[#DFCFAF]" : "border-zinc-800",
+                )}
+              >
+                <section
+                  className={clsx(
+                    "space-y-3 rounded-2xl border p-3.5",
+                    isLightTheme
+                      ? "border-[#E1D3B8] bg-[#FFF9EE]"
+                      : "border-zinc-800 bg-zinc-900/55",
+                  )}
+                >
+                  <p className={clsx("mb-2 text-sm font-medium", isLightTheme ? "text-brand-dark/75" : "text-zinc-300")}>
                     {"Payment Method"}
                   </p>
                   <div className="grid grid-cols-2 gap-2">
@@ -5154,7 +5477,9 @@ export default function QrOrderingExperience({
                           "inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition",
                           paymentMethod === method
                             ? "text-zinc-950"
-                            : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800",
+                            : isLightTheme
+                              ? "border-[#DCCCAA] bg-white/90 text-brand-dark hover:bg-[#F9F0DF]"
+                              : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800",
                         )}
                         style={
                           paymentMethod === method
@@ -5175,11 +5500,26 @@ export default function QrOrderingExperience({
                 </section>
 
                 {paymentMethod === "UPI" ? (
-                  <section className={clsx("rounded-2xl border border-zinc-800/30 bg-white/10 p-3.5 text-sm", contentTextClass)}>
+                  <section
+                    className={clsx(
+                      "rounded-2xl border p-3.5 text-sm",
+                      contentTextClass,
+                      isLightTheme
+                        ? "border-[#E3D6BE] bg-[#FFFDF8]"
+                        : "border-zinc-800/30 bg-white/10",
+                    )}
+                  >
                     <p className="text-[10px] uppercase tracking-[0.14em] opacity-70">UPI Payment</p>
                     <p className="mt-1 text-sm font-semibold">{configuredUpiName}</p>
                     <p className="mt-0.5 text-xs opacity-70">{configuredUpiId}</p>
-                    <div className="mt-3 flex items-center justify-between rounded-xl border border-zinc-800/20 bg-black/10 px-3 py-2">
+                    <div
+                      className={clsx(
+                        "mt-3 flex items-center justify-between rounded-xl border px-3 py-2",
+                        isLightTheme
+                          ? "border-[#E1D2B4] bg-[#FFF8EA]"
+                          : "border-zinc-800/20 bg-black/10",
+                      )}
+                    >
                       <span className="text-xs opacity-70">Payable Amount</span>
                       <span className="text-sm font-semibold">{formatMoney(total)}</span>
                     </div>
@@ -5198,11 +5538,42 @@ export default function QrOrderingExperience({
                         </button>
                         <button
                           type="button"
-                          className="mt-2 inline-flex h-11 w-full items-center justify-center rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-800"
+                          className={clsx(
+                            "mt-2 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold transition",
+                            isLightTheme
+                              ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                              : "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800",
+                          )}
                           onClick={() => handleShowUpiQr(cartUpiLink, total)}
                         >
                           {"Pay By QR (Recommended)"}
                         </button>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className={clsx(
+                              "rounded-lg border px-2 py-1 text-[11px] font-medium transition",
+                              isLightTheme
+                                ? "border-[#DCCCAA] bg-white/90 text-brand-dark hover:bg-[#F9F0DF]"
+                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                            )}
+                            onClick={() => copyTextWithNotice(configuredUpiId, "UPI ID copied.")}
+                          >
+                            {"Copy UPI ID"}
+                          </button>
+                          <button
+                            type="button"
+                            className={clsx(
+                              "rounded-lg border px-2 py-1 text-[11px] font-medium transition",
+                              isLightTheme
+                                ? "border-[#DCCCAA] bg-white/90 text-brand-dark hover:bg-[#F9F0DF]"
+                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                            )}
+                            onClick={() => copyTextWithNotice(Number(total).toFixed(2), "Amount copied.")}
+                          >
+                            {"Copy Amount"}
+                          </button>
+                        </div>
                       </>
                     ) : null}
                     {canLaunchUpiDeepLink && lastUpiLaunchUri ? (
@@ -5211,14 +5582,26 @@ export default function QrOrderingExperience({
                       </p>
                     ) : null}
                     {!canLaunchUpiDeepLink ? (
-                      <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950/70 p-2 text-[11px] text-zinc-400">
+                      <div
+                        className={clsx(
+                          "mt-3 rounded-lg border p-2 text-[11px]",
+                          isLightTheme
+                            ? "border-[#DCCCAA] bg-[#FFF7E7] text-brand-dark/75"
+                            : "border-zinc-800 bg-zinc-950/70 text-zinc-400",
+                        )}
+                      >
                         <p>
                           {"Open this page on your phone to pay with any UPI app."}
                         </p>
                         <div className="mt-2 flex flex-wrap gap-2">
                           <button
                             type="button"
-                            className="rounded-lg border border-zinc-700 px-2 py-1 font-medium text-zinc-200 transition hover:bg-zinc-800"
+                            className={clsx(
+                              "rounded-lg border px-2 py-1 font-medium transition",
+                              isLightTheme
+                                ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                            )}
                             onClick={() =>
                               copyTextWithNotice(
                                 configuredUpiId,
@@ -5230,7 +5613,12 @@ export default function QrOrderingExperience({
                           </button>
                           <button
                             type="button"
-                            className="rounded-lg border border-zinc-700 px-2 py-1 font-medium text-zinc-200 transition hover:bg-zinc-800"
+                            className={clsx(
+                              "rounded-lg border px-2 py-1 font-medium transition",
+                              isLightTheme
+                                ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                            )}
                             onClick={() =>
                               copyTextWithNotice(
                                 cartUpiLink,
@@ -5242,7 +5630,12 @@ export default function QrOrderingExperience({
                           </button>
                           <button
                             type="button"
-                            className="rounded-lg border border-zinc-700 px-2 py-1 font-medium text-zinc-200 transition hover:bg-zinc-800"
+                            className={clsx(
+                              "rounded-lg border px-2 py-1 font-medium transition",
+                              isLightTheme
+                                ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                            )}
                             onClick={() =>
                               copyTextWithNotice(
                                 Number(total).toFixed(2),
@@ -5255,16 +5648,23 @@ export default function QrOrderingExperience({
                         </div>
                       </div>
                     ) : null}
-                    <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+                    <p className={clsx("mt-2 text-[11px] leading-relaxed", isLightTheme ? "text-brand-dark/70" : "text-zinc-500")}>
                       {"After payment, your status stays pending until cashier confirms."}
                     </p>
                   </section>
                 ) : null}
 
-                <section className="rounded-2xl border border-zinc-800 bg-zinc-900/55 p-3.5">
+                <section
+                  className={clsx(
+                    "rounded-2xl border p-3.5",
+                    isLightTheme
+                      ? "border-[#E1D3B8] bg-[#FFF9EE]"
+                      : "border-zinc-800 bg-zinc-900/55",
+                  )}
+                >
                   <label
                     htmlFor="kitchen-instructions"
-                    className="mb-2 block text-sm font-medium text-zinc-300"
+                    className={clsx("mb-2 block text-sm font-medium", isLightTheme ? "text-brand-dark/80" : "text-zinc-300")}
                   >
                     {"Kitchen Instructions"}
                   </label>
@@ -5275,11 +5675,24 @@ export default function QrOrderingExperience({
                       setKitchenInstructions(sanitizeInstructionText(event.target.value))
                     }
                     placeholder={"Example: make it spicy, less onion, no mayo"}
-                    className="min-h-[88px] w-full resize-none rounded-xl border border-zinc-700 bg-zinc-950/70 px-3 py-2.5 text-sm leading-5 text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-zinc-500"
+                    className={clsx(
+                      "min-h-[88px] w-full resize-none rounded-xl border px-3 py-2.5 text-sm leading-5 outline-none",
+                      isLightTheme
+                        ? "border-[#DCCCAA] bg-white text-brand-dark placeholder:text-brand-dark/45 focus:border-[#C6A05C]"
+                        : "border-zinc-700 bg-zinc-950/70 text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500",
+                    )}
                   />
                 </section>
 
-                <section className={clsx("space-y-2 rounded-2xl border border-zinc-800/30 bg-white/10 px-3.5 py-3.5 text-sm", contentTextClass)}>
+                <section
+                  className={clsx(
+                    "space-y-2 rounded-2xl border px-3.5 py-3.5 text-sm",
+                    contentTextClass,
+                    isLightTheme
+                      ? "border-[#E3D6BE] bg-[#FFFDF8]"
+                      : "border-zinc-800/30 bg-white/10",
+                  )}
+                >
                   <div className="flex items-center justify-between">
                     <span className="opacity-80">Subtotal</span>
                     <span className="font-semibold">{formatMoney(subtotal)}</span>
@@ -5341,19 +5754,29 @@ export default function QrOrderingExperience({
             aria-label="Close UPI QR sheet"
           />
           <aside
-            className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-[480px] rounded-t-3xl border border-zinc-800 bg-zinc-950/95 px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 text-zinc-100 shadow-[0_28px_80px_-40px_rgba(0,0,0,0.98)] md:inset-y-0 md:my-auto md:h-fit md:rounded-3xl"
+            className={clsx(
+              "absolute inset-x-0 bottom-0 mx-auto w-full max-w-[480px] rounded-t-3xl border px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 shadow-[0_28px_80px_-40px_rgba(0,0,0,0.98)] md:inset-y-0 md:my-auto md:h-fit md:rounded-3xl",
+              isLightTheme
+                ? "border-[#DCCCAA] bg-[#FFF9EE] text-brand-dark"
+                : "border-zinc-800 bg-zinc-950/95 text-zinc-100",
+            )}
             style={{ borderColor: accentSubtle }}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-400">
+                <p className={clsx("text-[10px] uppercase tracking-[0.16em]", isLightTheme ? "text-brand-dark/65" : "text-zinc-400")}>
                   UPI Payment QR
                 </p>
-                <h3 className="mt-1 text-sm font-semibold text-zinc-100">Scan And Pay</h3>
+                <h3 className={clsx("mt-1 text-sm font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>Scan And Pay</h3>
               </div>
               <button
                 type="button"
-                className="rounded-lg border border-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-200 transition hover:bg-zinc-800"
+                className={clsx(
+                  "rounded-lg border px-2.5 py-1 text-xs font-medium transition",
+                  isLightTheme
+                    ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                    : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                )}
                 onClick={closeUpiQrSheet}
               >
                 Close
@@ -5375,32 +5798,49 @@ export default function QrOrderingExperience({
               )}
             </div>
 
-            <div className="mt-3 space-y-1 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-2 text-xs">
-              <p className="font-semibold text-zinc-100">{configuredUpiName}</p>
-              <p className="text-zinc-300">{configuredUpiId}</p>
-              <p className="text-zinc-300">
-                Amount: <span className="font-semibold text-zinc-100">{formatMoney(upiQrAmountNumber)}</span>
+            <div
+              className={clsx(
+                "mt-3 space-y-1 rounded-xl border px-3 py-2 text-xs",
+                isLightTheme
+                  ? "border-[#E1D3B8] bg-white/90 text-brand-dark/80"
+                  : "border-zinc-800 bg-zinc-900/70",
+              )}
+            >
+              <p className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>{configuredUpiName}</p>
+              <p className={clsx(isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>{configuredUpiId}</p>
+              <p className={clsx(isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>
+                Amount: <span className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>{formatMoney(upiQrAmountNumber)}</span>
               </p>
             </div>
 
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button
                 type="button"
-                className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-100 transition hover:bg-zinc-800"
+                className={clsx(
+                  "rounded-lg border px-3 py-2 text-xs font-semibold transition",
+                  isLightTheme
+                    ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                    : "border-zinc-700 text-zinc-100 hover:bg-zinc-800",
+                )}
                 onClick={() => copyTextWithNotice(configuredUpiId, "UPI ID copied.")}
               >
                 Copy UPI ID
               </button>
               <button
                 type="button"
-                className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-100 transition hover:bg-zinc-800"
+                className={clsx(
+                  "rounded-lg border px-3 py-2 text-xs font-semibold transition",
+                  isLightTheme
+                    ? "border-[#DCCCAA] bg-white text-brand-dark hover:bg-[#F9F0DF]"
+                    : "border-zinc-700 text-zinc-100 hover:bg-zinc-800",
+                )}
                 onClick={() => copyTextWithNotice(upiQrAmount, "Amount copied.")}
               >
                 Copy Amount
               </button>
             </div>
 
-            <p className="mt-3 text-[11px] text-zinc-400">
+            <p className={clsx("mt-3 text-[11px]", isLightTheme ? "text-brand-dark/70" : "text-zinc-400")}>
               Payment status stays pending until cashier/admin confirms.
             </p>
           </aside>

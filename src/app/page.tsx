@@ -265,6 +265,7 @@ export default function Home() {
                 <Link
                   key={table.id}
                   href={`/c/${ROOT_CLIENT_ID}/t/${encodeURIComponent(routeToken)}`}
+                  prefetch={false}
                   className="group rounded-2xl border p-4 transition active:translate-y-px"
                   style={{
                     borderColor: "rgba(48,42,24,0.33)",
