@@ -131,6 +131,7 @@ type ActiveTableBillState = {
   table: string;
   activeOrder: ActiveOrderContext | null;
   orders: TableOrderRecord[];
+  lastActivityAt: string;
   updatedAt: string;
 };
 
@@ -141,6 +142,7 @@ type ActiveTableSessionState = {
   hasCart: boolean;
   hasBillOrders: boolean;
   activeOrder: ActiveOrderContext | null;
+  lastActivityAt: string;
   updatedAt: string;
 };
 
@@ -209,7 +211,7 @@ const ACTIVE_TABLE_STORAGE_VERSION = 1;
 const REQUEST_TIMEOUT_MS = 12000;
 const BILL_SYNC_TIMEOUT_MS = 10000;
 const ORDER_STATUS_WATCH_INTERVAL_MS = 14000;
-const BILL_AUTO_DELETE_AFTER_MS = 60 * 60 * 1000;
+const BILL_INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000;
 const MAX_TABLE_ORDER_RECORDS = 60;
 const MAX_ROUTE_CLIENT_LENGTH = 64;
 const MAX_ROUTE_TABLE_LENGTH = 32;
@@ -267,15 +269,6 @@ function getErrorMessage(error: unknown) {
     return String(error.message);
   }
   return "Unexpected error";
-}
-
-async function readResponseMessage(response: Response) {
-  try {
-    const payload = (await response.json()) as { message?: string; error?: string };
-    return payload.message || payload.error || `Request failed (${response.status})`;
-  } catch {
-    return `Request failed (${response.status})`;
-  }
 }
 
 function normalizeRouteToken(value: string) {
@@ -779,6 +772,54 @@ function getBillLineKey(itemId: string, modifiers: SelectedModifier[]) {
     .sort()
     .join("__");
   return token ? `${itemId}::${token}` : itemId;
+}
+
+function mergeBillItemsFromOrders(orders: TableOrderRecord[], menuItems: MenuItem[]) {
+  const menuLookup = new Map(menuItems.map((item) => [item.id, item]));
+  const merged = new Map<string, BillLineItem>();
+
+  for (const order of orders) {
+    for (const lineItem of order.items) {
+      const mergedKey = lineItem.lineKey || getBillLineKey(lineItem.itemId, lineItem.modifiers);
+      const existing = merged.get(mergedKey);
+      const menuItem = menuLookup.get(lineItem.itemId);
+      const resolvedName =
+        lineItem.name && lineItem.name !== "Item"
+          ? lineItem.name
+          : menuItem?.name ?? "Item";
+
+      if (!existing) {
+        merged.set(mergedKey, {
+          ...lineItem,
+          lineKey: mergedKey,
+          name: resolvedName,
+        });
+        continue;
+      }
+
+      const mergedQuantity = existing.quantity + lineItem.quantity;
+      const mergedLineTotal = existing.lineTotal + lineItem.lineTotal;
+      const mergedUnitPrice =
+        mergedQuantity > 0 ? mergedLineTotal / mergedQuantity : existing.unitPrice;
+
+      merged.set(mergedKey, {
+        lineKey: mergedKey,
+        itemId: lineItem.itemId,
+        name: existing.name || resolvedName,
+        quantity: mergedQuantity,
+        unitPrice: mergedUnitPrice,
+        lineTotal: mergedLineTotal,
+        modifiers:
+          existing.modifiers.length >= lineItem.modifiers.length
+            ? existing.modifiers
+            : lineItem.modifiers,
+      });
+    }
+  }
+
+  return [...merged.values()].sort(
+    (a, b) => b.lineTotal - a.lineTotal || a.name.localeCompare(b.name),
+  );
 }
 
 function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string) {
@@ -1493,6 +1534,12 @@ function parseActiveBillState(rawValue: string | null) {
       table: toSafeString(parsed.table),
       activeOrder,
       orders,
+      lastActivityAt:
+        toSafeString(parsed.lastActivityAt) ||
+        toSafeString(parsed.last_activity_at) ||
+        toSafeString(parsed.updatedAt) ||
+        activeOrder?.updatedAt ||
+        "",
       updatedAt: toSafeString(parsed.updatedAt) || activeOrder?.updatedAt || new Date().toISOString(),
     } satisfies ActiveTableBillState;
   } catch {
@@ -1528,6 +1575,11 @@ function parseActiveSessionState(rawValue: string | null) {
       hasCart,
       hasBillOrders,
       activeOrder,
+      lastActivityAt:
+        toSafeString(parsed.lastActivityAt) ||
+        toSafeString(parsed.last_activity_at) ||
+        toSafeString(parsed.updatedAt) ||
+        "",
       updatedAt: toSafeString(parsed.updatedAt) || new Date().toISOString(),
     } satisfies ActiveTableSessionState;
   } catch {
@@ -1650,19 +1702,22 @@ function isPaymentConfirmed(status: string) {
   return ["PAID", "SETTLED", "COMPLETED"].includes(normalized);
 }
 
-function getOrderTimelineAnchor(order: TableOrderRecord) {
-  return toTimestamp(order.updatedAt) || toTimestamp(order.createdAt);
+function shouldDropClosedOrdersForInactivity(lastActivityAt: string) {
+  const activityTimestamp = toTimestamp(lastActivityAt);
+  if (!activityTimestamp) {
+    return false;
+  }
+  return Date.now() - activityTimestamp >= BILL_INACTIVITY_TIMEOUT_MS;
 }
 
-function shouldAutoDeleteSettledOrder(order: TableOrderRecord, now = Date.now()) {
-  if (!isPaymentConfirmed(order.paymentStatus)) {
-    return false;
+function applyBillInactivityPolicy(records: TableOrderRecord[], lastActivityAt: string) {
+  if (records.length === 0) {
+    return records;
   }
-  const anchor = getOrderTimelineAnchor(order);
-  if (!anchor) {
-    return false;
+  if (!shouldDropClosedOrdersForInactivity(lastActivityAt)) {
+    return records;
   }
-  return now - anchor >= BILL_AUTO_DELETE_AFTER_MS;
+  return records.filter((record) => !isOrderClosed(record.status, record.paymentStatus));
 }
 
 function getOrderStatusLabel(status: string) {
@@ -1992,20 +2047,19 @@ export default function QrOrderingExperience({
   const [billSyncMessage, setBillSyncMessage] = useState("");
   const [statusPopup, setStatusPopup] = useState<StatusPopupState | null>(null);
   const [orderPlacedId, setOrderPlacedId] = useState("");
-  const [selectedBillOrderId, setSelectedBillOrderId] = useState("");
   const [billActionOrderId, setBillActionOrderId] = useState("");
   const [activeOrderContext, setActiveOrderContext] = useState<ActiveOrderContext | null>(
     null,
   );
   const [tableOrders, setTableOrders] = useState<TableOrderRecord[]>([]);
+  const [billLastActivityAt, setBillLastActivityAt] = useState("");
   const [customerBrowserId, setCustomerBrowserId] = useState("");
   const [customerProfile, setCustomerProfile] = useState<CustomerProfile | null>(null);
   const placeOrderLockRef = useRef(false);
   const tableOrdersRef = useRef<TableOrderRecord[]>([]);
   const activeOrderContextRef = useRef<ActiveOrderContext | null>(null);
+  const billLastActivityRef = useRef("");
   const orderSyncSnapshotRef = useRef<Record<string, { status: string; paymentStatus: string }>>({});
-  const settledDeleteInFlightRef = useRef<Set<string>>(new Set());
-  const settledDeleteTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const activeCartStorageKey = useMemo(
     () => buildActiveCartStorageKey(routeClient, routeTable),
@@ -2031,6 +2085,11 @@ export default function QrOrderingExperience({
   }, [customerBrowserId, routeClient]);
 
   const isLightTheme = true;
+
+  function touchBillActivity(activityAt = new Date().toISOString()) {
+    setBillLastActivityAt(activityAt);
+    billLastActivityRef.current = activityAt;
+  }
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -2102,14 +2161,8 @@ export default function QrOrderingExperience({
   }, [activeOrderContext]);
 
   useEffect(() => {
-    const timers = settledDeleteTimerRef.current;
-    return () => {
-      for (const timer of timers.values()) {
-        clearTimeout(timer);
-      }
-      timers.clear();
-    };
-  }, []);
+    billLastActivityRef.current = billLastActivityAt;
+  }, [billLastActivityAt]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2124,10 +2177,10 @@ export default function QrOrderingExperience({
       setOrderPlacedId("");
       setActiveOrderContext(null);
       setTableOrders([]);
+      setBillLastActivityAt("");
       tableOrdersRef.current = [];
       activeOrderContextRef.current = null;
       orderSyncSnapshotRef.current = {};
-      setSelectedBillOrderId("");
       setSearchText("");
       setBillOpen(false);
       setSelectedModifiersByItem({});
@@ -2212,13 +2265,26 @@ export default function QrOrderingExperience({
           const activeCartState = parseActiveCartState(
             window.localStorage.getItem(activeCartStorageKey),
           );
-          const sessionBillRaw = window.sessionStorage.getItem(activeBillStorageKey);
-          const sessionStateRaw = window.sessionStorage.getItem(activeSessionStorageKey);
-          const legacyLocalBillRaw = window.localStorage.getItem(activeBillStorageKey);
-          const legacyLocalSessionRaw = window.localStorage.getItem(activeSessionStorageKey);
-          const activeBillState = parseActiveBillState(sessionBillRaw ?? legacyLocalBillRaw);
+          const localBillRaw = window.localStorage.getItem(activeBillStorageKey);
+          const localSessionRaw = window.localStorage.getItem(activeSessionStorageKey);
+          const legacySessionBillRaw = window.sessionStorage.getItem(activeBillStorageKey);
+          const legacySessionStateRaw = window.sessionStorage.getItem(activeSessionStorageKey);
+          if (!localBillRaw && legacySessionBillRaw) {
+            window.localStorage.setItem(activeBillStorageKey, legacySessionBillRaw);
+          }
+          if (!localSessionRaw && legacySessionStateRaw) {
+            window.localStorage.setItem(activeSessionStorageKey, legacySessionStateRaw);
+          }
+          if (legacySessionBillRaw) {
+            window.sessionStorage.removeItem(activeBillStorageKey);
+          }
+          if (legacySessionStateRaw) {
+            window.sessionStorage.removeItem(activeSessionStorageKey);
+          }
+
+          const activeBillState = parseActiveBillState(localBillRaw ?? legacySessionBillRaw);
           const activeSessionState = parseActiveSessionState(
-            sessionStateRaw ?? legacyLocalSessionRaw,
+            localSessionRaw ?? legacySessionStateRaw,
           );
           const legacySession = parseLegacyPersistedSession(
             window.localStorage.getItem(legacyTableSessionStorageKey),
@@ -2236,19 +2302,6 @@ export default function QrOrderingExperience({
           const legacyForRoute = isRecordForRoute(legacySession, routeClient, routeTable)
             ? legacySession
             : null;
-
-          if (!sessionBillRaw && legacyLocalBillRaw && activeBillState) {
-            window.sessionStorage.setItem(activeBillStorageKey, legacyLocalBillRaw);
-          }
-          if (!sessionStateRaw && legacyLocalSessionRaw && activeSessionState) {
-            window.sessionStorage.setItem(activeSessionStorageKey, legacyLocalSessionRaw);
-          }
-          if (legacyLocalBillRaw) {
-            window.localStorage.removeItem(activeBillStorageKey);
-          }
-          if (legacyLocalSessionRaw) {
-            window.localStorage.removeItem(activeSessionStorageKey);
-          }
 
           if (legacyForRoute) {
             const nowIso = new Date().toISOString();
@@ -2279,9 +2332,11 @@ export default function QrOrderingExperience({
                 table: routeTable,
                 activeOrder: legacyForRoute.activeOrder,
                 orders: [],
+                lastActivityAt:
+                  legacyForRoute.activeOrder?.updatedAt || legacyForRoute.updatedAt || nowIso,
                 updatedAt: legacyForRoute.activeOrder.updatedAt || legacyForRoute.updatedAt || nowIso,
               };
-              window.sessionStorage.setItem(activeBillStorageKey, JSON.stringify(migratedBill));
+              window.localStorage.setItem(activeBillStorageKey, JSON.stringify(migratedBill));
             }
 
             if (!sessionForRoute) {
@@ -2292,9 +2347,10 @@ export default function QrOrderingExperience({
                 hasCart: Object.keys(legacyForRoute.cart).length > 0,
                 hasBillOrders: false,
                 activeOrder: legacyForRoute.activeOrder,
+                lastActivityAt: legacyForRoute.updatedAt || nowIso,
                 updatedAt: legacyForRoute.updatedAt || nowIso,
               };
-              window.sessionStorage.setItem(
+              window.localStorage.setItem(
                 activeSessionStorageKey,
                 JSON.stringify(migratedSession),
               );
@@ -2303,8 +2359,8 @@ export default function QrOrderingExperience({
             window.localStorage.removeItem(legacyTableSessionStorageKey);
           }
 
-          let hydratedCart: Record<string, number> = {};
-          let hydratedModifiers: Record<string, SelectedModifier[]> = {};
+          const hydratedCart: Record<string, number> = {};
+          const hydratedModifiers: Record<string, SelectedModifier[]> = {};
           let restoredInstructions = "";
           const validIds = new Set(parsedItems.map((item) => item.id));
           const cartSource = cartForRoute?.cart ?? legacyForRoute?.cart ?? {};
@@ -2334,18 +2390,26 @@ export default function QrOrderingExperience({
             legacyForRoute?.activeOrder ??
             null;
           const persistedOrders = billForRoute?.orders ?? [];
-          const settledPersistedOrders = persistedOrders.filter((order) =>
-            isOrderClosed(order.status, order.paymentStatus),
+          const restoredBillActivityAt =
+            billForRoute?.lastActivityAt ||
+            sessionForRoute?.lastActivityAt ||
+            billForRoute?.updatedAt ||
+            sessionForRoute?.updatedAt ||
+            legacyForRoute?.updatedAt ||
+            "";
+          const restoredOrders = applyBillInactivityPolicy(
+            persistedOrders,
+            restoredBillActivityAt,
           );
-          const restoredOrders = persistedOrders.filter(
-            (order) => !isOrderClosed(order.status, order.paymentStatus),
-          );
-
-          for (const settledOrder of settledPersistedOrders) {
-            scheduleSettledOrderDelete(settledOrder);
-          }
+          const nextBillActivityAt =
+            restoredBillActivityAt || (restoredOrders.length > 0 || restoredOrder ? new Date().toISOString() : "");
+          setBillLastActivityAt(nextBillActivityAt);
+          billLastActivityRef.current = nextBillActivityAt;
 
           if (!restoredOrder && restoredOrders.length > 0) {
+            restoredOrder = getLatestOrderContextFromRecords(restoredOrders);
+          }
+          if (restoredOrder && !restoredOrders.some((order) => order.orderId === restoredOrder?.id)) {
             restoredOrder = getLatestOrderContextFromRecords(restoredOrders);
           }
 
@@ -2357,23 +2421,7 @@ export default function QrOrderingExperience({
             restoredOrders.length > 0 ||
             !!restoredOrder;
 
-          if (restoredOrder && isOrderClosed(restoredOrder.status, restoredOrder.paymentStatus)) {
-            window.localStorage.removeItem(activeCartStorageKey);
-            window.sessionStorage.removeItem(activeBillStorageKey);
-            window.sessionStorage.removeItem(activeSessionStorageKey);
-            window.localStorage.removeItem(activeBillStorageKey);
-            window.localStorage.removeItem(activeSessionStorageKey);
-            window.localStorage.removeItem(legacyTableSessionStorageKey);
-            setActiveOrderContext(null);
-            activeOrderContextRef.current = null;
-            setOrderPlacedId("");
-            setTableOrders([]);
-            tableOrdersRef.current = [];
-            syncOrderSnapshot([]);
-            hydratedCart = {};
-            hydratedModifiers = {};
-            restoredInstructions = "";
-          } else if (restoredOrder) {
+          if (restoredOrder) {
             setActiveOrderContext(restoredOrder);
             activeOrderContextRef.current = restoredOrder;
             setOrderPlacedId(restoredOrder.id);
@@ -2438,27 +2486,6 @@ export default function QrOrderingExperience({
               if (!cancelled) {
                 console.warn("Initial bill sync failed:", syncError);
               }
-            }
-          })();
-        } else if (ENABLE_BACKEND_ORDER_SYNC) {
-          // Fresh tab should not restore bill UI, but we still process settled-order cleanup.
-          void (async () => {
-            try {
-              const backendOrders = await withTimeout(
-                fetchTableOrderRecords(matchedTable.clientId || routeClient, matchedTable.id),
-                BILL_SYNC_TIMEOUT_MS,
-                "Settled cleanup scan",
-              );
-              if (cancelled || backendOrders.length === 0) {
-                return;
-              }
-              for (const backendOrder of backendOrders) {
-                if (isOrderClosed(backendOrder.status, backendOrder.paymentStatus)) {
-                  scheduleSettledOrderDelete(backendOrder);
-                }
-              }
-            } catch {
-              // Keep cleanup scan silent.
             }
           })();
         }
@@ -2557,6 +2584,11 @@ export default function QrOrderingExperience({
       !!activeOrderContext &&
       !isOrderClosed(activeOrderContext.status, activeOrderContext.paymentStatus);
     const hasBillOrders = tableOrders.length > 0;
+    const effectiveBillLastActivityAt =
+      billLastActivityAt ||
+      activeOrderContext?.updatedAt ||
+      tableOrders[0]?.updatedAt ||
+      nowIso;
 
     const activeCartState: ActiveTableCartState = {
       version: ACTIVE_TABLE_STORAGE_VERSION,
@@ -2574,6 +2606,7 @@ export default function QrOrderingExperience({
       table: routeTable,
       activeOrder: hasOpenOrder ? activeOrderContext : null,
       orders: tableOrders,
+      lastActivityAt: effectiveBillLastActivityAt,
       updatedAt: activeOrderContext?.updatedAt || nowIso,
     };
 
@@ -2584,6 +2617,7 @@ export default function QrOrderingExperience({
       hasCart,
       hasBillOrders,
       activeOrder: hasOpenOrder ? activeOrderContext : null,
+      lastActivityAt: effectiveBillLastActivityAt,
       updatedAt: nowIso,
     };
 
@@ -2594,22 +2628,22 @@ export default function QrOrderingExperience({
     }
 
     if (hasOpenOrder || hasBillOrders) {
-      window.sessionStorage.setItem(activeBillStorageKey, JSON.stringify(activeBillState));
-      window.localStorage.removeItem(activeBillStorageKey);
-    } else {
+      window.localStorage.setItem(activeBillStorageKey, JSON.stringify(activeBillState));
       window.sessionStorage.removeItem(activeBillStorageKey);
+    } else {
       window.localStorage.removeItem(activeBillStorageKey);
+      window.sessionStorage.removeItem(activeBillStorageKey);
     }
 
     if (hasCart || hasOpenOrder || hasBillOrders) {
-      window.sessionStorage.setItem(
+      window.localStorage.setItem(
         activeSessionStorageKey,
         JSON.stringify(activeSessionState),
       );
-      window.localStorage.removeItem(activeSessionStorageKey);
-    } else {
       window.sessionStorage.removeItem(activeSessionStorageKey);
+    } else {
       window.localStorage.removeItem(activeSessionStorageKey);
+      window.sessionStorage.removeItem(activeSessionStorageKey);
     }
 
     window.localStorage.removeItem(legacyTableSessionStorageKey);
@@ -2626,6 +2660,7 @@ export default function QrOrderingExperience({
     routeTable,
     selectedModifiersByItem,
     tableOrders,
+    billLastActivityAt,
   ]);
 
   useEffect(() => {
@@ -2843,53 +2878,10 @@ export default function QrOrderingExperience({
   const total = subtotal + taxAmount;
   const formatMoney = (value: number) => formatInr(value, normalizedCurrency);
 
-  const mergedBillItems = useMemo(() => {
-    const menuLookup = new Map(menuItems.map((item) => [item.id, item]));
-    const merged = new Map<string, BillLineItem>();
-
-    for (const order of tableOrders) {
-      for (const lineItem of order.items) {
-        const mergedKey = lineItem.lineKey || getBillLineKey(lineItem.itemId, lineItem.modifiers);
-        const existing = merged.get(mergedKey);
-        const menuItem = menuLookup.get(lineItem.itemId);
-        const resolvedName =
-          lineItem.name && lineItem.name !== "Item"
-            ? lineItem.name
-            : menuItem?.name ?? "Item";
-
-        if (!existing) {
-          merged.set(mergedKey, {
-            ...lineItem,
-            lineKey: mergedKey,
-            name: resolvedName,
-          });
-          continue;
-        }
-
-        const mergedQuantity = existing.quantity + lineItem.quantity;
-        const mergedLineTotal = existing.lineTotal + lineItem.lineTotal;
-        const mergedUnitPrice =
-          mergedQuantity > 0 ? mergedLineTotal / mergedQuantity : existing.unitPrice;
-
-        merged.set(mergedKey, {
-          lineKey: mergedKey,
-          itemId: lineItem.itemId,
-          name: existing.name || resolvedName,
-          quantity: mergedQuantity,
-          unitPrice: mergedUnitPrice,
-          lineTotal: mergedLineTotal,
-          modifiers:
-            existing.modifiers.length >= lineItem.modifiers.length
-              ? existing.modifiers
-              : lineItem.modifiers,
-        });
-      }
-    }
-
-    return [...merged.values()].sort(
-      (a, b) => b.lineTotal - a.lineTotal || a.name.localeCompare(b.name),
-    );
-  }, [menuItems, tableOrders]);
+  const mergedBillItems = useMemo(
+    () => mergeBillItemsFromOrders(tableOrders, menuItems),
+    [menuItems, tableOrders],
+  );
 
   const billSubtotal = useMemo(
     () => mergedBillItems.reduce((sum, item) => sum + item.lineTotal, 0),
@@ -2938,67 +2930,85 @@ export default function QrOrderingExperience({
       tableOrders.filter((order) => !isOrderClosed(order.status, order.paymentStatus)),
     [tableOrders],
   );
-
-  const selectedBillOrder = useMemo(() => {
-    if (!selectedBillOrderId) {
-      return latestBillOrder;
-    }
-    return tableOrders.find((order) => order.orderId === selectedBillOrderId) ?? latestBillOrder;
-  }, [latestBillOrder, selectedBillOrderId, tableOrders]);
-
-  const selectedBillPaymentMethod = selectedBillOrder?.paymentMethod ?? latestBillPaymentMethod;
-  const selectedBillStatus = selectedBillOrder?.status ?? latestBillStatus;
-  const selectedBillPaymentStatus = selectedBillOrder?.paymentStatus ?? latestBillPaymentStatus;
-  const selectedBillUpdatedAt = selectedBillOrder?.updatedAt ?? latestBillUpdatedAt;
-  const selectedBillInstructions = selectedBillOrder?.instructions?.trim() ?? "";
-  const selectedBillItems = useMemo(() => {
-    if (selectedBillOrder?.items?.length) {
-      return selectedBillOrder.items;
-    }
-    return mergedBillItems;
-  }, [mergedBillItems, selectedBillOrder]);
-  const selectedBillSubtotal = useMemo(() => {
-    if (!selectedBillOrder) {
-      return billSubtotal;
-    }
-    if (selectedBillOrder.subtotal > 0) {
-      return selectedBillOrder.subtotal;
-    }
-    return selectedBillItems.reduce((sum, item) => sum + item.lineTotal, 0);
-  }, [billSubtotal, selectedBillItems, selectedBillOrder]);
-  const selectedBillFinalTotal = useMemo(() => {
-    if (!selectedBillOrder) {
-      return billFinalTotal;
-    }
-    if (selectedBillOrder.totalAmount > 0) {
-      return selectedBillOrder.totalAmount;
-    }
-    if (selectedBillOrder.subtotal > 0) {
-      return selectedBillOrder.subtotal;
-    }
-    return selectedBillItems.reduce((sum, item) => sum + item.lineTotal, 0);
-  }, [billFinalTotal, selectedBillItems, selectedBillOrder]);
-  const selectedBillTaxAmount = useMemo(() => {
-    if (selectedBillFinalTotal > selectedBillSubtotal) {
-      return selectedBillFinalTotal - selectedBillSubtotal;
-    }
-    return 0;
-  }, [selectedBillFinalTotal, selectedBillSubtotal]);
-
-  useEffect(() => {
-    if (selectedBillOrderId && !tableOrders.some((order) => order.orderId === selectedBillOrderId)) {
-      setSelectedBillOrderId("");
-    }
-  }, [selectedBillOrderId, tableOrders]);
-
-  const unpaidTotal = useMemo(() => {
+  const unpaidMergedItems = useMemo(
+    () => mergeBillItemsFromOrders(unpaidOrders, menuItems),
+    [menuItems, unpaidOrders],
+  );
+  const unpaidSubtotal = useMemo(
+    () => unpaidMergedItems.reduce((sum, item) => sum + item.lineTotal, 0),
+    [unpaidMergedItems],
+  );
+  const unpaidGrandTotal = useMemo(() => {
     return unpaidOrders.reduce((sum, order) => {
       if (order.totalAmount > 0) {
         return sum + order.totalAmount;
       }
-      return sum + order.subtotal;
+      if (order.subtotal > 0) {
+        return sum + order.subtotal;
+      }
+      return sum + order.items.reduce((innerSum, item) => innerSum + item.lineTotal, 0);
     }, 0);
   }, [unpaidOrders]);
+  const unpaidTaxAmount = useMemo(() => {
+    if (unpaidGrandTotal > unpaidSubtotal) {
+      return unpaidGrandTotal - unpaidSubtotal;
+    }
+    if (taxPercentage > 0 && unpaidSubtotal > 0) {
+      return Number(((unpaidSubtotal * taxPercentage) / 100).toFixed(2));
+    }
+    return 0;
+  }, [taxPercentage, unpaidGrandTotal, unpaidSubtotal]);
+  const unpaidFinalTotal = unpaidSubtotal + unpaidTaxAmount;
+  const hasAggregatedUnpaidBill = unpaidOrders.length > 0;
+  const aggregatedUnpaidOrder = useMemo(
+    () => getPreferredBillOrder(unpaidOrders),
+    [unpaidOrders],
+  );
+  const currentBillOrderNumber = hasAggregatedUnpaidBill
+    ? unpaidOrders.length === 1
+      ? (aggregatedUnpaidOrder?.orderNumber ?? "Unpaid Bill")
+      : `${unpaidOrders.length} Unpaid Orders`
+    : (latestBillOrder?.orderNumber ?? "Order");
+  const currentBillPaymentMethod: PaymentMethod = hasAggregatedUnpaidBill
+    ? unpaidOrders.some((order) => order.paymentMethod === "UPI")
+      ? "UPI"
+      : "COUNTER"
+    : latestBillPaymentMethod;
+  const currentBillStatus = hasAggregatedUnpaidBill
+    ? (aggregatedUnpaidOrder?.status ?? "PENDING")
+    : latestBillStatus;
+  const currentBillPaymentStatus = hasAggregatedUnpaidBill
+    ? (aggregatedUnpaidOrder?.paymentStatus ?? "UNPAID")
+    : latestBillPaymentStatus;
+  const currentBillUpdatedAt = hasAggregatedUnpaidBill
+    ? (aggregatedUnpaidOrder?.updatedAt ??
+      aggregatedUnpaidOrder?.createdAt ??
+      latestBillUpdatedAt)
+    : latestBillUpdatedAt;
+  const currentBillItems = hasAggregatedUnpaidBill
+    ? unpaidMergedItems
+    : mergedBillItems;
+  const currentBillSubtotal = hasAggregatedUnpaidBill ? unpaidSubtotal : billSubtotal;
+  const currentBillTaxAmount = hasAggregatedUnpaidBill ? unpaidTaxAmount : billTaxAmount;
+  const currentBillFinalTotal = hasAggregatedUnpaidBill ? unpaidFinalTotal : billFinalTotal;
+  const currentBillInstructions = useMemo(() => {
+    if (!hasAggregatedUnpaidBill) {
+      return latestBillOrder?.instructions?.trim() ?? "";
+    }
+    const uniqueInstructions = new Set<string>();
+    for (const order of unpaidOrders) {
+      const instruction = order.instructions.trim();
+      if (instruction) {
+        uniqueInstructions.add(instruction);
+      }
+    }
+    return [...uniqueInstructions].join(" | ");
+  }, [hasAggregatedUnpaidBill, latestBillOrder, unpaidOrders]);
+  const counterUnpaidOrders = useMemo(
+    () => unpaidOrders.filter((order) => order.paymentMethod === "COUNTER"),
+    [unpaidOrders],
+  );
+  const unpaidTotal = unpaidFinalTotal;
 
   function updateItemQuantity(itemId: string, delta: number) {
     setCart((current) => {
@@ -3050,76 +3060,6 @@ export default function QrOrderingExperience({
 
   function showStatusPopup(nextPopup: StatusPopupState) {
     setStatusPopup(nextPopup);
-  }
-
-  async function deleteSettledOrderAfterRetention(order: TableOrderRecord) {
-    if (!tableInfo?.id) {
-      return;
-    }
-    if (!shouldAutoDeleteSettledOrder(order)) {
-      return;
-    }
-    if (settledDeleteInFlightRef.current.has(order.orderId)) {
-      return;
-    }
-
-    settledDeleteInFlightRef.current.add(order.orderId);
-    try {
-      const response = await withTimeout(
-        fetch("/api/appwrite/documents", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          cache: "no-store",
-          body: JSON.stringify({
-            collectionId: appwriteConfig.collections.orders,
-            documentId: order.orderId,
-            clientId: routeClient,
-            tableId: tableInfo.id,
-          }),
-        }),
-        REQUEST_TIMEOUT_MS,
-        "Delete settled order",
-      );
-
-      if (!response.ok) {
-        const message = await readResponseMessage(response);
-        console.warn(`Settled order cleanup skipped for ${order.orderId}: ${message}`);
-      }
-    } catch (error) {
-      console.warn(`Settled order cleanup failed for ${order.orderId}:`, error);
-    } finally {
-      settledDeleteInFlightRef.current.delete(order.orderId);
-    }
-  }
-
-  function scheduleSettledOrderDelete(order: TableOrderRecord) {
-    if (!isPaymentConfirmed(order.paymentStatus)) {
-      return;
-    }
-    if (settledDeleteInFlightRef.current.has(order.orderId)) {
-      return;
-    }
-    if (settledDeleteTimerRef.current.has(order.orderId)) {
-      return;
-    }
-
-    const anchor = getOrderTimelineAnchor(order);
-    if (!anchor) {
-      return;
-    }
-
-    const delayMs = Math.max(0, BILL_AUTO_DELETE_AFTER_MS - (Date.now() - anchor));
-    if (delayMs === 0) {
-      void deleteSettledOrderAfterRetention(order);
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      settledDeleteTimerRef.current.delete(order.orderId);
-      void deleteSettledOrderAfterRetention(order);
-    }, delayMs);
-    settledDeleteTimerRef.current.set(order.orderId, timer);
   }
 
   function syncOrderSnapshot(records: TableOrderRecord[]) {
@@ -3207,33 +3147,49 @@ export default function QrOrderingExperience({
 
     const mergedRecords = mergeTableOrderRecords(tableOrdersRef.current, backendRecords);
     checkBackendTransitions(mergedRecords);
-    const activeRecords = mergedRecords.filter(
-      (record) => !isOrderClosed(record.status, record.paymentStatus),
+    const activityMarker = billLastActivityRef.current;
+    const previousVisibleRecords = applyBillInactivityPolicy(
+      tableOrdersRef.current,
+      activityMarker,
     );
-    const settledRecords = mergedRecords.filter((record) =>
-      isOrderClosed(record.status, record.paymentStatus),
-    );
-
-    for (const settledOrder of settledRecords) {
-      scheduleSettledOrderDelete(settledOrder);
+    const visibleRecords = applyBillInactivityPolicy(mergedRecords, activityMarker);
+    const previousSignature = previousVisibleRecords
+      .map(
+        (record) =>
+          `${record.orderId}:${record.status}:${record.paymentStatus}:${record.totalAmount}:${record.updatedAt}`,
+      )
+      .join("|");
+    const nextSignature = visibleRecords
+      .map(
+        (record) =>
+          `${record.orderId}:${record.status}:${record.paymentStatus}:${record.totalAmount}:${record.updatedAt}`,
+      )
+      .join("|");
+    if (previousSignature !== nextSignature) {
+      touchBillActivity();
     }
 
-    tableOrdersRef.current = activeRecords;
-    setTableOrders(activeRecords);
+    tableOrdersRef.current = visibleRecords;
+    setTableOrders(visibleRecords);
 
-    const latestContext = getLatestOrderContextFromRecords(activeRecords);
+    const openRecords = visibleRecords.filter(
+      (record) => !isOrderClosed(record.status, record.paymentStatus),
+    );
+    const latestContext = getLatestOrderContextFromRecords(openRecords);
     if (!latestContext) {
       setActiveOrderContext(null);
       activeOrderContextRef.current = null;
       setOrderPlacedId("");
-      syncOrderSnapshot(activeRecords);
+      syncOrderSnapshot(visibleRecords);
       if (typeof window !== "undefined") {
-        window.sessionStorage.removeItem(activeBillStorageKey);
-        window.sessionStorage.removeItem(activeSessionStorageKey);
-        window.localStorage.removeItem(activeBillStorageKey);
-        window.localStorage.removeItem(activeSessionStorageKey);
+        if (visibleRecords.length === 0) {
+          window.localStorage.removeItem(activeBillStorageKey);
+          window.localStorage.removeItem(activeSessionStorageKey);
+          window.sessionStorage.removeItem(activeBillStorageKey);
+          window.sessionStorage.removeItem(activeSessionStorageKey);
+        }
       }
-      return settledRecords.length > 0 ? ("closed" as const) : ("applied" as const);
+      return mergedRecords.length > 0 ? ("closed" as const) : ("applied" as const);
     }
 
     setActiveOrderContext(latestContext);
@@ -3291,10 +3247,11 @@ export default function QrOrderingExperience({
 
   async function switchUnpaidBillToUpi(order: TableOrderRecord) {
     if (order.paymentMethod === "UPI") {
-      return;
+      return true;
     }
 
     const nowIso = new Date().toISOString();
+    touchBillActivity(nowIso);
     const payloadCandidates: Record<string, unknown>[] = [
       {
         payment_method: "UPI",
@@ -3315,13 +3272,14 @@ export default function QrOrderingExperience({
     );
 
     if (!updated || !tableInfo) {
-      return;
+      return false;
     }
+    touchBillActivity(nowIso);
 
     const amount = toAmount(order.totalAmount > 0 ? order.totalAmount : order.subtotal);
     if (amount <= 0) {
       setBillSyncMessage("This bill amount is invalid. Please refresh bill details.");
-      return;
+      return false;
     }
     const paymentPayloadCandidates: Record<string, unknown>[] = [
       {
@@ -3340,6 +3298,36 @@ export default function QrOrderingExperience({
     } catch {
       // Payment rows may be schema-restricted in some tenants; order method update is still valid.
     }
+    return true;
+  }
+
+  async function switchAllUnpaidBillsToUpi() {
+    if (counterUnpaidOrders.length === 0) {
+      setBillSyncMessage("All unpaid bills are already set to UPI.");
+      return;
+    }
+
+    let successCount = 0;
+    for (const order of counterUnpaidOrders) {
+      const switched = await switchUnpaidBillToUpi(order);
+      if (switched) {
+        successCount += 1;
+      }
+    }
+
+    if (successCount === counterUnpaidOrders.length) {
+      setBillSyncMessage("All unpaid bills switched to UPI.");
+      return;
+    }
+
+    if (successCount > 0) {
+      setBillSyncMessage(
+        `${successCount} of ${counterUnpaidOrders.length} unpaid bills switched to UPI.`,
+      );
+      return;
+    }
+
+    setBillSyncMessage("Unable to switch unpaid bills right now. Please retry.");
   }
 
   async function refreshBillFromBackend() {
@@ -3389,12 +3377,10 @@ export default function QrOrderingExperience({
   }
 
   function openBillDrawer() {
+    touchBillActivity();
     setCartOpen(false);
     setBillOpen(true);
     setBillSyncMessage("");
-    if (!selectedBillOrderId && latestBillOrder?.orderId) {
-      setSelectedBillOrderId(latestBillOrder.orderId);
-    }
   }
 
   function backToMenuFromBill() {
@@ -3581,6 +3567,7 @@ export default function QrOrderingExperience({
       tableOrdersRef.current = mergedLocalOrders;
       syncOrderSnapshot(mergedLocalOrders);
       setBillSyncMessage("Order added to your bill.");
+      touchBillActivity(nowIso);
       showStatusPopup({
         title: "Order Placed",
         description: `${orderNumber} has been sent to the kitchen.`,
@@ -3717,6 +3704,7 @@ export default function QrOrderingExperience({
     }
 
     setLastUpiLaunchUri(finalLaunchUri);
+    touchBillActivity();
     console.log(`[UPI_RAW_URI] ${finalLaunchUri}`);
     window.location.href = finalLaunchUri;
   }
@@ -3741,6 +3729,7 @@ export default function QrOrderingExperience({
     setUpiQrUri(finalLaunchUri);
     setUpiQrAmount(sanitizedAmount);
     setUpiQrOpen(true);
+    touchBillActivity();
   }
 
   function closeUpiQrSheet() {
@@ -3771,12 +3760,12 @@ export default function QrOrderingExperience({
           amount: total,
         })
       : "";
-  const selectedBillUpiLink =
-    selectedBillPaymentMethod === "UPI" && !isOrderClosed(selectedBillStatus, selectedBillPaymentStatus)
+  const currentBillUpiLink =
+    currentBillPaymentMethod === "UPI" && !isOrderClosed(currentBillStatus, currentBillPaymentStatus)
       ? buildUpiPaymentLink({
           upiId: configuredUpiId,
           upiName: configuredUpiName,
-          amount: selectedBillFinalTotal,
+          amount: currentBillFinalTotal,
         })
       : "";
   const upiQrImageSrc = useMemo(() => buildUpiQrImageUrl(upiQrUri), [upiQrUri]);
@@ -4612,7 +4601,7 @@ export default function QrOrderingExperience({
                             Current Bill
                           </p>
                           <p className="mt-1 text-sm font-semibold text-zinc-100">
-                            {selectedBillOrder?.orderNumber || "Order"}
+                            {currentBillOrderNumber}
                           </p>
                           <p className="mt-1 text-xs text-zinc-400">
                             Table: {tableInfo?.tableNo || tableLabel}
@@ -4622,20 +4611,20 @@ export default function QrOrderingExperience({
                           <span
                             className={clsx(
                               "inline-flex rounded-full border px-2 py-1 text-[11px] font-semibold",
-                              isOrderClosed(selectedBillStatus, selectedBillPaymentStatus)
+                              isOrderClosed(currentBillStatus, currentBillPaymentStatus)
                                 ? "text-zinc-950"
                                 : "text-zinc-900",
                             )}
                             style={
-                              isOrderClosed(selectedBillStatus, selectedBillPaymentStatus)
+                              isOrderClosed(currentBillStatus, currentBillPaymentStatus)
                                 ? { borderColor: withAlpha(WARM_HIGHLIGHT, 0.42), backgroundColor: WARM_HIGHLIGHT }
                                 : { borderColor: accentBorder, backgroundColor: accentColor }
                             }
                           >
-                            {getOrderStatusLabel(selectedBillStatus)}
+                            {getOrderStatusLabel(currentBillStatus)}
                           </span>
                           <p className="text-[11px] text-zinc-400">
-                            {getPaymentStatusLabel(selectedBillPaymentStatus)}
+                            {getPaymentStatusLabel(currentBillPaymentStatus)}
                           </p>
                         </div>
                       </div>
@@ -4644,7 +4633,7 @@ export default function QrOrderingExperience({
                         <div className="flex items-center justify-between">
                           <span className="text-zinc-300">Subtotal</span>
                           <span className="font-semibold text-zinc-100">
-                            {formatMoney(selectedBillSubtotal)}
+                            {formatMoney(currentBillSubtotal)}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
@@ -4652,18 +4641,18 @@ export default function QrOrderingExperience({
                             Tax / Charges {taxPercentage > 0 ? `(${taxPercentage}%)` : ""}
                           </span>
                           <span className="font-semibold text-zinc-100">
-                            {formatMoney(selectedBillTaxAmount)}
+                            {formatMoney(currentBillTaxAmount)}
                           </span>
                         </div>
                         <div className="flex items-center justify-between border-t border-zinc-800 pt-2">
                           <span className="text-zinc-200">Grand Total</span>
                           <span className="text-base font-bold" style={{ color: WARM_HIGHLIGHT }}>
-                            {formatMoney(selectedBillFinalTotal)}
+                            {formatMoney(currentBillFinalTotal)}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-xs text-zinc-400">
                           <span>Payment Method</span>
-                          <span>{selectedBillPaymentMethod === "UPI" ? "UPI" : "Pay At Counter"}</span>
+                          <span>{currentBillPaymentMethod === "UPI" ? "UPI" : "Pay At Counter"}</span>
                         </div>
                         <div className="flex items-center justify-between text-xs text-zinc-400">
                           <span>Currency</span>
@@ -4672,18 +4661,18 @@ export default function QrOrderingExperience({
                         <div className="flex items-center justify-between text-xs text-zinc-400">
                           <span>Last Updated</span>
                           <span>
-                            {formatBillDateTime(selectedBillUpdatedAt)}
+                            {formatBillDateTime(currentBillUpdatedAt)}
                           </span>
                         </div>
-                        {selectedBillInstructions ? (
+                        {currentBillInstructions ? (
                           <div className="rounded-lg border border-zinc-800 bg-zinc-900/70 px-2 py-2 text-xs text-zinc-300">
                             <span className="font-medium text-zinc-200">Kitchen instructions: </span>
-                            {selectedBillInstructions}
+                            {currentBillInstructions}
                           </div>
                         ) : null}
                       </div>
 
-                      {selectedBillUpiLink ? (
+                      {currentBillUpiLink ? (
                         <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 text-sm">
                           <p className="text-xs uppercase tracking-[0.14em] text-zinc-400">UPI Payment</p>
                           <p className="mt-1 font-semibold text-zinc-100">
@@ -4692,7 +4681,7 @@ export default function QrOrderingExperience({
                           <p className="mt-1 text-xs text-zinc-400">
                             Amount:{" "}
                             <span className="font-semibold text-zinc-200">
-                              {formatMoney(selectedBillFinalTotal)}
+                              {formatMoney(currentBillFinalTotal)}
                             </span>
                           </p>
                           <button
@@ -4702,14 +4691,14 @@ export default function QrOrderingExperience({
                               borderColor: withAlpha(WARM_HIGHLIGHT, 0.45),
                               background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
                             }}
-                            onClick={() => handleUpiPayClick(selectedBillUpiLink)}
+                            onClick={() => handleUpiPayClick(currentBillUpiLink)}
                           >
                             {"Pay With Any UPI App"}
                           </button>
                           <button
                             type="button"
                             className="mt-2 inline-flex w-full items-center justify-center rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-800"
-                            onClick={() => handleShowUpiQr(selectedBillUpiLink, selectedBillFinalTotal)}
+                            onClick={() => handleShowUpiQr(currentBillUpiLink, currentBillFinalTotal)}
                           >
                             {"Pay By QR (Recommended)"}
                           </button>
@@ -4741,7 +4730,7 @@ export default function QrOrderingExperience({
                                   className="rounded-lg border border-zinc-700 px-2 py-1 font-medium text-zinc-200 transition hover:bg-zinc-800"
                                   onClick={() =>
                                     copyTextWithNotice(
-                                      selectedBillUpiLink,
+                                      currentBillUpiLink,
                                       "Payment link copied.",
                                     )
                                   }
@@ -4753,7 +4742,7 @@ export default function QrOrderingExperience({
                                   className="rounded-lg border border-zinc-700 px-2 py-1 font-medium text-zinc-200 transition hover:bg-zinc-800"
                                   onClick={() =>
                                     copyTextWithNotice(
-                                      Number(selectedBillFinalTotal).toFixed(2),
+                                      Number(currentBillFinalTotal).toFixed(2),
                                       "Amount copied.",
                                     )
                                   }
@@ -4775,7 +4764,7 @@ export default function QrOrderingExperience({
                         Itemized Charges
                       </p>
                       <div className="space-y-2">
-                        {selectedBillItems.map((lineItem) => (
+                        {currentBillItems.map((lineItem) => (
                           <div
                             key={lineItem.lineKey}
                             className="rounded-xl border border-zinc-800/30 bg-white/10 p-3"
@@ -4821,22 +4810,27 @@ export default function QrOrderingExperience({
                               {formatMoney(unpaidTotal)}
                             </span>
                           </div>
+                          {counterUnpaidOrders.length > 0 ? (
+                            <button
+                              type="button"
+                              className="mb-3 inline-flex w-full items-center justify-center rounded-lg border px-2 py-2 text-xs font-medium text-zinc-100 transition hover:bg-zinc-800 disabled:opacity-60"
+                              style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.3) }}
+                              onClick={switchAllUnpaidBillsToUpi}
+                              disabled={billActionOrderId.length > 0}
+                            >
+                              {billActionOrderId.length > 0
+                                ? "Updating..."
+                                : `Switch ${counterUnpaidOrders.length} Unpaid Bill${counterUnpaidOrders.length > 1 ? "s" : ""} To UPI`}
+                            </button>
+                          ) : null}
                           <div className="space-y-2">
                             {unpaidOrders.map((order) => {
-                              const isSelected = selectedBillOrder?.orderId === order.orderId;
-                              const isUpdating = billActionOrderId === order.orderId;
-
                               return (
                                 <div
                                   key={`unpaid_${order.orderId}`}
-                                  className={clsx(
-                                    "rounded-xl border p-3 transition",
-                                    isSelected ? "bg-zinc-900/80" : "bg-zinc-900/55",
-                                  )}
+                                  className="rounded-xl border bg-zinc-900/55 p-3 transition"
                                   style={{
-                                    borderColor: isSelected
-                                      ? withAlpha(WARM_HIGHLIGHT, 0.45)
-                                      : withAlpha(WARM_HIGHLIGHT, 0.2),
+                                    borderColor: withAlpha(WARM_HIGHLIGHT, 0.2),
                                   }}
                                 >
                                   <div className="flex items-center justify-between gap-2">
@@ -4852,27 +4846,10 @@ export default function QrOrderingExperience({
                                       {formatMoney(order.totalAmount > 0 ? order.totalAmount : order.subtotal)}
                                     </p>
                                   </div>
-                                  <div className="mt-2 flex flex-wrap gap-2">
-                                    <button
-                                      type="button"
-                                      className="rounded-lg border px-2 py-1 text-[11px] font-medium text-zinc-200 transition hover:bg-zinc-800"
-                                      style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.25) }}
-                                      onClick={() => setSelectedBillOrderId(order.orderId)}
-                                    >
-                                      {isSelected ? "Selected" : "View Bill"}
-                                    </button>
-                                    {order.paymentMethod === "COUNTER" ? (
-                                      <button
-                                        type="button"
-                                        className="rounded-lg border px-2 py-1 text-[11px] font-medium text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-60"
-                                        style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.25) }}
-                                        onClick={() => switchUnpaidBillToUpi(order)}
-                                        disabled={isUpdating}
-                                      >
-                                        {isUpdating ? "Updating..." : "Switch to UPI"}
-                                      </button>
-                                    ) : null}
-                                  </div>
+                                  <p className="mt-2 text-[11px] text-zinc-400">
+                                    {order.paymentMethod === "UPI" ? "UPI" : "Pay At Counter"} /{" "}
+                                    {getPaymentStatusLabel(order.paymentStatus)}
+                                  </p>
                                 </div>
                               );
                             })}
