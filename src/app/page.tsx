@@ -157,7 +157,7 @@ export default function Home() {
 
   return (
     <div
-      className="relative min-h-screen overflow-hidden px-4 py-8 text-zinc-900"
+      className="cafe-theme-light relative min-h-screen overflow-hidden px-4 py-8 text-zinc-900"
       style={{
         background: `radial-gradient(1100px 520px at 20% -18%, rgba(232,217,197,0.16) 0%, rgba(232,217,197,0) 56%), linear-gradient(180deg, ${background} 0%, ${background} 100%)`,
       }}

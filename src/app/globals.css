@@ -30,6 +30,10 @@
   --cafe-shadow-card-3d: 0 24px 58px -44px rgba(122, 109, 96, 0.3);
   --cafe-shadow-panel-3d: 0 28px 66px -42px rgba(122, 109, 96, 0.28);
   --cafe-shadow-floating: 0 30px 80px -44px rgba(0, 0, 0, 0.98);
+  --cafe-shadow-soft-3d-mix: 0 14px 30px -20px rgba(122, 109, 96, 0.22), 0 4px 10px -8px rgba(122, 109, 96, 0.16);
+  --cafe-shadow-card-3d-mix: 0 20px 44px -26px rgba(122, 109, 96, 0.24), 0 6px 14px -10px rgba(122, 109, 96, 0.18);
+  --cafe-shadow-panel-3d-mix: 0 26px 56px -30px rgba(122, 109, 96, 0.26), 0 8px 18px -12px rgba(122, 109, 96, 0.2);
+  --cafe-shadow-inset-soft: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 -1px 0 rgba(122, 109, 96, 0.1);
 
   --cafe-space-2: 0.5rem;
   --cafe-space-3: 0.75rem;
@@ -130,4 +134,47 @@ body {
 .cafe-theme-light .hover\:bg-zinc-800:hover,
 .cafe-theme-light .hover\:bg-zinc-900:hover {
   background-color: rgba(248, 245, 240, 0.92) !important;
+}
+
+/* Premium soft 3D system */
+.cafe-theme-light :where(header, section, article, aside, div)[class*="rounded-3xl"][class*="border"],
+.cafe-theme-light :where(header, section, article, aside, div)[class*="rounded-2xl"][class*="border"] {
+  box-shadow: var(--cafe-shadow-panel-3d-mix), var(--cafe-shadow-inset-soft);
+  backdrop-filter: saturate(1.05);
+}
+
+.cafe-theme-light :where(article, section, div)[class*="rounded-xl"][class*="border"] {
+  box-shadow: var(--cafe-shadow-card-3d-mix), var(--cafe-shadow-inset-soft);
+}
+
+.cafe-theme-light :where(button, a, span, div)[class*="rounded-full"][class*="border"] {
+  box-shadow: var(--cafe-shadow-soft-3d-mix), inset 0 1px 0 rgba(255, 255, 255, 0.52);
+}
+
+.cafe-theme-light :where(button, a)[class*="rounded"][class*="border"] {
+  transition: transform 160ms ease, box-shadow 220ms ease, filter 180ms ease, background-color 180ms ease;
+}
+
+.cafe-theme-light :where(button, a)[class*="rounded"][class*="border"]:hover {
+  box-shadow: 0 22px 48px -32px rgba(122, 109, 96, 0.28), 0 6px 16px -10px rgba(122, 109, 96, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.68);
+}
+
+.cafe-theme-light :where(button, a)[class*="rounded"][class*="border"]:active {
+  transform: translateY(1px);
+  box-shadow: 0 12px 24px -18px rgba(122, 109, 96, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.56);
+}
+
+.cafe-theme-light :where(input, textarea) {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.66), inset 0 -1px 0 rgba(122, 109, 96, 0.12), 0 8px 16px -14px rgba(122, 109, 96, 0.2);
+  border-color: rgba(122, 109, 96, 0.28);
+  transition: box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.cafe-theme-light :where(input, textarea):focus {
+  border-color: rgba(198, 165, 123, 0.54);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76), 0 0 0 2px rgba(198, 165, 123, 0.18), 0 14px 28px -18px rgba(122, 109, 96, 0.22);
+}
+
+.cafe-theme-light :where([class*="backdrop-blur"], [class*="backdrop-blur-xl"]) {
+  box-shadow: var(--cafe-shadow-panel-3d-mix), var(--cafe-shadow-inset-soft);
 }

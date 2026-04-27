@@ -39,9 +39,9 @@ export const WEBSITE_RADIUS_TOKENS = {
 } as const;
 
 export const WEBSITE_SHADOW_TOKENS = {
-  soft3d: "0 20px 48px -34px rgba(122,109,96,0.28)",
-  card3d: "0 24px 58px -44px rgba(122,109,96,0.3)",
-  panel3d: "0 28px 66px -42px rgba(122,109,96,0.28)",
+  soft3d: "0 14px 30px -20px rgba(122,109,96,0.22), 0 4px 10px -8px rgba(122,109,96,0.16)",
+  card3d: "0 20px 44px -26px rgba(122,109,96,0.24), 0 6px 14px -10px rgba(122,109,96,0.18)",
+  panel3d: "0 26px 56px -30px rgba(122,109,96,0.26), 0 8px 18px -12px rgba(122,109,96,0.2)",
   floating: "0 30px 80px -44px rgba(0,0,0,0.98)",
 } as const;
 
@@ -62,9 +62,9 @@ export const WEBSITE_STYLE_CLASSES = {
     pill: "rounded-full",
   },
   shadow: {
-    soft3d: "shadow-[0_20px_48px_-34px_rgba(122,109,96,0.28)]",
-    card3d: "shadow-[0_24px_58px_-44px_rgba(122,109,96,0.3)]",
-    panel3d: "shadow-[0_28px_66px_-42px_rgba(122,109,96,0.28)]",
+    soft3d: "shadow-[0_14px_30px_-20px_rgba(122,109,96,0.22),0_4px_10px_-8px_rgba(122,109,96,0.16)]",
+    card3d: "shadow-[0_20px_44px_-26px_rgba(122,109,96,0.24),0_6px_14px_-10px_rgba(122,109,96,0.18)]",
+    panel3d: "shadow-[0_26px_56px_-30px_rgba(122,109,96,0.26),0_8px_18px_-12px_rgba(122,109,96,0.2)]",
     floating: "shadow-[0_30px_80px_-44px_rgba(0,0,0,0.98)]",
   },
 } as const;
