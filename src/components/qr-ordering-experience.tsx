@@ -3092,6 +3092,10 @@ export default function QrOrderingExperience({
     () => unpaidOrders.filter((order) => order.paymentMethod === "COUNTER"),
     [unpaidOrders],
   );
+  const upiUnpaidOrders = useMemo(
+    () => unpaidOrders.filter((order) => order.paymentMethod === "UPI"),
+    [unpaidOrders],
+  );
   const unpaidTotal = unpaidFinalTotal;
 
   function updateItemQuantity(itemId: string, delta: number) {
@@ -3407,6 +3411,69 @@ export default function QrOrderingExperience({
     if (successCount > 0) {
       setBillSyncMessage(
         `${successCount} of ${counterUnpaidOrders.length} unpaid bills switched to UPI.`,
+      );
+      return;
+    }
+
+    setBillSyncMessage("Unable to switch unpaid bills right now. Please retry.");
+  }
+
+  async function switchUnpaidBillToManual(order: TableOrderRecord) {
+    if (order.paymentMethod === "COUNTER") {
+      return true;
+    }
+
+    const nowIso = new Date().toISOString();
+    touchBillActivity(nowIso);
+    const payloadCandidates: Record<string, unknown>[] = [
+      {
+        payment_method: "COUNTER",
+        payment_status: "UNPAID",
+      },
+    ];
+
+    const updated = await updateUnpaidOrder(
+      order,
+      payloadCandidates,
+      (current) => ({
+        ...current,
+        paymentMethod: "COUNTER",
+        paymentStatus: "UNPAID",
+        updatedAt: nowIso,
+      }),
+      "Payment method switched to Manual.",
+    );
+
+    if (!updated) {
+      return false;
+    }
+
+    touchBillActivity(nowIso);
+    return true;
+  }
+
+  async function switchAllUnpaidBillsToManual() {
+    if (upiUnpaidOrders.length === 0) {
+      setBillSyncMessage("All unpaid bills are already set to Manual.");
+      return;
+    }
+
+    let successCount = 0;
+    for (const order of upiUnpaidOrders) {
+      const switched = await switchUnpaidBillToManual(order);
+      if (switched) {
+        successCount += 1;
+      }
+    }
+
+    if (successCount === upiUnpaidOrders.length) {
+      setBillSyncMessage("All unpaid bills switched to Manual.");
+      return;
+    }
+
+    if (successCount > 0) {
+      setBillSyncMessage(
+        `${successCount} of ${upiUnpaidOrders.length} unpaid bills switched to Manual.`,
       );
       return;
     }
@@ -5052,23 +5119,45 @@ export default function QrOrderingExperience({
                               {formatMoney(unpaidTotal)}
                             </span>
                           </div>
-                          {counterUnpaidOrders.length > 0 ? (
-                            <button
-                              type="button"
-                              className={clsx(
-                                "mb-3 inline-flex w-full items-center justify-center rounded-lg border px-2 py-2 text-xs font-medium transition disabled:opacity-60",
-                                isLightTheme
-                                  ? "text-brand-dark hover:bg-white/70"
-                                  : "text-zinc-100 hover:bg-zinc-800",
-                              )}
-                              style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.3) }}
-                              onClick={switchAllUnpaidBillsToUpi}
-                              disabled={billActionOrderId.length > 0}
-                            >
-                              {billActionOrderId.length > 0
-                                ? "Updating..."
-                                : `Switch ${counterUnpaidOrders.length} Unpaid Bill${counterUnpaidOrders.length > 1 ? "s" : ""} To UPI`}
-                            </button>
+                          {counterUnpaidOrders.length > 0 || upiUnpaidOrders.length > 0 ? (
+                            <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              {counterUnpaidOrders.length > 0 ? (
+                                <button
+                                  type="button"
+                                  className={clsx(
+                                    "inline-flex w-full items-center justify-center rounded-lg border px-2 py-2 text-xs font-medium transition disabled:opacity-60",
+                                    isLightTheme
+                                      ? "text-brand-dark hover:bg-white/70"
+                                      : "text-zinc-100 hover:bg-zinc-800",
+                                  )}
+                                  style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.3) }}
+                                  onClick={switchAllUnpaidBillsToUpi}
+                                  disabled={billActionOrderId.length > 0}
+                                >
+                                  {billActionOrderId.length > 0
+                                    ? "Updating..."
+                                    : `Switch ${counterUnpaidOrders.length} To UPI`}
+                                </button>
+                              ) : null}
+                              {upiUnpaidOrders.length > 0 ? (
+                                <button
+                                  type="button"
+                                  className={clsx(
+                                    "inline-flex w-full items-center justify-center rounded-lg border px-2 py-2 text-xs font-medium transition disabled:opacity-60",
+                                    isLightTheme
+                                      ? "text-brand-dark hover:bg-white/70"
+                                      : "text-zinc-100 hover:bg-zinc-800",
+                                  )}
+                                  style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.3) }}
+                                  onClick={switchAllUnpaidBillsToManual}
+                                  disabled={billActionOrderId.length > 0}
+                                >
+                                  {billActionOrderId.length > 0
+                                    ? "Updating..."
+                                    : `Switch ${upiUnpaidOrders.length} To Manual`}
+                                </button>
+                              ) : null}
+                            </div>
                           ) : null}
                           <div className="space-y-2">
                             {unpaidOrders.map((order) => {
