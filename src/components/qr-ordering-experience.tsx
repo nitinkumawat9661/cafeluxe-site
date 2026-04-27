@@ -836,6 +836,58 @@ function buildUpiPaymentLink({
   return `upi://pay?pa=${normalizedUpiId}&pn=${finalName}&am=${finalAmount}&cu=INR`;
 }
 
+function normalizeRawUpiUriForLaunch(rawUri: string) {
+  const cleanedInput = rawUri
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .replace(/\r?\n/g, "")
+    .trim();
+  if (!cleanedInput.toLowerCase().startsWith("upi://pay?")) {
+    return "";
+  }
+
+  const decodeLooseUriPart = (value: string) => {
+    const plusToSpace = value.replace(/\+/g, " ");
+    try {
+      return decodeURIComponent(plusToSpace);
+    } catch {
+      return plusToSpace;
+    }
+  };
+
+  const queryString = cleanedInput.slice("upi://pay?".length);
+  const segments = queryString.split("&").filter(Boolean);
+  const paramMap = new Map<string, string>();
+
+  for (const segment of segments) {
+    const separatorIndex = segment.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+    const key = segment.slice(0, separatorIndex).trim().toLowerCase();
+    const value = segment.slice(separatorIndex + 1);
+    if (!key) {
+      continue;
+    }
+    paramMap.set(key, value);
+  }
+
+  const pa = normalizeUpiId(decodeLooseUriPart(paramMap.get("pa") ?? ""));
+  const pn =
+    sanitizeUpiText(decodeLooseUriPart(paramMap.get("pn") ?? ""), 60)
+      .replace(/[^a-zA-Z0-9 ]/g, "")
+      .replace(/\s+/g, " ")
+      .trim() || DEFAULT_UPI_NAME;
+  const parsedAmount = Number(decodeLooseUriPart(paramMap.get("am") ?? ""));
+  const am = Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount.toFixed(2) : "";
+  const cu = sanitizeUpiText(decodeLooseUriPart(paramMap.get("cu") ?? ""), 8).toUpperCase();
+
+  if (!pa || !pn || !am || cu !== "INR") {
+    return "";
+  }
+
+  return `upi://pay?pa=${pa}&pn=${pn}&am=${am}&cu=INR`;
+}
+
 function supportsUpiDeepLinkInBrowser() {
   if (typeof navigator === "undefined") {
     return false;
@@ -1898,6 +1950,7 @@ export default function QrOrderingExperience({
   const [billOpen, setBillOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("COUNTER");
   const [canLaunchUpiDeepLink, setCanLaunchUpiDeepLink] = useState(false);
+  const [lastUpiLaunchUri, setLastUpiLaunchUri] = useState("");
   const [placingOrder, setPlacingOrder] = useState(false);
   const [billSyncing, setBillSyncing] = useState(false);
   const [billSyncMessage, setBillSyncMessage] = useState("");
@@ -3465,8 +3518,17 @@ export default function QrOrderingExperience({
       return;
     }
 
-    console.log(`[UPI_RAW_URI] ${link}`);
-    window.location.href = link;
+    const finalLaunchUri = normalizeRawUpiUriForLaunch(link);
+    if (!finalLaunchUri) {
+      setNoticeMessage(
+        "Unable to prepare a valid UPI payment link. Please retry or ask staff for help.",
+      );
+      return;
+    }
+
+    setLastUpiLaunchUri(finalLaunchUri);
+    console.log(`[UPI_RAW_URI] ${finalLaunchUri}`);
+    window.location.href = finalLaunchUri;
   }
 
   const tableLabel = tableInfo ? tableInfo.displayLabel : formatTableLabel(routeTable);
@@ -4415,6 +4477,11 @@ export default function QrOrderingExperience({
                           >
                             {"Pay With Any UPI App"}
                           </button>
+                          {canLaunchUpiDeepLink && lastUpiLaunchUri ? (
+                            <p className="mt-2 break-all rounded-lg border border-zinc-700/60 bg-zinc-950/75 px-2 py-1.5 text-[10px] text-zinc-300 md:hidden">
+                              URI Debug: {lastUpiLaunchUri}
+                            </p>
+                          ) : null}
                           {!canLaunchUpiDeepLink ? (
                             <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950/70 p-2 text-[11px] text-zinc-400">
                               <p>
@@ -4906,6 +4973,11 @@ export default function QrOrderingExperience({
                       >
                         {"Pay With Any UPI App"}
                       </button>
+                    ) : null}
+                    {canLaunchUpiDeepLink && lastUpiLaunchUri ? (
+                      <p className="mt-2 break-all rounded-lg border border-zinc-700/60 bg-zinc-950/75 px-2 py-1.5 text-[10px] text-zinc-300 md:hidden">
+                        URI Debug: {lastUpiLaunchUri}
+                      </p>
                     ) : null}
                     {!canLaunchUpiDeepLink ? (
                       <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950/70 p-2 text-[11px] text-zinc-400">
