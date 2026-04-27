@@ -888,6 +888,15 @@ function normalizeRawUpiUriForLaunch(rawUri: string) {
   return `upi://pay?pa=${pa}&pn=${pn}&am=${am}&cu=INR`;
 }
 
+function buildUpiQrImageUrl(rawUpiUri: string) {
+  const cleaned = rawUpiUri.trim();
+  if (!cleaned) {
+    return "";
+  }
+
+  return `https://api.qrserver.com/v1/create-qr-code/?size=420x420&format=png&margin=0&data=${encodeURIComponent(cleaned)}`;
+}
+
 function supportsUpiDeepLinkInBrowser() {
   if (typeof navigator === "undefined") {
     return false;
@@ -1951,6 +1960,9 @@ export default function QrOrderingExperience({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("COUNTER");
   const [canLaunchUpiDeepLink, setCanLaunchUpiDeepLink] = useState(false);
   const [lastUpiLaunchUri, setLastUpiLaunchUri] = useState("");
+  const [upiQrUri, setUpiQrUri] = useState("");
+  const [upiQrAmount, setUpiQrAmount] = useState("");
+  const [upiQrOpen, setUpiQrOpen] = useState(false);
   const [placingOrder, setPlacingOrder] = useState(false);
   const [billSyncing, setBillSyncing] = useState(false);
   const [billSyncMessage, setBillSyncMessage] = useState("");
@@ -3531,6 +3543,32 @@ export default function QrOrderingExperience({
     window.location.href = finalLaunchUri;
   }
 
+  function handleShowUpiQr(link: string, amount: number) {
+    const finalLaunchUri = normalizeRawUpiUriForLaunch(link);
+    if (!finalLaunchUri) {
+      setNoticeMessage(
+        "Unable to prepare UPI QR right now. Please retry or ask staff for help.",
+      );
+      return;
+    }
+
+    const sanitizedAmount =
+      Number.isFinite(amount) && amount > 0 ? Number(amount).toFixed(2) : "";
+    if (!sanitizedAmount) {
+      setNoticeMessage("Unable to prepare UPI amount right now. Please retry.");
+      return;
+    }
+
+    setLastUpiLaunchUri(finalLaunchUri);
+    setUpiQrUri(finalLaunchUri);
+    setUpiQrAmount(sanitizedAmount);
+    setUpiQrOpen(true);
+  }
+
+  function closeUpiQrSheet() {
+    setUpiQrOpen(false);
+  }
+
   const tableLabel = tableInfo ? tableInfo.displayLabel : formatTableLabel(routeTable);
   const accentColor = normalizeThemeColor(LUXURY_GOLD, LUXURY_GOLD);
   const accentBorder = withAlpha(accentColor, 0.33);
@@ -3563,6 +3601,11 @@ export default function QrOrderingExperience({
           amount: selectedBillFinalTotal,
         })
       : "";
+  const upiQrImageSrc = useMemo(() => buildUpiQrImageUrl(upiQrUri), [upiQrUri]);
+  const upiQrAmountNumber = useMemo(() => {
+    const parsed = Number(upiQrAmount);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }, [upiQrAmount]);
   const appBackground = isLightTheme
     ? `linear-gradient(180deg, #F6F6F6 0%, #F6F6F6 44%, #FDE4C3 100%)`
     : `linear-gradient(180deg, #1C1C1C 0%, #302A18 36%, #1C1C1C 100%)`;
@@ -4477,6 +4520,13 @@ export default function QrOrderingExperience({
                           >
                             {"Pay With Any UPI App"}
                           </button>
+                          <button
+                            type="button"
+                            className="mt-2 inline-flex w-full items-center justify-center rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-800"
+                            onClick={() => handleShowUpiQr(selectedBillUpiLink, selectedBillFinalTotal)}
+                          >
+                            {"Pay By QR (Recommended)"}
+                          </button>
                           {canLaunchUpiDeepLink && lastUpiLaunchUri ? (
                             <p className="mt-2 break-all rounded-lg border border-zinc-700/60 bg-zinc-950/75 px-2 py-1.5 text-[10px] text-zinc-300 md:hidden">
                               URI Debug: {lastUpiLaunchUri}
@@ -4511,6 +4561,18 @@ export default function QrOrderingExperience({
                                   }
                                 >
                                   {"Copy Payment Link"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded-lg border border-zinc-700 px-2 py-1 font-medium text-zinc-200 transition hover:bg-zinc-800"
+                                  onClick={() =>
+                                    copyTextWithNotice(
+                                      Number(selectedBillFinalTotal).toFixed(2),
+                                      "Amount copied.",
+                                    )
+                                  }
+                                >
+                                  {"Copy Amount"}
                                 </button>
                               </div>
                             </div>
@@ -4962,17 +5024,26 @@ export default function QrOrderingExperience({
                       <span className="text-sm font-semibold">{formatMoney(total)}</span>
                     </div>
                     {cartUpiLink ? (
-                      <button
-                        type="button"
-                        className="mt-3 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold text-zinc-950 transition active:translate-y-px"
-                        style={{
-                          borderColor: withAlpha(WARM_HIGHLIGHT, 0.45),
-                          background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
-                        }}
-                        onClick={() => handleUpiPayClick(cartUpiLink)}
-                      >
-                        {"Pay With Any UPI App"}
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          className="mt-3 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold text-zinc-950 transition active:translate-y-px"
+                          style={{
+                            borderColor: withAlpha(WARM_HIGHLIGHT, 0.45),
+                            background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
+                          }}
+                          onClick={() => handleUpiPayClick(cartUpiLink)}
+                        >
+                          {"Pay With Any UPI App"}
+                        </button>
+                        <button
+                          type="button"
+                          className="mt-2 inline-flex h-11 w-full items-center justify-center rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-800"
+                          onClick={() => handleShowUpiQr(cartUpiLink, total)}
+                        >
+                          {"Pay By QR (Recommended)"}
+                        </button>
+                      </>
                     ) : null}
                     {canLaunchUpiDeepLink && lastUpiLaunchUri ? (
                       <p className="mt-2 break-all rounded-lg border border-zinc-700/60 bg-zinc-950/75 px-2 py-1.5 text-[10px] text-zinc-300 md:hidden">
@@ -5008,6 +5079,18 @@ export default function QrOrderingExperience({
                             }
                           >
                             {"Copy Payment Link"}
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-lg border border-zinc-700 px-2 py-1 font-medium text-zinc-200 transition hover:bg-zinc-800"
+                            onClick={() =>
+                              copyTextWithNotice(
+                                Number(total).toFixed(2),
+                                "Amount copied.",
+                              )
+                            }
+                          >
+                            {"Copy Amount"}
                           </button>
                         </div>
                       </div>
@@ -5082,6 +5165,84 @@ export default function QrOrderingExperience({
                 </button>
               </div>
             </div>
+          </aside>
+        </div>
+      ) : null}
+
+      {upiQrOpen && upiQrUri ? (
+        <div
+          className="fixed inset-0 z-[70] backdrop-blur-sm"
+          style={{ backgroundColor: overlayShade }}
+        >
+          <button
+            type="button"
+            className="absolute inset-0 h-full w-full cursor-default"
+            onClick={closeUpiQrSheet}
+            aria-label="Close UPI QR sheet"
+          />
+          <aside
+            className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-[480px] rounded-t-3xl border border-zinc-800 bg-zinc-950/95 px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 text-zinc-100 shadow-[0_28px_80px_-40px_rgba(0,0,0,0.98)] md:inset-y-0 md:my-auto md:h-fit md:rounded-3xl"
+            style={{ borderColor: accentSubtle }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-400">
+                  UPI Payment QR
+                </p>
+                <h3 className="mt-1 text-sm font-semibold text-zinc-100">Scan And Pay</h3>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg border border-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-200 transition hover:bg-zinc-800"
+                onClick={closeUpiQrSheet}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-3 rounded-2xl border border-zinc-800 bg-white p-3">
+              {upiQrImageSrc ? (
+                <img
+                  src={upiQrImageSrc}
+                  alt="UPI payment QR"
+                  className="mx-auto aspect-square w-full max-w-[320px] rounded-xl object-contain"
+                  loading="eager"
+                />
+              ) : (
+                <div className="flex aspect-square w-full items-center justify-center rounded-xl bg-zinc-100 text-xs text-zinc-500">
+                  Unable to load QR
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 space-y-1 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-2 text-xs">
+              <p className="font-semibold text-zinc-100">{configuredUpiName}</p>
+              <p className="text-zinc-300">{configuredUpiId}</p>
+              <p className="text-zinc-300">
+                Amount: <span className="font-semibold text-zinc-100">{formatMoney(upiQrAmountNumber)}</span>
+              </p>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-100 transition hover:bg-zinc-800"
+                onClick={() => copyTextWithNotice(configuredUpiId, "UPI ID copied.")}
+              >
+                Copy UPI ID
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-100 transition hover:bg-zinc-800"
+                onClick={() => copyTextWithNotice(upiQrAmount, "Amount copied.")}
+              >
+                Copy Amount
+              </button>
+            </div>
+
+            <p className="mt-3 text-[11px] text-zinc-400">
+              Payment status stays pending until cashier/admin confirms.
+            </p>
           </aside>
         </div>
       ) : null}
