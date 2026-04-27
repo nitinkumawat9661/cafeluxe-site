@@ -159,19 +159,19 @@ export default function Home() {
     <div
       className="relative min-h-screen overflow-hidden px-4 py-8 text-zinc-900"
       style={{
-        background: `radial-gradient(1100px 520px at 20% -18%, rgba(255,182,193,0.16) 0%, rgba(255,182,193,0) 56%), linear-gradient(180deg, ${background} 0%, ${background} 100%)`,
+        background: `radial-gradient(1100px 520px at 20% -18%, rgba(232,217,197,0.16) 0%, rgba(232,217,197,0) 56%), linear-gradient(180deg, ${background} 0%, ${background} 100%)`,
       }}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(194,178,128,0.03)_0%,rgba(255,182,193,0)_42%,rgba(255,182,193,0.12)_100%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(122,109,96,0.03)_0%,rgba(232,217,197,0)_42%,rgba(232,217,197,0.12)_100%)]" />
 
       <main className="relative mx-auto w-full max-w-md">
         <section
           className="mb-5 rounded-3xl border p-6"
           style={{
-            borderColor: "rgba(255,182,193,0.32)",
-            background: `linear-gradient(165deg, rgba(255,182,193,0.98) 0%, ${surface} 62%, rgba(255,182,193,0.14) 100%)`,
+            borderColor: "rgba(232,217,197,0.32)",
+            background: `linear-gradient(165deg, rgba(232,217,197,0.98) 0%, ${surface} 62%, rgba(232,217,197,0.14) 100%)`,
             boxShadow:
-              "0 28px 70px -42px rgba(194,178,128,0.42), inset 0 1px 0 rgba(255,182,193,0.84), inset 0 -1px 0 rgba(255,182,193,0.12)",
+              "0 28px 70px -42px rgba(122,109,96,0.42), inset 0 1px 0 rgba(232,217,197,0.84), inset 0 -1px 0 rgba(232,217,197,0.12)",
           }}
         >
           <p className="text-xs uppercase tracking-[0.24em]" style={{ color: text }}>
@@ -194,8 +194,8 @@ export default function Home() {
           <section
             className="flex items-center gap-3 rounded-2xl border p-4 text-sm"
             style={{
-              borderColor: "rgba(255,182,193,0.24)",
-              background: "rgba(194,178,128,0.56)",
+              borderColor: "rgba(232,217,197,0.24)",
+              background: "rgba(122,109,96,0.56)",
               color: text,
             }}
           >
@@ -208,8 +208,8 @@ export default function Home() {
           <section
             className="rounded-2xl border p-4"
             style={{
-              borderColor: "rgba(255,182,193,0.28)",
-              background: "rgba(194,178,128,0.56)",
+              borderColor: "rgba(232,217,197,0.28)",
+              background: "rgba(122,109,96,0.56)",
               color: text,
             }}
           >
@@ -225,9 +225,9 @@ export default function Home() {
                   type="button"
                   className="mt-3 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition"
                   style={{
-                    borderColor: "rgba(255,182,193,0.32)",
+                    borderColor: "rgba(232,217,197,0.32)",
                     color: text,
-                    backgroundColor: "rgba(255,182,193,0.9)",
+                    backgroundColor: "rgba(232,217,197,0.9)",
                   }}
                   onClick={() => setReloadKey((current) => current + 1)}
                 >
@@ -243,8 +243,8 @@ export default function Home() {
           <section
             className="rounded-2xl border p-5 text-sm"
             style={{
-              borderColor: "rgba(255,182,193,0.26)",
-              background: "rgba(194,178,128,0.48)",
+              borderColor: "rgba(232,217,197,0.26)",
+              background: "rgba(122,109,96,0.48)",
             }}
           >
             <div className="flex items-start gap-3">
@@ -272,9 +272,9 @@ export default function Home() {
                   prefetch={false}
                   className="group rounded-2xl border p-4 transition active:translate-y-px"
                   style={{
-                    borderColor: "rgba(255,182,193,0.3)",
-                    background: `linear-gradient(160deg, rgba(255,182,193,0.98) 0%, ${surface} 70%, rgba(255,182,193,0.14) 100%)`,
-                    boxShadow: "0 24px 58px -38px rgba(194,178,128,0.3), inset 0 1px 0 rgba(255,182,193,0.86), inset 0 -1px 0 rgba(255,182,193,0.16)",
+                    borderColor: "rgba(232,217,197,0.3)",
+                    background: `linear-gradient(160deg, rgba(232,217,197,0.98) 0%, ${surface} 70%, rgba(232,217,197,0.14) 100%)`,
+                    boxShadow: "0 24px 58px -38px rgba(122,109,96,0.3), inset 0 1px 0 rgba(232,217,197,0.86), inset 0 -1px 0 rgba(232,217,197,0.16)",
                   }}
                 >
                   <div className="flex items-center justify-between gap-3">
@@ -288,8 +288,8 @@ export default function Home() {
                     <div
                       className="rounded-xl border px-3 py-1.5 text-xs font-semibold"
                       style={{
-                        borderColor: "rgba(255,182,193,0.32)",
-                        backgroundColor: "rgba(255,182,193,0.2)",
+                        borderColor: "rgba(232,217,197,0.32)",
+                        backgroundColor: "rgba(232,217,197,0.2)",
                         color: text,
                       }}
                     >

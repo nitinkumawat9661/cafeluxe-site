@@ -3,11 +3,11 @@
 @tailwind utilities;
 
 :root {
-  --cafe-color-bg: #FFB6C1;
-  --cafe-color-surface: #C2B280;
-  --cafe-color-accent: #FFB6C1;
-  --cafe-color-text: #C2B280;
-  --cafe-color-text-secondary: #C2B280;
+  --cafe-color-bg: #F8F5F0;
+  --cafe-color-surface: #E8D9C5;
+  --cafe-color-accent: #C6A57B;
+  --cafe-color-text: #2E2A26;
+  --cafe-color-text-secondary: #7A6D60;
 
   --cafe-font-size-xs: 0.75rem;
   --cafe-font-size-sm: 0.875rem;
@@ -26,9 +26,9 @@
   --cafe-radius-lg: 1.5rem;
   --cafe-radius-xl: 2rem;
 
-  --cafe-shadow-soft-3d: 0 20px 48px -34px rgba(194, 178, 128, 0.28);
-  --cafe-shadow-card-3d: 0 24px 58px -44px rgba(194, 178, 128, 0.3);
-  --cafe-shadow-panel-3d: 0 28px 66px -42px rgba(194, 178, 128, 0.28);
+  --cafe-shadow-soft-3d: 0 20px 48px -34px rgba(122, 109, 96, 0.28);
+  --cafe-shadow-card-3d: 0 24px 58px -44px rgba(122, 109, 96, 0.3);
+  --cafe-shadow-panel-3d: 0 28px 66px -42px rgba(122, 109, 96, 0.28);
   --cafe-shadow-floating: 0 30px 80px -44px rgba(0, 0, 0, 0.98);
 
   --cafe-space-2: 0.5rem;
@@ -53,7 +53,7 @@ body {
 }
 
 * {
-  border-color: rgba(194, 178, 128, 0.3);
+  border-color: rgba(122, 109, 96, 0.28);
 }
 
 ::-webkit-scrollbar {
@@ -65,11 +65,11 @@ body {
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: content-box;
-  background-color: rgba(194, 178, 128, 0.5);
+  background-color: rgba(198, 165, 123, 0.5);
 }
 
 ::-webkit-scrollbar-track {
-  background-color: rgba(255, 182, 193, 0.45);
+  background-color: rgba(248, 245, 240, 0.82);
 }
 
 @keyframes luxe-fade-in {
@@ -93,41 +93,41 @@ body {
 }
 
 .cafe-theme-light {
-  color: #C2B280;
+  color: #2E2A26;
 }
 
 .cafe-theme-light [class*="text-zinc-100"],
 .cafe-theme-light [class*="text-zinc-200"],
 .cafe-theme-light [class*="text-zinc-300"] {
-  color: #C2B280 !important;
+  color: #2E2A26 !important;
 }
 
 .cafe-theme-light [class*="text-zinc-400"],
 .cafe-theme-light [class*="text-zinc-500"] {
-  color: #C2B280 !important;
+  color: #7A6D60 !important;
 }
 
 .cafe-theme-light [class*="border-zinc-700"],
 .cafe-theme-light [class*="border-zinc-800"],
 .cafe-theme-light [class*="border-zinc-900"] {
-  border-color: rgba(194, 178, 128, 0.32) !important;
+  border-color: rgba(122, 109, 96, 0.28) !important;
 }
 
 .cafe-theme-light [class*="bg-zinc-900"] {
-  background-color: rgba(194, 178, 128, 0.78) !important;
-  box-shadow: 0 18px 42px -32px rgba(194, 178, 128, 0.22);
+  background-color: rgba(232, 217, 197, 0.86) !important;
+  box-shadow: 0 18px 42px -32px rgba(122, 109, 96, 0.22);
 }
 
 .cafe-theme-light [class*="bg-zinc-950"] {
-  background-color: rgba(255, 255, 240, 0.9) !important;
-  box-shadow: inset 0 0 0 1px rgba(194, 178, 128, 0.2);
+  background-color: rgba(248, 245, 240, 0.9) !important;
+  box-shadow: inset 0 0 0 1px rgba(122, 109, 96, 0.18);
 }
 
 .cafe-theme-light [class*="placeholder:text-zinc-500"]::placeholder {
-  color: #C2B280 !important;
+  color: #7A6D60 !important;
 }
 
 .cafe-theme-light .hover\:bg-zinc-800:hover,
 .cafe-theme-light .hover\:bg-zinc-900:hover {
-  background-color: rgba(255, 255, 240, 0.9) !important;
+  background-color: rgba(248, 245, 240, 0.92) !important;
 }
