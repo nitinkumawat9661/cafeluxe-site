@@ -3,6 +3,7 @@ import {
   resolveAssetUrl,
   type AppwriteDocument,
 } from "@/lib/appwrite";
+import { WEBSITE_COLORS } from "@/lib/design-tokens";
 
 export type RestaurantTable = {
   id: string;
@@ -696,7 +697,7 @@ export function parseClientSettings(docs: AppwriteDocument[], client: string): R
     supportPhone: "",
     upiId: "",
     upiName: "",
-    themeColor: "#34d399",
+    themeColor: WEBSITE_COLORS.accent,
     logoUrl: "",
     heroImageUrl: "",
     tagline: "",

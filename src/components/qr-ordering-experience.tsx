@@ -28,6 +28,7 @@ import {
   Query,
   updateDocumentWithFallback,
 } from "@/lib/appwrite";
+import { WEBSITE_COLORS, WEBSITE_STYLE_CLASSES } from "@/lib/design-tokens";
 import {
   buildFallbackCategories,
   type Category,
@@ -242,11 +243,11 @@ const MAX_SEARCH_INPUT_LENGTH = 64;
 const MAX_INSTRUCTION_LENGTH = 240;
 const DEFAULT_UPI_ID = "7665853321@superyes";
 const DEFAULT_UPI_NAME = "Nitin Kumawat";
-const PALETTE_BACKGROUND = "#F8F5F0";
-const PALETTE_SURFACE = "#E8D9C5";
-const PALETTE_ACCENT = "#C6A57B";
-const PALETTE_TEXT = "#2E2A26";
-const PALETTE_SECONDARY = "#7A6D60";
+const PALETTE_BACKGROUND = WEBSITE_COLORS.background;
+const PALETTE_SURFACE = WEBSITE_COLORS.surface;
+const PALETTE_ACCENT = WEBSITE_COLORS.accent;
+const PALETTE_TEXT = WEBSITE_COLORS.text;
+const PALETTE_SECONDARY = WEBSITE_COLORS.secondaryText;
 const PALETTE_BASE = PALETTE_SURFACE;
 const PALETTE_SUCCESS = PALETTE_SURFACE;
 const PALETTE_INFO = PALETTE_BACKGROUND;
@@ -4627,23 +4628,23 @@ export default function QrOrderingExperience({
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   }, [upiQrAmount]);
   const appBackground = isLightTheme
-    ? `linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, #F8F5F0 56%, #E8D9C5 100%)`
-    : `linear-gradient(180deg, #2E2A26 0%, #7A6D60 36%, #2E2A26 100%)`;
+    ? `linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_BACKGROUND} 56%, ${PALETTE_SURFACE} 100%)`
+    : `linear-gradient(180deg, ${PALETTE_TEXT} 0%, ${PALETTE_SECONDARY} 36%, ${PALETTE_TEXT} 100%)`;
   const panelGradient = isLightTheme
     ? `linear-gradient(165deg, rgba(248,245,240,0.98) 0%, ${PALETTE_SURFACE} 64%, rgba(198,165,123,0.18) 100%)`
-    : `linear-gradient(165deg, #7A6D60 0%, #2E2A26 100%)`;
+    : `linear-gradient(165deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
   const sectionGradient = isLightTheme
     ? `linear-gradient(160deg, rgba(248,245,240,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(198,165,123,0.16) 100%)`
-    : `linear-gradient(160deg, #7A6D60 0%, #2E2A26 100%)`;
+    : `linear-gradient(160deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
   const cardGradient = isLightTheme
     ? `linear-gradient(168deg, rgba(248,245,240,0.98) 0%, ${PALETTE_SURFACE} 72%, rgba(198,165,123,0.16) 100%)`
-    : `linear-gradient(168deg, #7A6D60 0%, #2E2A26 100%)`;
+    : `linear-gradient(168deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
   const sheetGradient = isLightTheme
     ? `linear-gradient(176deg, rgba(248,245,240,0.99) 0%, ${PALETTE_SURFACE} 68%, rgba(198,165,123,0.16) 100%)`
-    : `linear-gradient(176deg, #7A6D60 0%, #2E2A26 100%)`;
+    : `linear-gradient(176deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
   const bottomBarGradient = isLightTheme
     ? `linear-gradient(170deg, rgba(248,245,240,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(198,165,123,0.16) 100%)`
-    : `linear-gradient(170deg, #7A6D60 0%, #2E2A26 100%)`;
+    : `linear-gradient(170deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
   const overlayShade = isLightTheme ? "rgba(46,42,38,0.2)" : "rgba(0, 0, 0, 0.72)";
   const contentTextClass = isLightTheme ? "text-brand-dark" : "text-white";
   const secondaryTextClass = isLightTheme ? "text-brand-accent" : "text-zinc-300";
@@ -4729,11 +4730,14 @@ export default function QrOrderingExperience({
           }}
         >
           <WifiOff className="h-9 w-9" style={{ color: WARM_HIGHLIGHT }} />
-          <h1 className="mt-4 text-xl font-semibold">Connection Problem</h1>
+          <h1 className={clsx("mt-4 text-xl", WEBSITE_STYLE_CLASSES.text.panelHeading)}>Connection Problem</h1>
           <p className="mt-2 text-sm text-zinc-300">{errorMessage}</p>
           <button
             type="button"
-            className="mt-5 inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold text-brand-dark transition"
+            className={clsx(
+              "mt-5 inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-brand-dark transition",
+              WEBSITE_STYLE_CLASSES.text.ctaLabel,
+            )}
             style={{ backgroundColor: LUXURY_GOLD }}
             onClick={() => {
               setLoadState("loading");
@@ -4810,7 +4814,7 @@ export default function QrOrderingExperience({
                   style={{
                     borderColor: withAlpha(LUXURY_GOLD, 0.45),
                     background: `linear-gradient(160deg, ${withAlpha(LUXURY_GOLD, 0.34)} 0%, ${withAlpha(LUXURY_GOLD, 0.18)} 100%)`,
-                    color: isLightTheme ? "#2E2A26" : "#F8F5F0",
+                    color: isLightTheme ? PALETTE_TEXT : PALETTE_BACKGROUND,
                     boxShadow: `0 14px 30px -18px ${withAlpha(LUXURY_GOLD, 0.55)}`,
                   }}
                 >
@@ -4829,8 +4833,8 @@ export default function QrOrderingExperience({
                 </div>
                 <div className="min-w-0">
                   <h1
-                    className="truncate text-[1.78rem] font-bold leading-none tracking-[0.04em]"
-                    style={{ color: isLightTheme ? "#2E2A26" : "#F8F5F0" }}
+                    className={WEBSITE_STYLE_CLASSES.text.brandWordmark}
+                    style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_BACKGROUND }}
                   >
                     Cafe Luxe
                   </h1>
@@ -4853,14 +4857,14 @@ export default function QrOrderingExperience({
                 style={{
                   borderColor: accentBorder,
                   backgroundColor: isLightTheme
-                    ? withAlpha("#F8F5F0", 0.88)
+                    ? withAlpha(PALETTE_BACKGROUND, 0.88)
                     : withAlpha(ROYAL_NAVY, 0.56),
                 }}
               >
                 <p className={clsx("text-[10px] uppercase tracking-[0.16em]", mutedTextClass)}>Table</p>
                 <p
-                  className="text-sm font-semibold"
-                  style={{ color: isLightTheme ? "#2E2A26" : "#F8F5F0" }}
+                  className={WEBSITE_STYLE_CLASSES.text.sectionTitle}
+                  style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_BACKGROUND }}
                 >
                   {tableLabel}
                 </p>
@@ -4870,12 +4874,12 @@ export default function QrOrderingExperience({
           {supportPhone ? (
             <div
               className={clsx("mt-3 border-t pt-2 text-xs", secondaryTextClass)}
-              style={{ borderColor: withAlpha(isLightTheme ? "#C6A57B" : SOFT_DARK_SURFACE, 0.24) }}
+              style={{ borderColor: withAlpha(isLightTheme ? PALETTE_ACCENT : SOFT_DARK_SURFACE, 0.24) }}
             >
               {"Support"}:{" "}
               <span
                 className="font-medium"
-                style={{ color: isLightTheme ? "#2E2A26" : "#F8F5F0" }}
+                style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_BACKGROUND }}
               >
                 {supportPhone}
               </span>
@@ -4889,7 +4893,7 @@ export default function QrOrderingExperience({
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.28),
               backgroundColor: withAlpha(LUXURY_GOLD, isLightTheme ? 0.24 : 0.12),
-              color: isLightTheme ? "#7A6D60" : WARM_HIGHLIGHT,
+              color: isLightTheme ? PALETTE_SECONDARY : WARM_HIGHLIGHT,
             }}
           >
             <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
@@ -4908,7 +4912,7 @@ export default function QrOrderingExperience({
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.28),
               backgroundColor: withAlpha(LUXURY_GOLD, isLightTheme ? 0.24 : 0.12),
-              color: isLightTheme ? "#7A6D60" : WARM_HIGHLIGHT,
+              color: isLightTheme ? PALETTE_SECONDARY : WARM_HIGHLIGHT,
             }}
           >
             <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
@@ -4927,12 +4931,12 @@ export default function QrOrderingExperience({
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.34),
               backgroundColor: withAlpha(LUXURY_GOLD, isLightTheme ? 0.24 : 0.13),
-              color: isLightTheme ? "#7A6D60" : WARM_HIGHLIGHT,
+              color: isLightTheme ? PALETTE_SECONDARY : WARM_HIGHLIGHT,
             }}
           >
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
             <div>
-              <p className={clsx("text-sm font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
+              <p className={clsx(WEBSITE_STYLE_CLASSES.text.sectionTitle, isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
                 {"Order Confirmed"}
               </p>
               <p className={clsx("mt-1 text-sm", isLightTheme ? "text-brand-dark/90" : "text-zinc-200/95")}>
@@ -4966,18 +4970,18 @@ export default function QrOrderingExperience({
             style={{
               borderColor:
                 statusPopup.tone === "success"
-                  ? withAlpha("#C6A57B", 0.36)
+                  ? withAlpha(PALETTE_ACCENT, 0.36)
                   : withAlpha(WARM_HIGHLIGHT, 0.34),
               backgroundColor:
                 statusPopup.tone === "success"
-                  ? withAlpha("#C6A57B", isLightTheme ? 0.14 : 0.18)
+                  ? withAlpha(PALETTE_ACCENT, isLightTheme ? 0.14 : 0.18)
                   : withAlpha(LUXURY_GOLD, isLightTheme ? 0.16 : 0.14),
-              color: statusPopup.tone === "success" ? "#C6A57B" : WARM_HIGHLIGHT,
+              color: statusPopup.tone === "success" ? PALETTE_ACCENT : WARM_HIGHLIGHT,
             }}
           >
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
             <div className="min-w-0 flex-1">
-              <p className={clsx("text-sm font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
+              <p className={clsx(WEBSITE_STYLE_CLASSES.text.sectionTitle, isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
                 {statusPopup.title}
               </p>
               <p className={clsx("mt-1 text-sm", isLightTheme ? "text-brand-dark/90" : "text-zinc-200/95")}>
@@ -5011,7 +5015,7 @@ export default function QrOrderingExperience({
             <div>
               <div
                 className="flex items-center gap-2"
-                style={{ color: isLightTheme ? "#7A6D60" : WARM_HIGHLIGHT }}
+                style={{ color: isLightTheme ? PALETTE_SECONDARY : WARM_HIGHLIGHT }}
               >
                 <Sparkles className="h-4 w-4" />
                 <p className="text-sm font-medium">{"Fresh Picks For Your Table"}</p>
@@ -5022,8 +5026,8 @@ export default function QrOrderingExperience({
             </div>
             <div className="shrink-0 space-y-1 text-right">
               <p
-                className="text-[11px] uppercase tracking-[0.16em]"
-                style={{ color: isLightTheme ? "#7A6D60" : WARM_HIGHLIGHT }}
+                className={WEBSITE_STYLE_CLASSES.text.microLabel}
+                style={{ color: isLightTheme ? PALETTE_SECONDARY : WARM_HIGHLIGHT }}
               >
                 {normalizedCurrency}
               </p>
@@ -5083,14 +5087,14 @@ export default function QrOrderingExperience({
                 activeCategory === "all"
                   ? isLightTheme
                     ? {
-                        background: `linear-gradient(180deg, #F8F5F0 0%, #E8D9C5 100%)`,
-                        boxShadow: `0 10px 24px -16px ${withAlpha("#2E2A26", 0.3)}`,
+                        background: `linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_SURFACE} 100%)`,
+                        boxShadow: `0 10px 24px -16px ${withAlpha(PALETTE_TEXT, 0.3)}`,
                       }
                     : { backgroundColor: LUXURY_GOLD }
                   : {
                       backgroundColor: isLightTheme
-                        ? withAlpha("#F8F5F0", 0.94)
-                        : withAlpha("#7A6D60", 0.9),
+                        ? withAlpha(PALETTE_BACKGROUND, 0.94)
+                        : withAlpha(PALETTE_SECONDARY, 0.9),
                     }
               }
               onClick={() => setActiveCategory("all")}
@@ -5111,14 +5115,14 @@ export default function QrOrderingExperience({
                   activeCategory === category.id
                     ? isLightTheme
                       ? {
-                          background: `linear-gradient(180deg, #F8F5F0 0%, #E8D9C5 100%)`,
-                          boxShadow: `0 10px 24px -16px ${withAlpha("#2E2A26", 0.3)}`,
+                          background: `linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_SURFACE} 100%)`,
+                          boxShadow: `0 10px 24px -16px ${withAlpha(PALETTE_TEXT, 0.3)}`,
                         }
                       : { backgroundColor: LUXURY_GOLD }
                     : {
                         backgroundColor: isLightTheme
-                          ? withAlpha("#F8F5F0", 0.94)
-                          : withAlpha("#7A6D60", 0.9),
+                          ? withAlpha(PALETTE_BACKGROUND, 0.94)
+                          : withAlpha(PALETTE_SECONDARY, 0.9),
                       }
                 }
                 onClick={() => setActiveCategory(category.id)}
@@ -5321,7 +5325,10 @@ export default function QrOrderingExperience({
 
                     <div className="flex items-center justify-between gap-2">
                       <div>
-                        <p className="text-sm font-semibold sm:text-base" style={{ color: isLightTheme ? "#2E2A26" : "#E8D9C5" }}>
+                        <p
+                          className={clsx(WEBSITE_STYLE_CLASSES.text.sectionTitle, "sm:text-base")}
+                          style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE }}
+                        >
                           {formatMoney(displayPrice)}
                         </p>
                         {selectedModifiers.length > 0 ? (
@@ -5425,7 +5432,7 @@ export default function QrOrderingExperience({
                                   : {
                                       borderColor: withAlpha(WARM_HIGHLIGHT, 0.25),
                                       backgroundColor: isLightTheme
-                                        ? withAlpha("#E8D9C5", 0.95)
+                                        ? withAlpha(PALETTE_SURFACE, 0.95)
                                         : withAlpha(SOFT_DARK_SURFACE, 0.7),
                                     }
                               }
@@ -5471,9 +5478,9 @@ export default function QrOrderingExperience({
               style={{
                 borderColor: withAlpha(ROYAL_NAVY, 0.34),
                 background: isLightTheme
-                  ? "linear-gradient(180deg, #F8F5F0 0%, #E8D9C5 100%)"
-                  : `linear-gradient(180deg, #2E2A26 0%, #7A6D60 100%)`,
-                color: isLightTheme ? "#2E2A26" : undefined,
+                  ? "linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_SURFACE} 100%)"
+                  : `linear-gradient(180deg, ${PALETTE_TEXT} 0%, ${PALETTE_SECONDARY} 100%)`,
+                color: isLightTheme ? PALETTE_TEXT : undefined,
               }}
               onClick={openBillDrawer}
             >
@@ -5546,7 +5553,7 @@ export default function QrOrderingExperience({
                   isLightTheme ? "border-[#E8D9C5]" : "border-zinc-800/90",
                 )}
               >
-                <h2 className="text-lg font-semibold">{"My Bill"}</h2>
+                <h2 className={WEBSITE_STYLE_CLASSES.text.panelHeading}>{"My Bill"}</h2>
                 <button
                   type="button"
                   className={clsx(
@@ -5919,7 +5926,10 @@ export default function QrOrderingExperience({
                                   </p>
                                 ) : null}
                               </div>
-                              <p className="text-sm font-semibold" style={{ color: isLightTheme ? "#2E2A26" : "#E8D9C5" }}>
+                              <p
+                                className={WEBSITE_STYLE_CLASSES.text.sectionTitle}
+                                style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE }}
+                              >
                                 {formatMoney(lineItem.lineTotal)}
                               </p>
                             </div>
@@ -6057,7 +6067,10 @@ export default function QrOrderingExperience({
                                 ) : null}
                               </div>
                               <div className="text-right">
-                                <p className="text-sm font-semibold" style={{ color: isLightTheme ? "#2E2A26" : "#E8D9C5" }}>
+                                <p
+                                  className={WEBSITE_STYLE_CLASSES.text.sectionTitle}
+                                  style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE }}
+                                >
                                   {formatMoney(order.totalAmount)}
                                 </p>
                                 <p className={clsx("text-[11px]", mutedTextClass)}>
@@ -6270,7 +6283,10 @@ export default function QrOrderingExperience({
                               ) : null}
                             </div>
                             <div className="shrink-0 text-right">
-                              <p className="text-sm font-semibold" style={{ color: isLightTheme ? "#2E2A26" : "#E8D9C5" }}>
+                              <p
+                                className={WEBSITE_STYLE_CLASSES.text.sectionTitle}
+                                style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE }}
+                              >
                                 {formatMoney(effectiveUnit * quantity)}
                               </p>
                               <p className={clsx("mt-0.5 text-[11px]", mutedTextClass)}>
@@ -6288,7 +6304,7 @@ export default function QrOrderingExperience({
                                   style={{
                                     borderColor: withAlpha(WARM_HIGHLIGHT, 0.28),
                                     backgroundColor: withAlpha(WARM_HIGHLIGHT, isLightTheme ? 0.22 : 0.12),
-                                    color: isLightTheme ? "#2E2A26" : "#E8D9C5",
+                                    color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE,
                                   }}
                                 >
                                   {modifier.label}
@@ -6361,7 +6377,7 @@ export default function QrOrderingExperience({
                                           : {
                                               borderColor: withAlpha(WARM_HIGHLIGHT, 0.25),
                                               backgroundColor: isLightTheme
-                                                ? withAlpha("#E8D9C5", 0.95)
+                                                ? withAlpha(PALETTE_SURFACE, 0.95)
                                                 : withAlpha(SOFT_DARK_SURFACE, 0.7),
                                             }
                                       }
@@ -6699,7 +6715,7 @@ export default function QrOrderingExperience({
                   ) : null}
                   <div className="flex items-center justify-between">
                     <span className="opacity-80">Final Payable</span>
-                    <span className="font-semibold" style={{ color: isLightTheme ? "#2E2A26" : "#E8D9C5" }}>
+                    <span className="font-semibold" style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE }}>
                       {formatMoney(cartPayableTotal)}
                     </span>
                   </div>

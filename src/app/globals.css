@@ -3,12 +3,46 @@
 @tailwind utilities;
 
 :root {
-  --background: #F8F5F0;
-  --foreground: #2E2A26;
-  --brand-dark: #2E2A26;
-  --brand-accent: #7A6D60;
-  --brand-surface: #E8D9C5;
-  --brand-bg: #F8F5F0;
+  --cafe-color-bg: #F8F5F0;
+  --cafe-color-surface: #E8D9C5;
+  --cafe-color-accent: #C6A57B;
+  --cafe-color-text: #2E2A26;
+  --cafe-color-text-secondary: #7A6D60;
+
+  --cafe-font-size-xs: 0.75rem;
+  --cafe-font-size-sm: 0.875rem;
+  --cafe-font-size-base: 1rem;
+  --cafe-font-size-lg: 1.125rem;
+  --cafe-font-size-xl: 1.25rem;
+  --cafe-font-size-hero: 1.78rem;
+
+  --cafe-font-weight-medium: 500;
+  --cafe-font-weight-semibold: 600;
+  --cafe-font-weight-bold: 700;
+
+  --cafe-radius-xs: 0.5rem;
+  --cafe-radius-sm: 0.75rem;
+  --cafe-radius-md: 1rem;
+  --cafe-radius-lg: 1.5rem;
+  --cafe-radius-xl: 2rem;
+
+  --cafe-shadow-soft-3d: 0 20px 48px -34px rgba(46, 42, 38, 0.28);
+  --cafe-shadow-card-3d: 0 24px 58px -44px rgba(46, 42, 38, 0.3);
+  --cafe-shadow-panel-3d: 0 28px 66px -42px rgba(46, 42, 38, 0.28);
+  --cafe-shadow-floating: 0 30px 80px -44px rgba(0, 0, 0, 0.98);
+
+  --cafe-space-2: 0.5rem;
+  --cafe-space-3: 0.75rem;
+  --cafe-space-4: 1rem;
+  --cafe-space-5: 1.25rem;
+  --cafe-space-6: 1.5rem;
+
+  --background: var(--cafe-color-bg);
+  --foreground: var(--cafe-color-text);
+  --brand-dark: var(--cafe-color-text);
+  --brand-accent: var(--cafe-color-text-secondary);
+  --brand-surface: var(--cafe-color-surface);
+  --brand-bg: var(--cafe-color-bg);
 }
 
 body {

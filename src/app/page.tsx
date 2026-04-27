@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { AlertCircle, Loader2, RefreshCw, Sparkles } from "lucide-react";
 
 import { appwriteConfig, fetchAllDocuments, Query } from "@/lib/appwrite";
+import { WEBSITE_COLORS, WEBSITE_STYLE_CLASSES } from "@/lib/design-tokens";
 import { parseClientSettings, parseTables, type RestaurantSettings, type RestaurantTable } from "@/lib/menu";
 
 const ROOT_CLIENT_ID = "trustfirst_demo";
@@ -79,11 +80,11 @@ async function fetchHomepageTables(clientId: string) {
 }
 
 export default function Home() {
-  const background = "#F8F5F0";
-  const surface = "#E8D9C5";
-  const accent = "#C6A57B";
-  const text = "#2E2A26";
-  const secondary = "#7A6D60";
+  const background = WEBSITE_COLORS.background;
+  const surface = WEBSITE_COLORS.surface;
+  const accent = WEBSITE_COLORS.accent;
+  const text = WEBSITE_COLORS.text;
+  const secondary = WEBSITE_COLORS.secondaryText;
   const [loadState, setLoadState] = useState<HomeLoadState>("loading");
   const [tables, setTables] = useState<RestaurantTable[]>([]);
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
@@ -158,7 +159,7 @@ export default function Home() {
     <div
       className="relative min-h-screen overflow-hidden px-4 py-8 text-zinc-900"
       style={{
-        background: `radial-gradient(1100px 520px at 20% -18%, rgba(198,165,123,0.16) 0%, rgba(248,245,240,0) 56%), linear-gradient(180deg, ${background} 0%, #F8F5F0 100%)`,
+        background: `radial-gradient(1100px 520px at 20% -18%, rgba(198,165,123,0.16) 0%, rgba(248,245,240,0) 56%), linear-gradient(180deg, ${background} 0%, ${background} 100%)`,
       }}
     >
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(46,42,38,0.03)_0%,rgba(248,245,240,0)_42%,rgba(198,165,123,0.12)_100%)]" />
@@ -176,7 +177,7 @@ export default function Home() {
           <p className="text-xs uppercase tracking-[0.24em]" style={{ color: text }}>
             {restaurantName}
           </p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-[0.02em]" style={{ color: text }}>
+          <h1 className={["mt-2 text-2xl tracking-[0.02em]", WEBSITE_STYLE_CLASSES.text.panelHeading].join(" ")} style={{ color: text }}>
             Select Your Table
           </h1>
           <p className="mt-2 text-sm" style={{ color: secondary }}>
@@ -215,7 +216,7 @@ export default function Home() {
             <div className="flex items-start gap-3">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
-                <p className="text-sm font-semibold">Unable To Load Tables</p>
+                <p className={WEBSITE_STYLE_CLASSES.text.sectionTitle}>Unable To Load Tables</p>
                 <p className="mt-1 text-sm" style={{ color: secondary }}>{errorMessage}</p>
                 {errorReason ? (
                   <p className="mt-1 text-xs" style={{ color: secondary }}>Reason: {errorReason}</p>
@@ -249,7 +250,7 @@ export default function Home() {
             <div className="flex items-start gap-3">
               <Sparkles className="mt-0.5 h-4 w-4" style={{ color: accent }} />
               <div>
-                <p className="font-semibold" style={{ color: text }}>
+                <p className={WEBSITE_STYLE_CLASSES.text.sectionTitle} style={{ color: text }}>
                   No Active Tables
                 </p>
                 <p className="mt-1" style={{ color: secondary }}>
@@ -279,7 +280,7 @@ export default function Home() {
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-xs uppercase tracking-[0.14em]" style={{ color: secondary }}>Table</p>
-                      <p className="mt-1 text-lg font-semibold" style={{ color: text }}>
+                      <p className={["mt-1 text-lg", WEBSITE_STYLE_CLASSES.text.panelHeading].join(" ")} style={{ color: text }}>
                         {table.tableNo}
                       </p>
                       <p className="mt-1 text-xs" style={{ color: secondary }}>Code: {table.tableCode}</p>
