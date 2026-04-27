@@ -1,9 +1,9 @@
 export const WEBSITE_COLORS = {
-  background: "#FFDBBB",
-  surface: "#CCBEB1",
-  accent: "#997E67",
-  text: "#664930",
-  secondaryText: "#997E67",
+  background: "#FFE6E6",
+  surface: "#C1C1BD",
+  accent: "#59001C",
+  text: "#0D1216",
+  secondaryText: "#30332F",
 } as const;
 
 export const WEBSITE_TEXT_TOKENS = {
@@ -39,9 +39,9 @@ export const WEBSITE_RADIUS_TOKENS = {
 } as const;
 
 export const WEBSITE_SHADOW_TOKENS = {
-  soft3d: "0 20px 48px -34px rgba(102,73,48,0.28)",
-  card3d: "0 24px 58px -44px rgba(102,73,48,0.3)",
-  panel3d: "0 28px 66px -42px rgba(102,73,48,0.28)",
+  soft3d: "0 20px 48px -34px rgba(13,18,22,0.28)",
+  card3d: "0 24px 58px -44px rgba(13,18,22,0.3)",
+  panel3d: "0 28px 66px -42px rgba(13,18,22,0.28)",
   floating: "0 30px 80px -44px rgba(0,0,0,0.98)",
 } as const;
 
@@ -62,9 +62,9 @@ export const WEBSITE_STYLE_CLASSES = {
     pill: "rounded-full",
   },
   shadow: {
-    soft3d: "shadow-[0_20px_48px_-34px_rgba(102,73,48,0.28)]",
-    card3d: "shadow-[0_24px_58px_-44px_rgba(102,73,48,0.3)]",
-    panel3d: "shadow-[0_28px_66px_-42px_rgba(102,73,48,0.28)]",
+    soft3d: "shadow-[0_20px_48px_-34px_rgba(13,18,22,0.28)]",
+    card3d: "shadow-[0_24px_58px_-44px_rgba(13,18,22,0.3)]",
+    panel3d: "shadow-[0_28px_66px_-42px_rgba(13,18,22,0.28)]",
     floating: "shadow-[0_30px_80px_-44px_rgba(0,0,0,0.98)]",
   },
 } as const;
