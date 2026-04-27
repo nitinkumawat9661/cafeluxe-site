@@ -242,14 +242,19 @@ const MAX_SEARCH_INPUT_LENGTH = 64;
 const MAX_INSTRUCTION_LENGTH = 240;
 const DEFAULT_UPI_ID = "7665853321@superyes";
 const DEFAULT_UPI_NAME = "Nitin Kumawat";
-const ROYAL_NAVY = "#1C1C1C";
-const LUXURY_GOLD = "#FDE4C3";
-const DEEP_CHARCOAL = "#1C1C1C";
-const SOFT_DARK_SURFACE = "#302A18";
-const WARM_HIGHLIGHT = "#FDE4C3";
-const LIGHT_TEXT = "#1C1C1C";
-const BRAND_BG = "#F6F6F6";
-const BRAND_SURFACE = "#FDE4C3";
+const PALETTE_ACCENT = "#E5AB99";
+const PALETTE_BASE = "#F2E4D3";
+const PALETTE_SUCCESS = "#DFE5CE";
+const PALETTE_INFO = "#B7CFE5";
+const PALETTE_PREMIUM = "#E3DFF2";
+const ROYAL_NAVY = PALETTE_INFO;
+const LUXURY_GOLD = PALETTE_ACCENT;
+const DEEP_CHARCOAL = "#352A25";
+const SOFT_DARK_SURFACE = PALETTE_PREMIUM;
+const WARM_HIGHLIGHT = PALETTE_ACCENT;
+const LIGHT_TEXT = "#352A25";
+const BRAND_BG = PALETTE_BASE;
+const BRAND_SURFACE = "#FAF3EA";
 
 const PIZZA_FALLBACK_MODIFIER_OPTIONS: ModifierOption[] = [
   { id: "extra_cheese", label: "Extra Cheese", price: 40, kind: "paid" },
@@ -2616,7 +2621,7 @@ export default function QrOrderingExperience({
     supportPhone: "",
     upiId: "",
     upiName: "",
-    themeColor: "#34d399",
+    themeColor: PALETTE_ACCENT,
     logoUrl: "",
     heroImageUrl: "",
     tagline: "",
@@ -4585,8 +4590,8 @@ export default function QrOrderingExperience({
   const accentBorder = withAlpha(accentColor, 0.33);
   const accentInset = withAlpha(accentColor, 0.2);
   const accentSubtle = withAlpha(accentColor, 0.27);
-  const navyGlow = withAlpha(isLightTheme ? "#6D7C95" : ROYAL_NAVY, isLightTheme ? 0.24 : 0.38);
-  const goldGlow = withAlpha(LUXURY_GOLD, isLightTheme ? 0.3 : 0.34);
+  const navyGlow = withAlpha(isLightTheme ? PALETTE_INFO : ROYAL_NAVY, isLightTheme ? 0.26 : 0.38);
+  const goldGlow = withAlpha(LUXURY_GOLD, isLightTheme ? 0.22 : 0.34);
   const heroImageUrl = clientSettings.heroImageUrl || branding?.heroImageUrl || "";
   const logoUrl = clientSettings.logoUrl || branding?.logoUrl || "";
   const tagline = clientSettings.tagline || branding?.tagline || "";
@@ -4618,24 +4623,24 @@ export default function QrOrderingExperience({
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   }, [upiQrAmount]);
   const appBackground = isLightTheme
-    ? `linear-gradient(180deg, #F6F6F6 0%, #F6F6F6 44%, #FDE4C3 100%)`
+    ? `linear-gradient(180deg, ${PALETTE_BASE} 0%, #FAF3EA 58%, #F7EFE4 100%)`
     : `linear-gradient(180deg, #1C1C1C 0%, #302A18 36%, #1C1C1C 100%)`;
   const panelGradient = isLightTheme
-    ? "linear-gradient(165deg, #FFFFFF 0%, #FDE4C3 100%)"
+    ? `linear-gradient(165deg, #FFFDFC 0%, ${PALETTE_BASE} 58%, ${PALETTE_PREMIUM} 100%)`
     : `linear-gradient(165deg, #302A18 0%, #1C1C1C 100%)`;
   const sectionGradient = isLightTheme
-    ? "linear-gradient(160deg, #F6F6F6 0%, #FDE4C3 100%)"
+    ? `linear-gradient(160deg, #FFFDFC 0%, ${PALETTE_BASE} 62%, #F8EFE4 100%)`
     : `linear-gradient(160deg, #302A18 0%, #1C1C1C 100%)`;
   const cardGradient = isLightTheme
-    ? "linear-gradient(168deg, #FFFFFF 0%, #FDE4C3 100%)"
+    ? `linear-gradient(168deg, #FFFDFC 0%, ${PALETTE_BASE} 72%, #F8EEE2 100%)`
     : `linear-gradient(168deg, #302A18 0%, #1C1C1C 100%)`;
   const sheetGradient = isLightTheme
-    ? "linear-gradient(176deg, #FFFFFF 0%, #FDE4C3 100%)"
+    ? `linear-gradient(176deg, #FFFDFC 0%, ${PALETTE_BASE} 62%, #F8EEE2 100%)`
     : `linear-gradient(176deg, #302A18 0%, #1C1C1C 100%)`;
   const bottomBarGradient = isLightTheme
-    ? "linear-gradient(170deg, #FFFFFF 0%, #FDE4C3 100%)"
+    ? `linear-gradient(170deg, #FFFDFC 0%, ${PALETTE_BASE} 62%, #F8EEE2 100%)`
     : `linear-gradient(170deg, #302A18 0%, #1C1C1C 100%)`;
-  const overlayShade = isLightTheme ? "rgba(28, 28, 28, 0.22)" : "rgba(0, 0, 0, 0.72)";
+  const overlayShade = isLightTheme ? "rgba(53,42,37,0.18)" : "rgba(0, 0, 0, 0.72)";
   const contentTextClass = isLightTheme ? "text-brand-dark" : "text-white";
   const secondaryTextClass = isLightTheme ? "text-brand-accent" : "text-zinc-300";
   const mutedTextClass = isLightTheme ? "text-zinc-500" : "text-zinc-400";
@@ -4646,22 +4651,32 @@ export default function QrOrderingExperience({
     return (
       <div className={clsx("min-h-screen", contentTextClass, themeScopeClass)} style={{ background: appBackground }}>
         <div className="mx-auto w-full max-w-4xl px-4 pb-20 pt-6 sm:px-6">
-          <div className="rounded-2xl border border-zinc-700/70 bg-zinc-950/70 p-4">
-            <div className="h-4 w-32 animate-pulse rounded bg-zinc-700/70" />
-            <div className="mt-3 h-7 w-56 animate-pulse rounded bg-zinc-800/80" />
-            <p className="mt-3 text-sm text-zinc-300">{loadingMessage}</p>
+          <div
+            className="rounded-2xl border p-4"
+            style={{
+              borderColor: withAlpha(PALETTE_ACCENT, 0.3),
+              background: sectionGradient,
+            }}
+          >
+            <div className="h-4 w-32 animate-pulse rounded" style={{ backgroundColor: withAlpha(PALETTE_INFO, 0.5) }} />
+            <div className="mt-3 h-7 w-56 animate-pulse rounded" style={{ backgroundColor: withAlpha(PALETTE_PREMIUM, 0.7) }} />
+            <p className="mt-3 text-sm" style={{ color: withAlpha(DEEP_CHARCOAL, 0.8) }}>{loadingMessage}</p>
           </div>
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             {Array.from({ length: 6 }).map((_, index) => (
               <div
                 key={index}
-                className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/60"
+                className="overflow-hidden rounded-2xl border"
+                style={{
+                  borderColor: withAlpha(PALETTE_PREMIUM, 0.65),
+                  backgroundColor: withAlpha(PALETTE_BASE, 0.8),
+                }}
               >
-                <div className="aspect-[4/3] animate-pulse bg-zinc-800/70" />
+                <div className="aspect-[4/3] animate-pulse" style={{ backgroundColor: withAlpha(PALETTE_INFO, 0.4) }} />
                 <div className="space-y-3 p-4">
-                  <div className="h-4 w-2/3 animate-pulse rounded bg-zinc-700/70" />
-                  <div className="h-3 w-full animate-pulse rounded bg-zinc-800/80" />
-                  <div className="h-3 w-1/2 animate-pulse rounded bg-zinc-800/80" />
+                  <div className="h-4 w-2/3 animate-pulse rounded" style={{ backgroundColor: withAlpha(PALETTE_PREMIUM, 0.75) }} />
+                  <div className="h-3 w-full animate-pulse rounded" style={{ backgroundColor: withAlpha(PALETTE_BASE, 0.92) }} />
+                  <div className="h-3 w-1/2 animate-pulse rounded" style={{ backgroundColor: withAlpha(PALETTE_BASE, 0.92) }} />
                 </div>
               </div>
             ))}
@@ -4765,7 +4780,8 @@ export default function QrOrderingExperience({
         style={{ background: `radial-gradient(circle, ${navyGlow} 0%, rgba(0,0,0,0) 74%)` }}
       />
 
-      <div className="relative mx-auto flex w-full max-w-6xl flex-col px-4 pb-44 pt-5 sm:px-6 sm:pb-36">
+      {!isStandaloneCartRoute ? (
+      <div className="relative mx-auto flex w-full max-w-5xl flex-col px-4 pb-44 pt-5 sm:px-6 sm:pb-36">
         <header
           className="sticky top-3 z-20 mb-5 rounded-3xl border px-4 py-4 shadow-[0_32px_74px_-42px_rgba(0,0,0,0.98)] backdrop-blur-xl"
           style={{
@@ -5110,28 +5126,40 @@ export default function QrOrderingExperience({
         </section>
 
         {offersToday.length > 0 ? (
-          <section className="mb-4 space-y-2">
+          <section
+            className="mb-5 space-y-3 rounded-2xl border p-3.5 shadow-[0_24px_58px_-42px_rgba(0,0,0,0.34)]"
+            style={{
+              borderColor: withAlpha(PALETTE_PREMIUM, 0.8),
+              background: `linear-gradient(155deg, ${withAlpha(PALETTE_PREMIUM, 0.7)} 0%, ${withAlpha(PALETTE_BASE, 0.9)} 48%, ${withAlpha(PALETTE_SUCCESS, 0.62)} 100%)`,
+            }}
+          >
             <div className="flex items-center justify-between gap-3">
-              <h2 className={clsx("text-sm font-semibold uppercase tracking-[0.12em]", contentTextClass)}>
+              <h2 className={clsx("text-sm font-semibold uppercase tracking-[0.14em]", contentTextClass)}>
                 {"Offers Today"}
               </h2>
-              <span className={clsx("text-[11px]", mutedTextClass)}>
+              <span
+                className={clsx("rounded-full border px-2 py-0.5 text-[11px] font-semibold", mutedTextClass)}
+                style={{
+                  borderColor: withAlpha(PALETTE_ACCENT, 0.45),
+                  backgroundColor: withAlpha(PALETTE_ACCENT, 0.14),
+                }}
+              >
                 {offersToday.length} live
               </span>
             </div>
-            <div className="space-y-2">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               {offersToday.map((offer) => (
                 <article
                   key={offer.id}
-                  className="rounded-2xl border px-3.5 py-3 shadow-[0_20px_48px_-34px_rgba(12,31,55,0.32)]"
+                  className="rounded-2xl border px-3.5 py-3.5 shadow-[0_20px_48px_-34px_rgba(12,31,55,0.25)]"
                   style={{
-                    borderColor: withAlpha(WARM_HIGHLIGHT, 0.3),
-                    background: sectionGradient,
+                    borderColor: withAlpha(PALETTE_ACCENT, 0.26),
+                    background: `linear-gradient(160deg, ${withAlpha(PALETTE_BASE, 0.96)} 0%, ${withAlpha(PALETTE_PREMIUM, 0.44)} 100%)`,
                   }}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className={clsx("truncate text-sm font-semibold", contentTextClass)}>{offer.name}</p>
+                      <p className={clsx("text-sm font-semibold leading-5", contentTextClass)}>{offer.name}</p>
                       <p className={clsx("mt-1 text-xs leading-5", secondaryTextClass)}>
                         {offer.bannerText || "Live offer available for this table."}
                       </p>
@@ -5139,9 +5167,9 @@ export default function QrOrderingExperience({
                     <span
                       className="shrink-0 rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em]"
                       style={{
-                        borderColor: withAlpha(WARM_HIGHLIGHT, 0.42),
-                        backgroundColor: withAlpha(WARM_HIGHLIGHT, 0.14),
-                        color: isLightTheme ? "#7B5A24" : WARM_HIGHLIGHT,
+                        borderColor: withAlpha(PALETTE_INFO, 0.6),
+                        backgroundColor: withAlpha(PALETTE_INFO, 0.25),
+                        color: isLightTheme ? DEEP_CHARCOAL : WARM_HIGHLIGHT,
                       }}
                     >
                       {offer.offerType}
@@ -5421,6 +5449,7 @@ export default function QrOrderingExperience({
           </section>
         )}
       </div>
+      ) : null}
 
       {!isStandaloneCartRoute ? (
       <div className="fixed inset-x-0 bottom-0 z-30 px-4 pb-4 sm:px-6">
@@ -6092,12 +6121,13 @@ export default function QrOrderingExperience({
       {shouldShowCartPanel ? (
         <div
           className={clsx(
-            "fixed inset-0 z-40",
-            isStandaloneCartRoute ? "" : "backdrop-blur-sm",
+            isStandaloneCartRoute
+              ? "relative z-40 mx-auto w-full max-w-3xl px-4 pb-8 pt-4 sm:px-6"
+              : "fixed inset-0 z-40 backdrop-blur-sm",
           )}
           style={
             isStandaloneCartRoute
-              ? { background: appBackground }
+              ? undefined
               : {
                   backgroundColor: overlayShade,
                   animation: "luxe-fade-in 0.22s ease-out",
@@ -6116,8 +6146,8 @@ export default function QrOrderingExperience({
           <aside
             className={clsx(
               isStandaloneCartRoute
-                ? "absolute inset-0 h-[100dvh] overflow-hidden rounded-none border-0 shadow-none"
-                : "absolute inset-0 h-[100dvh] overflow-hidden rounded-none border-0 shadow-none md:bottom-4 md:left-auto md:right-4 md:top-4 md:h-auto md:w-[480px] md:max-h-[unset] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]",
+                ? "relative w-full min-h-[calc(100dvh-2rem)] overflow-visible rounded-3xl border shadow-[0_28px_80px_-38px_rgba(0,0,0,0.34)] sm:min-h-[calc(100dvh-2.5rem)]"
+                : "absolute inset-0 w-full h-[100dvh] overflow-hidden rounded-none border-0 shadow-none md:bottom-4 md:left-auto md:right-4 md:top-4 md:h-auto md:w-[480px] md:max-h-[unset] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]",
               isLightTheme ? "text-brand-dark" : "text-zinc-100",
             )}
             style={{
@@ -6126,7 +6156,7 @@ export default function QrOrderingExperience({
               background: sheetGradient,
             }}
           >
-            <div className="flex h-full flex-col">
+            <div className={clsx("flex flex-col", isStandaloneCartRoute ? "h-auto" : "h-full")}>
               <div
                 className={clsx(
                   "border-b px-5 pb-4 pt-[calc(env(safe-area-inset-top)+12px)] md:rounded-t-3xl md:px-5 md:pt-5",
@@ -6178,7 +6208,11 @@ export default function QrOrderingExperience({
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-5 py-5 md:px-5">
+              <div
+                className={clsx(
+                  isStandaloneCartRoute ? "px-5 py-5 md:px-5" : "flex-1 overflow-y-auto px-5 py-5 md:px-5",
+                )}
+              >
                 {cartItems.length === 0 ? (
                   <div
                     className={clsx(

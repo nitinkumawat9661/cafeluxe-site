@@ -79,10 +79,11 @@ async function fetchHomepageTables(clientId: string) {
 }
 
 export default function Home() {
-  const royalNavy = "#1C1C1C";
-  const luxuryGold = "#302A18";
-  const warmHighlight = "#FDE4C3";
-  const brandBg = "#F6F6F6";
+  const accent = "#E5AB99";
+  const base = "#F2E4D3";
+  const success = "#DFE5CE";
+  const premium = "#E3DFF2";
+  const text = "#352A25";
   const [loadState, setLoadState] = useState<HomeLoadState>("loading");
   const [tables, setTables] = useState<RestaurantTable[]>([]);
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
@@ -157,23 +158,23 @@ export default function Home() {
     <div
       className="relative min-h-screen overflow-hidden px-4 py-8 text-zinc-900"
       style={{
-        background: `radial-gradient(1200px 520px at 20% -20%, ${warmHighlight} 0%, rgba(255,255,255,0) 55%), linear-gradient(180deg, ${brandBg} 0%, ${warmHighlight} 100%)`,
+        background: `radial-gradient(1200px 520px at 20% -20%, ${premium} 0%, rgba(255,255,255,0) 55%), linear-gradient(180deg, ${base} 0%, #FAF3E9 100%)`,
       }}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(28,28,28,0.03)_0%,rgba(255,255,255,0)_42%,rgba(48,42,24,0.08)_100%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(53,42,37,0.03)_0%,rgba(255,255,255,0)_42%,rgba(183,207,229,0.16)_100%)]" />
 
       <main className="relative mx-auto w-full max-w-md">
         <section
           className="mb-5 rounded-3xl border p-6 shadow-[0_28px_70px_-42px_rgba(28,28,28,0.45)]"
           style={{
-            borderColor: "rgba(48,42,24,0.36)",
-            background: `linear-gradient(165deg, #FFFFFF 0%, ${warmHighlight} 100%)`,
+            borderColor: "rgba(229,171,153,0.34)",
+            background: `linear-gradient(165deg, #FFFFFF 0%, ${base} 58%, ${premium} 100%)`,
           }}
         >
-          <p className="text-xs uppercase tracking-[0.24em]" style={{ color: royalNavy }}>
+          <p className="text-xs uppercase tracking-[0.24em]" style={{ color: text }}>
             {restaurantName}
           </p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-[0.02em]" style={{ color: royalNavy }}>
+          <h1 className="mt-2 text-2xl font-semibold tracking-[0.02em]" style={{ color: text }}>
             Select Your Table
           </h1>
           <p className="mt-2 text-sm text-zinc-600">
@@ -190,9 +191,9 @@ export default function Home() {
           <section
             className="flex items-center gap-3 rounded-2xl border p-4 text-sm"
             style={{
-              borderColor: "rgba(12,31,55,0.14)",
-              background: "rgba(255,252,246,0.9)",
-              color: royalNavy,
+              borderColor: "rgba(183,207,229,0.46)",
+              background: "rgba(255,252,246,0.95)",
+              color: text,
             }}
           >
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -239,14 +240,14 @@ export default function Home() {
           <section
             className="rounded-2xl border p-5 text-sm"
             style={{
-              borderColor: "rgba(48,42,24,0.14)",
-              background: "rgba(255,255,255,0.9)",
+              borderColor: "rgba(183,207,229,0.4)",
+              background: "rgba(255,255,255,0.92)",
             }}
           >
             <div className="flex items-start gap-3">
-              <Sparkles className="mt-0.5 h-4 w-4" style={{ color: luxuryGold }} />
+              <Sparkles className="mt-0.5 h-4 w-4" style={{ color: accent }} />
               <div>
-                <p className="font-semibold" style={{ color: royalNavy }}>
+                <p className="font-semibold" style={{ color: text }}>
                   No Active Tables
                 </p>
                 <p className="mt-1 text-zinc-600">
@@ -268,17 +269,17 @@ export default function Home() {
                   prefetch={false}
                   className="group rounded-2xl border p-4 transition active:translate-y-px"
                   style={{
-                    borderColor: "rgba(48,42,24,0.33)",
+                    borderColor: "rgba(229,171,153,0.32)",
                     background:
-                      `linear-gradient(160deg, #FFFFFF 0%, ${warmHighlight} 100%)`,
+                      `linear-gradient(160deg, #FFFFFF 0%, ${base} 62%, ${success} 100%)`,
                     boxShadow:
-                      "0 22px 56px -38px rgba(28,28,28,0.35), inset 0 0 0 1px rgba(48,42,24,0.08)",
+                      "0 22px 56px -38px rgba(53,42,37,0.26), inset 0 0 0 1px rgba(229,171,153,0.14)",
                   }}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">Table</p>
-                      <p className="mt-1 text-lg font-semibold" style={{ color: royalNavy }}>
+                      <p className="mt-1 text-lg font-semibold" style={{ color: text }}>
                         {table.tableNo}
                       </p>
                       <p className="mt-1 text-xs text-zinc-500">Code: {table.tableCode}</p>
@@ -286,9 +287,9 @@ export default function Home() {
                     <div
                       className="rounded-xl border px-3 py-1.5 text-xs font-semibold"
                       style={{
-                        borderColor: "rgba(48,42,24,0.34)",
-                        backgroundColor: "rgba(48,42,24,0.1)",
-                        color: royalNavy,
+                        borderColor: "rgba(229,171,153,0.4)",
+                        backgroundColor: "rgba(229,171,153,0.16)",
+                        color: text,
                       }}
                     >
                       Open
