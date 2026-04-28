@@ -4803,7 +4803,7 @@ export default function QrOrderingExperience({
       {!isStandaloneCartRoute ? (
       <div className="relative mx-auto flex w-full max-w-5xl flex-col px-4 pb-44 pt-5 sm:px-6 sm:pb-36">
         <header
-          className="cafe-luxe-header sticky top-3 z-20 mb-5 rounded-3xl border px-4 py-4 shadow-[0_32px_74px_-42px_rgba(0,0,0,0.98)] backdrop-blur-xl"
+          className="cafe-luxe-header sticky top-3 z-20 mb-5 rounded-3xl border px-4 py-4 shadow-[0_32px_74px_-42px_rgba(0,0,0,0.98)] backdrop-blur-xl sm:px-5 sm:py-4.5"
           style={{
             background: panelGradient,
             borderColor: withAlpha(WARM_HIGHLIGHT, 0.22),
@@ -4815,38 +4815,41 @@ export default function QrOrderingExperience({
               : null),
           }}
         >
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-start justify-between gap-3 sm:gap-4">
             <div className="min-w-0">
-              <p className={clsx("truncate text-[10px] uppercase tracking-[0.26em]", mutedTextClass)}>
+              <p className={clsx("truncate text-[10px] font-semibold uppercase tracking-[0.22em] opacity-90", mutedTextClass)}>
                 {"Welcome"}
               </p>
-              <div className="mt-1 flex min-w-0 items-center gap-3">
+              <div className="mt-1.5 flex min-w-0 items-center gap-3.5 sm:gap-4">
                 <div
-                  className="flex h-11 w-11 items-center justify-center rounded-xl border text-xs font-bold"
+                  className="flex h-[3.25rem] w-[3.25rem] shrink-0 items-center justify-center rounded-2xl border text-xs font-bold sm:h-14 sm:w-14"
                   style={{
-                    borderColor: withAlpha(LUXURY_GOLD, 0.45),
-                    background: `linear-gradient(160deg, ${withAlpha(LUXURY_GOLD, 0.34)} 0%, ${withAlpha(LUXURY_GOLD, 0.18)} 100%)`,
+                    borderColor: withAlpha(LUXURY_GOLD, 0.52),
+                    background: `linear-gradient(168deg, ${withAlpha(PALETTE_BACKGROUND, 0.96)} 0%, ${withAlpha(LUXURY_GOLD, 0.28)} 100%)`,
                     color: isLightTheme ? PALETTE_TEXT : PALETTE_BACKGROUND,
-                    boxShadow: `0 14px 30px -18px ${withAlpha(LUXURY_GOLD, 0.55)}`,
+                    boxShadow: `0 16px 34px -18px ${withAlpha(LUXURY_GOLD, 0.45)}, inset 0 1px 0 ${withAlpha(PALETTE_BACKGROUND, 0.72)}`,
                   }}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={headerLogoSrc}
                     alt={restaurantName}
-                    className="h-full w-full rounded-[10px] object-contain p-[2px]"
+                    className="h-full w-full rounded-[12px] object-contain p-[4px]"
                     loading="lazy"
                     decoding="async"
                   />
                 </div>
                 <div className="min-w-0">
                   <h1
-                    className={WEBSITE_STYLE_CLASSES.text.brandWordmark}
+                    className={clsx(
+                      WEBSITE_STYLE_CLASSES.text.brandWordmark,
+                      "truncate text-[1.95rem] leading-[0.98] tracking-[0.035em] sm:text-[2.02rem]",
+                    )}
                     style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_BACKGROUND }}
                   >
                     Cafe Luxe
                   </h1>
-                  <p className={clsx("mt-1 truncate text-[11px] uppercase tracking-[0.19em]", mutedTextClass)}>
+                  <p className={clsx("mt-1.5 truncate text-[10px] font-medium uppercase tracking-[0.24em] sm:text-[10.5px]", mutedTextClass)}>
                     Premium Table Ordering
                   </p>
                   {restaurantName && restaurantName.toLowerCase() !== "cafe luxe" ? (
@@ -4861,17 +4864,17 @@ export default function QrOrderingExperience({
 
             <div className="shrink-0 space-y-2 text-right">
               <div
-                className="rounded-2xl border px-3 py-2 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]"
+                className="rounded-2xl border px-3.5 py-2.5 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]"
                 style={{
                   borderColor: accentBorder,
-                  backgroundColor: isLightTheme
-                    ? withAlpha(PALETTE_BACKGROUND, 0.88)
+                  background: isLightTheme
+                    ? `linear-gradient(170deg, ${withAlpha(PALETTE_BACKGROUND, 0.95)} 0%, ${withAlpha(PALETTE_SURFACE, 0.86)} 100%)`
                     : withAlpha(ROYAL_NAVY, 0.56),
                 }}
               >
-                <p className={clsx("text-[10px] uppercase tracking-[0.16em]", mutedTextClass)}>Table</p>
+                <p className={clsx("text-[10px] font-medium uppercase tracking-[0.17em]", mutedTextClass)}>Table</p>
                 <p
-                  className={WEBSITE_STYLE_CLASSES.text.sectionTitle}
+                  className={clsx(WEBSITE_STYLE_CLASSES.text.sectionTitle, "text-[1.02rem]")}
                   style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_BACKGROUND }}
                 >
                   {tableLabel}
@@ -4881,10 +4884,11 @@ export default function QrOrderingExperience({
           </div>
           {supportPhone ? (
             <div
-              className={clsx("mt-3 border-t pt-2 text-xs", secondaryTextClass)}
+              className={clsx("mt-3.5 border-t pt-2.5 text-[13px]", secondaryTextClass)}
               style={{ borderColor: withAlpha(isLightTheme ? PALETTE_ACCENT : SOFT_DARK_SURFACE, 0.24) }}
             >
-              {"Support"}:{" "}
+              <span className="uppercase tracking-[0.14em] text-[11px] opacity-80">Support</span>
+              <span className="mx-1.5 opacity-55">/</span>
               <span
                 className="font-medium"
                 style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_BACKGROUND }}
