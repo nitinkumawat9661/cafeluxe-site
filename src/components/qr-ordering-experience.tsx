@@ -4817,7 +4817,7 @@ export default function QrOrderingExperience({
               : null),
           }}
         >
-          <div className="flex items-start justify-between gap-3 sm:gap-4">
+          <div className="flex items-start gap-3 sm:gap-4">
             <div className="min-w-0">
               <p className={clsx("truncate text-[10px] font-semibold uppercase tracking-[0.22em] opacity-90", mutedTextClass)}>
                 {"Welcome"}
@@ -4845,13 +4845,13 @@ export default function QrOrderingExperience({
                   <h1
                     className={clsx(
                       WEBSITE_STYLE_CLASSES.text.brandWordmark,
-                      "truncate text-[1.95rem] leading-[0.98] tracking-[0.035em] sm:text-[2.02rem]",
+                      "text-[1.95rem] leading-[0.98] tracking-[0.035em] sm:text-[2.02rem]",
                     )}
                     style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_BACKGROUND }}
                   >
                     Cafe Luxe
                   </h1>
-                  <p className={clsx("mt-1.5 truncate text-[10px] font-medium uppercase tracking-[0.24em] sm:text-[10.5px]", mutedTextClass)}>
+                  <p className={clsx("mt-1.5 text-[10px] font-medium uppercase tracking-[0.24em] sm:text-[10.5px]", mutedTextClass)}>
                     Premium Table Ordering
                   </p>
                   {restaurantName && restaurantName.toLowerCase() !== "cafe luxe" ? (
@@ -4864,9 +4864,28 @@ export default function QrOrderingExperience({
               ) : null}
             </div>
 
-            <div className="shrink-0 space-y-2 text-right">
+          </div>
+          <div
+            className={clsx("mt-3.5 border-t pt-2.5", secondaryTextClass)}
+            style={{ borderColor: withAlpha(isLightTheme ? PALETTE_ACCENT : SOFT_DARK_SURFACE, 0.24) }}
+          >
+            <div className="flex items-end justify-between gap-3">
+              <div className="min-w-0 text-[13px]">
+                {supportPhone ? (
+                  <>
+                    <span className="uppercase tracking-[0.14em] text-[11px] opacity-80">Support</span>
+                    <span className="mx-1.5 opacity-55">/</span>
+                    <span
+                      className="font-medium"
+                      style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_BACKGROUND }}
+                    >
+                      {supportPhone}
+                    </span>
+                  </>
+                ) : null}
+              </div>
               <div
-                className="rounded-2xl border px-3.5 py-2.5 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]"
+                className="shrink-0 rounded-2xl border px-3.5 py-2.5 text-right shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]"
                 style={{
                   borderColor: accentBorder,
                   background: isLightTheme
@@ -4884,21 +4903,6 @@ export default function QrOrderingExperience({
               </div>
             </div>
           </div>
-          {supportPhone ? (
-            <div
-              className={clsx("mt-3.5 border-t pt-2.5 text-[13px]", secondaryTextClass)}
-              style={{ borderColor: withAlpha(isLightTheme ? PALETTE_ACCENT : SOFT_DARK_SURFACE, 0.24) }}
-            >
-              <span className="uppercase tracking-[0.14em] text-[11px] opacity-80">Support</span>
-              <span className="mx-1.5 opacity-55">/</span>
-              <span
-                className="font-medium"
-                style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_BACKGROUND }}
-              >
-                {supportPhone}
-              </span>
-            </div>
-          ) : null}
         </header>
 
         {errorMessage ? (
