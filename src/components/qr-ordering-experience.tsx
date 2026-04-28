@@ -4602,6 +4602,7 @@ export default function QrOrderingExperience({
   const goldGlow = withAlpha(LUXURY_GOLD, isLightTheme ? 0.22 : 0.34);
   const heroImageUrl = clientSettings.heroImageUrl || branding?.heroImageUrl || "";
   const logoUrl = clientSettings.logoUrl || branding?.logoUrl || "";
+  const headerLogoSrc = logoUrl || "/logo/cafe-luxe-logo.png";
   const tagline = clientSettings.tagline || branding?.tagline || "";
   const supportPhone = clientSettings.supportPhone;
   const configuredUpiId = normalizeUpiId(clientSettings.upiId) || DEFAULT_UPI_ID;
@@ -4829,18 +4830,14 @@ export default function QrOrderingExperience({
                     boxShadow: `0 14px 30px -18px ${withAlpha(LUXURY_GOLD, 0.55)}`,
                   }}
                 >
-                  {logoUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={logoUrl}
-                      alt={restaurantName}
-                      className="h-full w-full rounded-[10px] object-cover"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  ) : (
-                    <span className="tracking-[0.15em]">CL</span>
-                  )}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={headerLogoSrc}
+                    alt={restaurantName}
+                    className="h-full w-full rounded-[10px] object-contain p-[2px]"
+                    loading="lazy"
+                    decoding="async"
+                  />
                 </div>
                 <div className="min-w-0">
                   <h1
