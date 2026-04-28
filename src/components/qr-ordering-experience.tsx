@@ -2883,13 +2883,10 @@ function isPaymentConfirmed(status: string) {
 }
 
 function applyBillInactivityPolicy(records: TableOrderRecord[], lastActivityAt: string) {
-  // Closed/settled rows must never remain in active customer bill state.
-  // Keep the same function signature so existing call sites remain stable.
+  // Keep history records available for panel rendering; CTA amount is computed
+  // from unpaid-only derived state separately.
   void lastActivityAt;
-  if (records.length === 0) {
-    return records;
-  }
-  return records.filter((record) => !isOrderClosed(record.status, record.paymentStatus));
+  return records;
 }
 
 function getOrderStatusLabel(status: string) {
