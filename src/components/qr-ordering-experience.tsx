@@ -114,6 +114,7 @@ type BillLineItem = {
   unitPrice: number;
   lineTotal: number;
   modifiers: SelectedModifier[];
+  selectedAddons: SelectedAddon[];
 };
 
 type TableOrderRecord = {
@@ -1797,6 +1798,10 @@ function mergeBillItemsFromOrders(orders: TableOrderRecord[], menuItems: MenuIte
           existing.modifiers.length >= lineItem.modifiers.length
             ? existing.modifiers
             : lineItem.modifiers,
+        selectedAddons:
+          existing.selectedAddons.length >= lineItem.selectedAddons.length
+            ? existing.selectedAddons
+            : lineItem.selectedAddons,
       });
     }
   }
@@ -2250,8 +2255,20 @@ function parseBillLineItem(value: unknown) {
     toSafeString(source.menuItemId);
   const quantity = toPositiveQuantity(source.quantity ?? source.qty ?? source.count);
   const unitPrice = toAmount(source.unit_price ?? source.unitPrice ?? source.price);
-  const modifiers = parseSelectedModifierList(
-    source.modifiers ?? source.customizations ?? source.addons ?? source.add_ons,
+  const selectedAddons = parseSelectedAddonList(
+    source.selected_addons ??
+      source.selectedAddons ??
+      source.addon_selections ??
+      source.addonSelections,
+  );
+  const modifiers = mergeCustomizations(
+    parseSelectedModifierList(
+      source.modifiers ??
+        source.customizations ??
+        source.addons ??
+        source.add_ons,
+    ),
+    selectedAddons,
   );
   const modifierTotal = getSelectedModifierTotal(modifiers);
   const effectiveUnitPrice = unitPrice > 0 ? unitPrice : toAmount(source.base_price) + modifierTotal;
@@ -2276,6 +2293,7 @@ function parseBillLineItem(value: unknown) {
     unitPrice: effectiveUnitPrice || unitPrice,
     lineTotal,
     modifiers,
+    selectedAddons,
   } satisfies BillLineItem;
 }
 
@@ -2942,6 +2960,7 @@ function buildTableOrderRecordFromCart(
   createdAt: string,
   cartItems: CartItem[],
   selectedModifiersByItem: Record<string, SelectedModifier[]>,
+  selectedAddonsByItem: Record<string, SelectedAddon[]>,
   kitchenInstructions: string,
 ) {
   return {
@@ -2959,16 +2978,19 @@ function buildTableOrderRecordFromCart(
     items: cartItems.map((cartItem) => ({
       ...(() => {
         const selectedModifiers = selectedModifiersByItem[cartItem.item.id] ?? [];
-        const modifierTotal = getSelectedModifierTotal(selectedModifiers);
+        const selectedAddons = selectedAddonsByItem[cartItem.item.id] ?? [];
+        const mergedCustomizations = mergeCustomizations(selectedModifiers, selectedAddons);
+        const modifierTotal = getSelectedModifierTotal(mergedCustomizations);
         const unitPrice = cartItem.item.price + modifierTotal;
         return {
-          lineKey: getBillLineKey(cartItem.item.id, selectedModifiers),
+          lineKey: getBillLineKey(cartItem.item.id, mergedCustomizations),
           itemId: cartItem.item.id,
           name: cartItem.item.name,
           quantity: cartItem.quantity,
           unitPrice,
           lineTotal: unitPrice * cartItem.quantity,
-          modifiers: selectedModifiers,
+          modifiers: mergedCustomizations,
+          selectedAddons,
         };
       })(),
     })),
@@ -4948,8 +4970,15 @@ export default function QrOrderingExperience({
     const trimmedInstructions = sanitizeInstructionText(kitchenInstructions);
     const compactItems = cartItems.map((cartItem) => ({
       ...(() => {
-        const selectedModifiers = pricedCustomizationsByItem[cartItem.item.id] ?? [];
+        const selectedBaseModifiers =
+          resolvedSelectedModifiersByItem[cartItem.item.id] ?? [];
+        const selectedAddons = resolvedSelectedAddonsByItem[cartItem.item.id] ?? [];
+        const selectedModifiers = mergeCustomizations(
+          selectedBaseModifiers,
+          selectedAddons,
+        );
         const modifierTotalPerUnit = getSelectedModifierTotal(selectedModifiers);
+        const addonsTotalPerUnit = getSelectedAddonTotal(selectedAddons);
         const unitPrice = cartItem.item.price + modifierTotalPerUnit;
         return {
           item_id: cartItem.item.id,
@@ -4960,6 +4989,14 @@ export default function QrOrderingExperience({
           quantity: cartItem.quantity,
           modifiers_total_per_unit: modifierTotalPerUnit,
           modifiers: selectedModifiers,
+          selected_addons: selectedAddons.map((addon) => ({
+            group_id: addon.groupId,
+            group_name: sanitizeUserText(addon.groupName, 80),
+            option_id: addon.optionId,
+            option_name: sanitizeUserText(addon.optionName, 80),
+            price: toAmount(addon.price),
+          })),
+          addons_total_per_unit: addonsTotalPerUnit,
           line_total: unitPrice * cartItem.quantity,
         };
       })(),
@@ -5089,7 +5126,8 @@ export default function QrOrderingExperience({
         computedPayableTotal,
         nowIso,
         cartItems,
-        pricedCustomizationsByItem,
+        resolvedSelectedModifiersByItem,
+        resolvedSelectedAddonsByItem,
         trimmedInstructions,
       );
       const mergedLocalOrders = mergeTableOrderRecords(tableOrdersRef.current, [placedOrderRecord]);
@@ -6656,45 +6694,73 @@ export default function QrOrderingExperience({
                         Itemized Charges
                       </p>
                       <div className="space-y-2">
-                        {currentBillItems.map((lineItem) => (
-                          <div
-                            key={lineItem.lineKey}
-                            className={clsx(
-                              "cafe-luxe-card rounded-xl border p-3",
-                              isLightTheme
-                                ? "border-[#C6A57B] bg-[#E8D9C5]"
-                                : "border-zinc-800/30 bg-[#F8F5F0]/10",
-                            )}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className={clsx("truncate text-sm font-semibold", contentTextClass)}>
-                                  {lineItem.name}
-                                </p>
-                                <p className={clsx("text-xs", mutedTextClass)}>
-                                  {lineItem.quantity} x {formatMoney(lineItem.unitPrice)}
-                                </p>
-                                {lineItem.modifiers.length > 0 ? (
-                                  <p className={clsx("mt-1 line-clamp-2 text-[11px]", mutedTextClass)}>
-                                    {lineItem.modifiers
-                                      .map((modifier) =>
-                                        modifier.price > 0
-                                          ? `${modifier.label} (+${formatMoney(modifier.price)})`
-                                          : modifier.label,
-                                      )
-                                      .join(", ")}
+                        {currentBillItems.map((lineItem) => {
+                          const nonAddonModifiers = lineItem.modifiers.filter(
+                            (modifier) => !modifier.id.startsWith("addon_"),
+                          );
+                          return (
+                            <div
+                              key={lineItem.lineKey}
+                              className={clsx(
+                                "cafe-luxe-card rounded-xl border p-3",
+                                isLightTheme
+                                  ? "border-[#C6A57B] bg-[#E8D9C5]"
+                                  : "border-zinc-800/30 bg-[#F8F5F0]/10",
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className={clsx("truncate text-sm font-semibold", contentTextClass)}>
+                                    {lineItem.name}
                                   </p>
-                                ) : null}
+                                  <p className={clsx("text-xs", mutedTextClass)}>
+                                    {lineItem.quantity} x {formatMoney(lineItem.unitPrice)}
+                                  </p>
+                                  {nonAddonModifiers.length > 0 ? (
+                                    <p className={clsx("mt-1 line-clamp-2 text-[11px]", mutedTextClass)}>
+                                      {nonAddonModifiers
+                                        .map((modifier) =>
+                                          modifier.price > 0
+                                            ? `${modifier.label} (+${formatMoney(modifier.price)})`
+                                            : modifier.label,
+                                        )
+                                        .join(", ")}
+                                    </p>
+                                  ) : null}
+                                  {lineItem.selectedAddons.length > 0 ? (
+                                    <div className="mt-1.5 space-y-1">
+                                      <p className={clsx("text-[10px] uppercase tracking-[0.12em]", mutedTextClass)}>
+                                        Saved Add-ons
+                                      </p>
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {lineItem.selectedAddons.map((addon) => (
+                                          <span
+                                            key={`${lineItem.lineKey}_addon_${addon.groupId}_${addon.optionId}`}
+                                            className="inline-flex items-center rounded-md border px-2 py-1 text-[11px] font-medium leading-none"
+                                            style={{
+                                              borderColor: withAlpha(WARM_HIGHLIGHT, 0.28),
+                                              backgroundColor: withAlpha(WARM_HIGHLIGHT, isLightTheme ? 0.22 : 0.12),
+                                              color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE,
+                                            }}
+                                          >
+                                            {addon.groupName}: {addon.optionName}
+                                            {addon.price > 0 ? ` (+${formatMoney(addon.price)})` : ""}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                                <p
+                                  className={WEBSITE_STYLE_CLASSES.text.sectionTitle}
+                                  style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE }}
+                                >
+                                  {formatMoney(lineItem.lineTotal)}
+                                </p>
                               </div>
-                              <p
-                                className={WEBSITE_STYLE_CLASSES.text.sectionTitle}
-                                style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE }}
-                              >
-                                {formatMoney(lineItem.lineTotal)}
-                              </p>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </section>
 
@@ -7019,6 +7085,32 @@ export default function QrOrderingExperience({
                     {cartItems.map(({ item, quantity }) => {
                       const selected = resolvedSelectedModifiersByItem[item.id] ?? [];
                       const selectedAddons = resolvedSelectedAddonsByItem[item.id] ?? [];
+                      const visibleBaseModifiers = selected.filter(
+                        (modifier) => !modifier.id.startsWith("addon_"),
+                      );
+                      const groupedAddons = selectedAddons.reduce(
+                        (groups, addon) => {
+                          const existing = groups.find((entry) => entry.groupId === addon.groupId);
+                          if (existing) {
+                            existing.options.push(addon);
+                            existing.total += toAmount(addon.price);
+                            return groups;
+                          }
+                          groups.push({
+                            groupId: addon.groupId,
+                            groupName: addon.groupName,
+                            options: [addon],
+                            total: toAmount(addon.price),
+                          });
+                          return groups;
+                        },
+                        [] as Array<{
+                          groupId: string;
+                          groupName: string;
+                          options: SelectedAddon[];
+                          total: number;
+                        }>,
+                      );
                       const modifierOptions = modifierOptionsByItem[item.id] ?? [];
                       const itemAddonGroups = itemAddonGroupsByItem[item.id] ?? [];
                       const hasMappedAddons = itemAddonGroups.length > 0;
@@ -7059,9 +7151,9 @@ export default function QrOrderingExperience({
                             </div>
                           </div>
 
-                          {selected.length > 0 ? (
+                          {visibleBaseModifiers.length > 0 ? (
                             <div className="mt-3 flex flex-wrap gap-1.5">
-                              {selected.map((modifier) => (
+                              {visibleBaseModifiers.map((modifier) => (
                                 <span
                                   key={`${item.id}_selected_${modifier.id}`}
                                   className="inline-flex items-center rounded-md border px-2 py-1 text-[11px] font-medium leading-none"
@@ -7079,24 +7171,47 @@ export default function QrOrderingExperience({
                           ) : null}
 
                           {selectedAddons.length > 0 ? (
-                            <div className="mt-3 space-y-1.5">
-                              <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                            <div
+                              className={clsx(
+                                "mt-3 rounded-xl border p-2.5",
+                                isLightTheme
+                                  ? "border-[#C6A57B] bg-[#F8F5F0]/80"
+                                  : "border-zinc-800/30 bg-zinc-900/55",
+                              )}
+                            >
+                              <p className={clsx("text-[10px] uppercase tracking-[0.14em]", mutedTextClass)}>
                                 Selected Add-ons
                               </p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {selectedAddons.map((addon) => (
-                                  <span
-                                    key={`${item.id}_addon_${addon.groupId}_${addon.optionId}`}
-                                    className="inline-flex items-center rounded-md border px-2 py-1 text-[11px] font-medium leading-none"
+                              <div className="mt-2 space-y-2">
+                                {groupedAddons.map((groupedAddon) => (
+                                  <div
+                                    key={`${item.id}_addon_group_${groupedAddon.groupId}`}
+                                    className="rounded-lg border px-2.5 py-2"
                                     style={{
-                                      borderColor: withAlpha(WARM_HIGHLIGHT, 0.28),
-                                      backgroundColor: withAlpha(WARM_HIGHLIGHT, isLightTheme ? 0.22 : 0.12),
-                                      color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE,
+                                      borderColor: withAlpha(WARM_HIGHLIGHT, 0.24),
+                                      backgroundColor: withAlpha(WARM_HIGHLIGHT, isLightTheme ? 0.12 : 0.08),
                                     }}
                                   >
-                                    {addon.groupName}: {addon.optionName}
-                                    {addon.price > 0 ? ` (+${formatMoney(addon.price)})` : ""}
-                                  </span>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className={clsx("text-[11px] font-semibold", contentTextClass)}>
+                                        {groupedAddon.groupName}
+                                      </p>
+                                      {groupedAddon.total > 0 ? (
+                                        <span className={clsx("text-[11px] font-semibold", contentTextClass)}>
+                                          +{formatMoney(groupedAddon.total)}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <p className={clsx("mt-1 text-[11px]", secondaryTextClass)}>
+                                      {groupedAddon.options
+                                        .map((addon) =>
+                                          addon.price > 0
+                                            ? `${addon.optionName} (+${formatMoney(addon.price)})`
+                                            : addon.optionName,
+                                        )
+                                        .join(", ")}
+                                    </p>
+                                  </div>
                                 ))}
                               </div>
                             </div>
@@ -7600,13 +7715,17 @@ export default function QrOrderingExperience({
             <div className="mt-3 max-h-[54vh] space-y-3 overflow-y-auto pr-1">
               {addonPickerGroups.map((group) => {
                 const selectedOptionIds = addonPickerDraftByGroup[group.id] ?? [];
+                const selectionHint =
+                  group.selectionMode === "single"
+                    ? "Choose one option"
+                    : "Choose one or more options";
                 return (
                   <section
                     key={`addon_group_${group.id}`}
                     className={clsx(
-                      "rounded-2xl border p-3",
+                      "rounded-2xl border p-3.5 shadow-[0_10px_24px_-18px_rgba(0,0,0,0.5)]",
                       isLightTheme
-                        ? "border-[#C6A57B] bg-[#F8F5F0]/90"
+                        ? "border-[#C6A57B] bg-[#F8F5F0]/95"
                         : "border-zinc-800/30 bg-zinc-900/50",
                     )}
                   >
@@ -7637,7 +7756,15 @@ export default function QrOrderingExperience({
                         </span>
                       </div>
                     </div>
-                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <p className={clsx("text-[11px]", secondaryTextClass)}>{selectionHint}</p>
+                      {selectedOptionIds.length > 0 ? (
+                        <span className={clsx("text-[11px] font-medium", contentTextClass)}>
+                          {selectedOptionIds.length} selected
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-2.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
                       {group.options.map((option) => {
                         const isSelected = selectedOptionIds.includes(option.id);
                         return (
@@ -7645,7 +7772,7 @@ export default function QrOrderingExperience({
                             key={`addon_option_${group.id}_${option.id}`}
                             type="button"
                             className={clsx(
-                              "inline-flex min-h-10 items-center justify-between rounded-xl border px-3 py-2 text-left text-xs font-medium transition",
+                              "inline-flex min-h-11 items-start justify-between rounded-xl border px-3 py-2 text-left text-xs font-medium transition",
                               isSelected
                                 ? "text-zinc-950"
                                 : isLightTheme
@@ -7667,8 +7794,40 @@ export default function QrOrderingExperience({
                             }
                             onClick={() => toggleAddonDraftOption(group, option.id)}
                           >
-                            <span className="line-clamp-2">{option.name}</span>
-                            <span className="shrink-0 pl-2 text-[11px] font-semibold">
+                            <span className="flex min-w-0 items-start gap-2 pr-2">
+                              <span
+                                className={clsx(
+                                  "mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                                  isSelected
+                                    ? "border-zinc-950 bg-zinc-950 text-white"
+                                    : isLightTheme
+                                      ? "border-[#C6A57B] bg-[#F8F5F0]"
+                                      : "border-zinc-600 bg-zinc-800",
+                                )}
+                              >
+                                {isSelected ? (
+                                  <CheckCircle2 className="h-3 w-3" />
+                                ) : (
+                                  <span
+                                    className={clsx(
+                                      "h-1.5 w-1.5 rounded-full",
+                                      isLightTheme ? "bg-[#C6A57B]/80" : "bg-zinc-500",
+                                    )}
+                                  />
+                                )}
+                              </span>
+                              <span className="line-clamp-2">{option.name}</span>
+                            </span>
+                            <span
+                              className={clsx(
+                                "shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold",
+                                isSelected
+                                  ? "bg-zinc-950/10"
+                                  : isLightTheme
+                                    ? "bg-[#E8D9C5]"
+                                    : "bg-zinc-800",
+                              )}
+                            >
                               {option.price > 0 ? `+${formatMoney(option.price)}` : "Free"}
                             </span>
                           </button>
