@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronDown,
   Flame,
   HandCoins,
   Leaf,
@@ -2647,6 +2648,7 @@ export default function QrOrderingExperience({
   const [selectedModifiersByItem, setSelectedModifiersByItem] = useState<
     Record<string, SelectedModifier[]>
   >({});
+  const [isOffersExpanded, setIsOffersExpanded] = useState(false);
   const [kitchenInstructions, setKitchenInstructions] = useState("");
   const [isCartHydrated, setIsCartHydrated] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
@@ -5153,50 +5155,77 @@ export default function QrOrderingExperience({
               background: `linear-gradient(155deg, ${withAlpha(PALETTE_PREMIUM, 0.7)} 0%, ${withAlpha(PALETTE_BASE, 0.9)} 48%, ${withAlpha(PALETTE_SUCCESS, 0.62)} 100%)`,
             }}
           >
-            <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 rounded-xl border px-2.5 py-2 transition"
+              style={{
+                borderColor: withAlpha(PALETTE_ACCENT, 0.24),
+                backgroundColor: withAlpha(PALETTE_BACKGROUND, 0.62),
+              }}
+              onClick={() => setIsOffersExpanded((current) => !current)}
+              aria-expanded={isOffersExpanded}
+              aria-controls="offers-panel"
+            >
               <h2 className={clsx("cafe-luxe-section-title text-sm font-semibold uppercase tracking-[0.14em]", contentTextClass)}>
-                {"Offers Today"}
+                {"Offers"}
               </h2>
-              <span
-                className={clsx("rounded-full border px-2 py-0.5 text-[11px] font-semibold", mutedTextClass)}
-                style={{
-                  borderColor: withAlpha(PALETTE_ACCENT, 0.45),
-                  backgroundColor: withAlpha(PALETTE_ACCENT, 0.14),
-                }}
-              >
-                {offersToday.length} live
-              </span>
-            </div>
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-              {offersToday.map((offer) => (
-                <article
-                  key={offer.id}
-                  className="cafe-luxe-card cafe-luxe-offer-card rounded-2xl border px-3.5 py-3.5 shadow-[0_20px_48px_-34px_rgba(122,109,96,0.24)]"
+              <div className="flex items-center gap-2">
+                <span
+                  className={clsx("rounded-full border px-2 py-0.5 text-[11px] font-semibold", mutedTextClass)}
                   style={{
-                    borderColor: withAlpha(PALETTE_ACCENT, 0.26),
-                    background: `linear-gradient(160deg, ${withAlpha(PALETTE_BASE, 0.96)} 0%, ${withAlpha(PALETTE_PREMIUM, 0.44)} 100%)`,
+                    borderColor: withAlpha(PALETTE_ACCENT, 0.45),
+                    backgroundColor: withAlpha(PALETTE_ACCENT, 0.14),
                   }}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className={clsx("text-sm font-semibold leading-5", contentTextClass)}>{offer.name}</p>
-                      <p className={clsx("mt-1 text-xs leading-5", secondaryTextClass)}>
-                        {offer.bannerText || "Live offer available for this table."}
-                      </p>
+                  {offersToday.length} live
+                </span>
+                <ChevronDown
+                  className={clsx(
+                    "h-4 w-4 transition-transform duration-300",
+                    isOffersExpanded ? "rotate-180" : "rotate-0",
+                    secondaryTextClass,
+                  )}
+                />
+              </div>
+            </button>
+            <div
+              id="offers-panel"
+              className={clsx(
+                "overflow-hidden transition-[max-height,opacity,margin] duration-300 ease-out",
+                isOffersExpanded ? "mt-3 max-h-[2000px] opacity-100" : "max-h-0 opacity-0",
+              )}
+            >
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                {offersToday.map((offer) => (
+                  <article
+                    key={offer.id}
+                    className="cafe-luxe-card cafe-luxe-offer-card rounded-2xl border px-3.5 py-3.5 shadow-[0_20px_48px_-34px_rgba(122,109,96,0.24)]"
+                    style={{
+                      borderColor: withAlpha(PALETTE_ACCENT, 0.26),
+                      background: `linear-gradient(160deg, ${withAlpha(PALETTE_BASE, 0.96)} 0%, ${withAlpha(PALETTE_PREMIUM, 0.44)} 100%)`,
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className={clsx("text-sm font-semibold leading-5", contentTextClass)}>{offer.name}</p>
+                        <p className={clsx("mt-1 text-xs leading-5", secondaryTextClass)}>
+                          {offer.bannerText || "Live offer available for this table."}
+                        </p>
+                      </div>
+                      <span
+                        className="shrink-0 rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em]"
+                        style={{
+                          borderColor: withAlpha(PALETTE_INFO, 0.6),
+                          backgroundColor: withAlpha(PALETTE_INFO, 0.25),
+                          color: isLightTheme ? DEEP_CHARCOAL : WARM_HIGHLIGHT,
+                        }}
+                      >
+                        {offer.offerType}
+                      </span>
                     </div>
-                    <span
-                      className="shrink-0 rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em]"
-                      style={{
-                        borderColor: withAlpha(PALETTE_INFO, 0.6),
-                        backgroundColor: withAlpha(PALETTE_INFO, 0.25),
-                        color: isLightTheme ? DEEP_CHARCOAL : WARM_HIGHLIGHT,
-                      }}
-                    >
-                      {offer.offerType}
-                    </span>
-                  </div>
-                </article>
-              ))}
+                  </article>
+                ))}
+              </div>
             </div>
           </section>
         ) : null}
@@ -5528,6 +5557,9 @@ export default function QrOrderingExperience({
               </span>
             </button>
           </div>
+          <p className={clsx("mt-2 text-center text-[11px] font-medium tracking-[0.08em]", isLightTheme ? "text-brand-dark/72" : "text-zinc-400")}>
+            Developed by TrustFirst Solutions
+          </p>
         </div>
       </div>
       ) : null}
