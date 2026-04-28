@@ -4607,6 +4607,8 @@ export default function QrOrderingExperience({
   const headerLogoSrc = logoUrl || "/logo/cafe-luxe-logo.png";
   const tagline = clientSettings.tagline || branding?.tagline || "";
   const supportPhone = clientSettings.supportPhone;
+  const supportPhoneDialValue = supportPhone.replace(/[^0-9+]/g, "");
+  const supportPhoneHref = supportPhoneDialValue ? `tel:${supportPhoneDialValue}` : "";
   const configuredUpiId = normalizeUpiId(clientSettings.upiId) || DEFAULT_UPI_ID;
   const configuredUpiName = sanitizeUpiText(
     clientSettings.upiName.trim() || DEFAULT_UPI_NAME,
@@ -4866,22 +4868,24 @@ export default function QrOrderingExperience({
 
           </div>
           <div
-            className={clsx("mt-3.5 border-t pt-2.5", secondaryTextClass)}
+            className={clsx("mt-2.5 border-t pt-2", secondaryTextClass)}
             style={{ borderColor: withAlpha(isLightTheme ? PALETTE_ACCENT : SOFT_DARK_SURFACE, 0.24) }}
           >
-            <div className="flex items-end justify-between gap-3">
+            <div className="flex items-center justify-between gap-3">
               <div className="min-w-0 text-[13px]">
                 {supportPhone ? (
-                  <>
-                    <span className="uppercase tracking-[0.14em] text-[11px] opacity-80">Support</span>
-                    <span className="mx-1.5 opacity-55">/</span>
-                    <span
-                      className="font-medium"
-                      style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_BACKGROUND }}
-                    >
-                      {supportPhone}
-                    </span>
-                  </>
+                  <a
+                    href={supportPhoneHref}
+                    className="cafe-luxe-chip inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold transition"
+                    style={{
+                      borderColor: withAlpha(PALETTE_ACCENT, 0.34),
+                      backgroundColor: withAlpha(PALETTE_BACKGROUND, 0.9),
+                      color: isLightTheme ? PALETTE_TEXT : PALETTE_BACKGROUND,
+                    }}
+                    aria-label={`Call support ${supportPhone}`}
+                  >
+                    <span className="uppercase tracking-[0.14em] opacity-80">Call Support</span>
+                  </a>
                 ) : null}
               </div>
               <div
