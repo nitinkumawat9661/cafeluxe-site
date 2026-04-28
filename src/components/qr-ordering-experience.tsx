@@ -134,6 +134,7 @@ type TableOrderRecord = {
 };
 
 type OfferEvaluationType = "flat_discount" | "bxgy" | "combo" | "time_based";
+type OfferTargetScope = "all" | "category" | "product" | "cart";
 
 type OfferEvaluationLine = {
   itemId: string;
@@ -348,6 +349,20 @@ function getErrorMessage(error: unknown) {
     return String(error.message);
   }
   return "Unexpected error";
+}
+
+const IS_DEV_BUILD = process.env.NODE_ENV !== "production";
+
+function devWarn(...args: unknown[]) {
+  if (IS_DEV_BUILD) {
+    console.warn(...args);
+  }
+}
+
+function devError(...args: unknown[]) {
+  if (IS_DEV_BUILD) {
+    console.error(...args);
+  }
 }
 
 function normalizeRouteToken(value: string) {
@@ -847,6 +862,178 @@ function getRecordStringList(source: Record<string, unknown>, keys: string[]) {
   return Array.from(new Set(collected));
 }
 
+const OFFER_TARGET_ID_KEYS = [
+  "target_id",
+  "target_ids",
+  "targetId",
+  "targetIds",
+  "targets",
+  "target_values",
+  "targetValues",
+];
+
+const OFFER_SCOPE_KEYS = ["target_scope", "targetScope", "scope", "applies_to", "appliesTo"];
+
+const OFFER_ITEM_KEYS = [
+  "item_id",
+  "item_ids",
+  "menu_item_id",
+  "menu_item_ids",
+  "product_id",
+  "product_ids",
+];
+
+const OFFER_CATEGORY_KEYS = [
+  "category",
+  "categories",
+  "category_id",
+  "catogry_id",
+  "category_ids",
+  "catogry_ids",
+];
+
+function hasCriteriaTokens(criteria: { itemTokens: Set<string>; categoryTokens: Set<string> }) {
+  return criteria.itemTokens.size > 0 || criteria.categoryTokens.size > 0;
+}
+
+function filterOfferLinesByCriteria(
+  lines: OfferEvaluationLine[],
+  criteria: { itemTokens: Set<string>; categoryTokens: Set<string> },
+) {
+  if (!hasCriteriaTokens(criteria)) {
+    return [...lines];
+  }
+  return lines.filter((line) => lineMatchesOfferCriteria(line, criteria));
+}
+
+function normalizeOfferScopeToken(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+}
+
+function resolveOfferTargetScope(source: Record<string, unknown>): OfferTargetScope {
+  const raw = getRecordString(source, OFFER_SCOPE_KEYS);
+  const normalized = normalizeOfferScopeToken(raw);
+  if (!normalized) {
+    return "all";
+  }
+  if (
+    normalized === "product" ||
+    normalized === "products" ||
+    normalized === "item" ||
+    normalized === "items" ||
+    normalized === "menu_item" ||
+    normalized === "menu_items" ||
+    normalized === "dish" ||
+    normalized === "dishes"
+  ) {
+    return "product";
+  }
+  if (normalized === "category" || normalized === "categories") {
+    return "category";
+  }
+  if (
+    normalized === "cart" ||
+    normalized === "cart_wide" ||
+    normalized === "order" ||
+    normalized === "order_wide" ||
+    normalized === "bill"
+  ) {
+    return "cart";
+  }
+  if (
+    normalized === "all" ||
+    normalized === "global" ||
+    normalized === "site_wide" ||
+    normalized === "entire_menu"
+  ) {
+    return "all";
+  }
+  return "all";
+}
+
+function readOfferTargetIdTokens(source: Record<string, unknown>) {
+  return new Set(
+    getRecordStringList(source, OFFER_TARGET_ID_KEYS)
+      .map((entry) => normalizeOfferToken(entry))
+      .filter(Boolean),
+  );
+}
+
+function buildScopedOfferCriteria(
+  source: Record<string, unknown>,
+  baseCriteria: { itemTokens: Set<string>; categoryTokens: Set<string> },
+): {
+  scope: OfferTargetScope;
+  criteria: { itemTokens: Set<string>; categoryTokens: Set<string> };
+  isValid: boolean;
+  invalidReason: string;
+} {
+  const scope = resolveOfferTargetScope(source);
+  const targetIds = readOfferTargetIdTokens(source);
+
+  if (scope === "product") {
+    if (targetIds.size === 0) {
+      return {
+        scope,
+        criteria: { itemTokens: new Set<string>(), categoryTokens: new Set<string>() },
+        isValid: false,
+        invalidReason: "Product-scoped offer is missing target_ids.",
+      };
+    }
+    return {
+      scope,
+      criteria: {
+        itemTokens: new Set<string>([...baseCriteria.itemTokens, ...targetIds]),
+        categoryTokens: new Set<string>(),
+      },
+      isValid: true,
+      invalidReason: "",
+    };
+  }
+
+  if (scope === "category") {
+    if (targetIds.size === 0) {
+      return {
+        scope,
+        criteria: { itemTokens: new Set<string>(), categoryTokens: new Set<string>() },
+        isValid: false,
+        invalidReason: "Category-scoped offer is missing target_ids.",
+      };
+    }
+    return {
+      scope,
+      criteria: {
+        itemTokens: new Set<string>(),
+        categoryTokens: new Set<string>([...baseCriteria.categoryTokens, ...targetIds]),
+      },
+      isValid: true,
+      invalidReason: "",
+    };
+  }
+
+  if (scope === "cart") {
+    return {
+      scope,
+      criteria: {
+        itemTokens: new Set<string>(baseCriteria.itemTokens),
+        categoryTokens: new Set<string>(baseCriteria.categoryTokens),
+      },
+      isValid: true,
+      invalidReason: "",
+    };
+  }
+
+  return {
+    scope,
+    criteria: {
+      itemTokens: new Set<string>(baseCriteria.itemTokens),
+      categoryTokens: new Set<string>(baseCriteria.categoryTokens),
+    },
+    isValid: true,
+    invalidReason: "",
+  };
+}
+
 function resolveOfferTypeToken(offer: Offer): OfferEvaluationType | null {
   const raw = offer.raw as Record<string, unknown>;
   const candidate =
@@ -988,25 +1175,23 @@ function evaluateFlatDiscountOffer(
     return null;
   }
 
-  const criteria = readOfferCriteria(
-    raw,
-    ["item_id", "item_ids", "menu_item_id", "menu_item_ids", "product_id", "product_ids"],
-    ["category", "categories", "category_id", "catogry_id", "category_ids"],
-  );
-  const eligibleLines = lines.filter((line) => lineMatchesOfferCriteria(line, criteria));
-  if ((criteria.itemTokens.size > 0 || criteria.categoryTokens.size > 0) && eligibleLines.length === 0) {
+  const baseCriteria = readOfferCriteria(raw, OFFER_ITEM_KEYS, OFFER_CATEGORY_KEYS);
+  const scopedCriteriaResult = buildScopedOfferCriteria(raw, baseCriteria);
+  if (!scopedCriteriaResult.isValid) {
     return null;
   }
 
-  const eligibleSubtotal =
-    eligibleLines.length > 0
-      ? eligibleLines.reduce((sum, line) => sum + line.lineTotal, 0)
-      : subtotalAmount;
+  const eligibleLines = filterOfferLinesByCriteria(lines, scopedCriteriaResult.criteria);
+  if (hasCriteriaTokens(scopedCriteriaResult.criteria) && eligibleLines.length === 0) {
+    return null;
+  }
+
+  const eligibleSubtotal = eligibleLines.reduce((sum, line) => sum + line.lineTotal, 0);
   const estimatedBenefit = estimateOfferDiscount(raw, eligibleSubtotal);
   const matchedReason =
     minimumCartValue > 0
-      ? `Cart value matched minimum ${minimumCartValue.toFixed(2)}.`
-      : "Cart matched flat discount criteria.";
+      ? `Cart value matched minimum ${minimumCartValue.toFixed(2)} (${scopedCriteriaResult.scope} scope).`
+      : `Cart matched flat discount criteria (${scopedCriteriaResult.scope} scope).`;
 
   return {
     offerId: offer.id,
@@ -1025,6 +1210,16 @@ function evaluateBxgyOffer(
   const raw = offer.raw as Record<string, unknown>;
   const minimumCartValue = getOfferMinimumCartValue(raw);
   if (minimumCartValue > 0 && subtotalAmount < minimumCartValue) {
+    return null;
+  }
+
+  const baseScopeCriteria = readOfferCriteria(raw, OFFER_ITEM_KEYS, OFFER_CATEGORY_KEYS);
+  const scopedCriteriaResult = buildScopedOfferCriteria(raw, baseScopeCriteria);
+  if (!scopedCriteriaResult.isValid) {
+    return null;
+  }
+  const scopeLines = filterOfferLinesByCriteria(lines, scopedCriteriaResult.criteria);
+  if (hasCriteriaTokens(scopedCriteriaResult.criteria) && scopeLines.length === 0) {
     return null;
   }
 
@@ -1066,17 +1261,21 @@ function evaluateBxgyOffer(
     ["get_category", "get_categories", "get_category_id", "get_catogry_id"],
   );
 
-  const buyLines = lines.filter((line) => lineMatchesOfferCriteria(line, buyCriteria));
+  const effectiveBuyCriteria = hasCriteriaTokens(buyCriteria)
+    ? buyCriteria
+    : scopedCriteriaResult.criteria;
+  if (!hasCriteriaTokens(effectiveBuyCriteria)) {
+    return null;
+  }
+
+  const buyLines = filterOfferLinesByCriteria(scopeLines, effectiveBuyCriteria);
   const buyQuantity = buyLines.reduce((sum, line) => sum + line.quantity, 0);
   if (buyQuantity < buyQty) {
     return null;
   }
 
-  const getCriteriaFallback =
-    getCriteria.itemTokens.size === 0 && getCriteria.categoryTokens.size === 0
-      ? buyCriteria
-      : getCriteria;
-  const getLines = lines.filter((line) => lineMatchesOfferCriteria(line, getCriteriaFallback));
+  const effectiveGetCriteria = hasCriteriaTokens(getCriteria) ? getCriteria : effectiveBuyCriteria;
+  const getLines = filterOfferLinesByCriteria(scopeLines, effectiveGetCriteria);
   const getQuantity = getLines.reduce((sum, line) => sum + line.quantity, 0);
   if (getQuantity <= 0) {
     return null;
@@ -1100,7 +1299,7 @@ function evaluateBxgyOffer(
     offerId: offer.id,
     offerName: offer.name,
     offerType: "bxgy",
-    matchedReason: `Buy ${buyQty}, get ${getQty} criteria matched.`,
+    matchedReason: `Buy ${buyQty}, get ${getQty} criteria matched (${scopedCriteriaResult.scope} scope).`,
     estimatedBenefit,
   };
 }
@@ -1116,28 +1315,54 @@ function evaluateComboOffer(
     return null;
   }
 
-  const requiredItemTokens = getRecordStringList(raw, [
-    "combo_item_ids",
-    "combo_items",
-    "required_item_ids",
-    "required_items",
-    "item_ids",
-  ])
-    .map((entry) => normalizeOfferToken(entry))
-    .filter(Boolean);
-  const requiredCategoryTokens = getRecordStringList(raw, [
-    "combo_categories",
-    "combo_category_ids",
-    "required_categories",
-    "category_ids",
-    "catogry_ids",
-  ])
-    .map((entry) => normalizeOfferToken(entry))
-    .filter(Boolean);
+  const baseScopeCriteria = readOfferCriteria(raw, OFFER_ITEM_KEYS, OFFER_CATEGORY_KEYS);
+  const scopedCriteriaResult = buildScopedOfferCriteria(raw, baseScopeCriteria);
+  if (!scopedCriteriaResult.isValid) {
+    return null;
+  }
+  const scopeLines = filterOfferLinesByCriteria(lines, scopedCriteriaResult.criteria);
+  if (hasCriteriaTokens(scopedCriteriaResult.criteria) && scopeLines.length === 0) {
+    return null;
+  }
+
+  const requiredItemTokens = new Set(
+    getRecordStringList(raw, [
+      "combo_item_ids",
+      "combo_items",
+      "required_item_ids",
+      "required_items",
+      "item_ids",
+    ])
+      .map((entry) => normalizeOfferToken(entry))
+      .filter(Boolean),
+  );
+  const requiredCategoryTokens = new Set(
+    getRecordStringList(raw, [
+      "combo_categories",
+      "combo_category_ids",
+      "required_categories",
+      "category_ids",
+      "catogry_ids",
+    ])
+      .map((entry) => normalizeOfferToken(entry))
+      .filter(Boolean),
+  );
+
+  const scopeTargetIds = readOfferTargetIdTokens(raw);
+  if (scopedCriteriaResult.scope === "product") {
+    for (const token of scopeTargetIds) {
+      requiredItemTokens.add(token);
+    }
+  }
+  if (scopedCriteriaResult.scope === "category") {
+    for (const token of scopeTargetIds) {
+      requiredCategoryTokens.add(token);
+    }
+  }
 
   const lineItemTokens = new Set<string>();
   const lineCategoryTokens = new Set<string>();
-  for (const line of lines) {
+  for (const line of scopeLines) {
     lineItemTokens.add(normalizeOfferToken(line.itemId));
     lineItemTokens.add(normalizeOfferToken(line.name));
     for (const category of line.categoryRefs) {
@@ -1145,25 +1370,30 @@ function evaluateComboOffer(
     }
   }
 
+  const minDistinctItems =
+    parseInteger(
+      raw.min_distinct_items ?? raw.minimum_items ?? raw.min_items ?? raw.combo_size,
+      0,
+    );
+  const hasRequiredItemTargets = requiredItemTokens.size > 0;
+  const hasRequiredCategoryTargets = requiredCategoryTokens.size > 0;
+
   let matched = false;
   let matchedReason = "Combo criteria matched.";
-  if (requiredItemTokens.length > 0) {
-    matched = requiredItemTokens.every((token) => lineItemTokens.has(token));
-    matchedReason = "Required combo items are present in cart.";
-  } else if (requiredCategoryTokens.length > 0) {
-    matched = requiredCategoryTokens.every((token) => lineCategoryTokens.has(token));
-    matchedReason = "Required combo categories are present in cart.";
+  if (hasRequiredItemTargets || hasRequiredCategoryTargets) {
+    const itemMatch = hasRequiredItemTargets
+      ? [...requiredItemTokens].every((token) => lineItemTokens.has(token))
+      : true;
+    const categoryMatch = hasRequiredCategoryTargets
+      ? [...requiredCategoryTokens].every((token) => lineCategoryTokens.has(token))
+      : true;
+    matched = itemMatch && categoryMatch;
+    matchedReason = "Required combo targets are present in cart.";
+  } else if (scopedCriteriaResult.scope === "cart" && minDistinctItems > 0) {
+    matched = scopeLines.length >= minDistinctItems;
+    matchedReason = `Cart has required ${minDistinctItems} combo items.`;
   } else {
-    const minDistinctItems =
-      parseInteger(
-        raw.min_distinct_items ?? raw.minimum_items ?? raw.min_items ?? raw.combo_size,
-        0,
-      );
-    matched = minDistinctItems > 0 ? lines.length >= minDistinctItems : lines.length > 0;
-    matchedReason =
-      minDistinctItems > 0
-        ? `Cart has required ${minDistinctItems} combo items.`
-        : "Cart has combo-eligible items.";
+    return null;
   }
 
   if (!matched) {
@@ -1175,7 +1405,7 @@ function evaluateComboOffer(
     offerId: offer.id,
     offerName: offer.name,
     offerType: "combo",
-    matchedReason,
+    matchedReason: `${matchedReason} (${scopedCriteriaResult.scope} scope).`,
     estimatedBenefit,
   };
 }
@@ -1191,30 +1421,27 @@ function evaluateTimeBasedOffer(
     return null;
   }
 
-  const criteria = readOfferCriteria(
-    raw,
-    ["item_id", "item_ids", "menu_item_id", "menu_item_ids", "product_id", "product_ids"],
-    ["category", "categories", "category_id", "catogry_id", "category_ids"],
-  );
-  const eligibleLines = lines.filter((line) => lineMatchesOfferCriteria(line, criteria));
-  if ((criteria.itemTokens.size > 0 || criteria.categoryTokens.size > 0) && eligibleLines.length === 0) {
+  const baseCriteria = readOfferCriteria(raw, OFFER_ITEM_KEYS, OFFER_CATEGORY_KEYS);
+  const scopedCriteriaResult = buildScopedOfferCriteria(raw, baseCriteria);
+  if (!scopedCriteriaResult.isValid) {
+    return null;
+  }
+  const eligibleLines = filterOfferLinesByCriteria(lines, scopedCriteriaResult.criteria);
+  if (hasCriteriaTokens(scopedCriteriaResult.criteria) && eligibleLines.length === 0) {
     return null;
   }
   if (lines.length === 0) {
     return null;
   }
 
-  const eligibleSubtotal =
-    eligibleLines.length > 0
-      ? eligibleLines.reduce((sum, line) => sum + line.lineTotal, 0)
-      : subtotalAmount;
+  const eligibleSubtotal = eligibleLines.reduce((sum, line) => sum + line.lineTotal, 0);
   const estimatedBenefit = estimateOfferDiscount(raw, eligibleSubtotal);
 
   return {
     offerId: offer.id,
     offerName: offer.name,
     offerType: "time_based",
-    matchedReason: "Live time-window offer matched your current cart.",
+    matchedReason: `Live time-window offer matched your current cart (${scopedCriteriaResult.scope} scope).`,
     estimatedBenefit,
   };
 }
@@ -3006,7 +3233,7 @@ async function fetchTableOrderRecords(clientId: string, tableId: string) {
       message.includes("query") ||
       message.includes("filtered query failed");
     if (!canIgnore) {
-      console.error(error);
+      devError(error);
     }
     return [];
   }
@@ -3238,7 +3465,6 @@ export default function QrOrderingExperience({
   const [billOpen, setBillOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("COUNTER");
   const [canLaunchUpiDeepLink, setCanLaunchUpiDeepLink] = useState(false);
-  const [lastUpiLaunchUri, setLastUpiLaunchUri] = useState("");
   const [upiQrUri, setUpiQrUri] = useState("");
   const [upiQrAmount, setUpiQrAmount] = useState("");
   const [upiQrOpen, setUpiQrOpen] = useState(false);
@@ -3490,7 +3716,7 @@ export default function QrOrderingExperience({
           if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
             return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
           }
-          console.warn("Settings fetch failed, continuing with defaults:", error);
+          devWarn("Settings fetch failed, continuing with defaults:", error);
           return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
         });
         const offersPromise = fetchClientScopedDocuments(
@@ -3501,7 +3727,7 @@ export default function QrOrderingExperience({
           if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
             return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
           }
-          console.warn("Offers fetch failed, continuing without offers:", error);
+          devWarn("Offers fetch failed, continuing without offers:", error);
           return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
         });
         const addonGroupsPromise = fetchClientScopedDocuments(
@@ -3512,7 +3738,7 @@ export default function QrOrderingExperience({
           if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
             return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
           }
-          console.warn("Add-on groups fetch failed, continuing without add-ons:", error);
+          devWarn("Add-on groups fetch failed, continuing without add-ons:", error);
           return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
         });
         const addonOptionsPromise = fetchClientScopedDocuments(
@@ -3523,7 +3749,7 @@ export default function QrOrderingExperience({
           if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
             return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
           }
-          console.warn("Add-on options fetch failed, continuing without add-ons:", error);
+          devWarn("Add-on options fetch failed, continuing without add-ons:", error);
           return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
         });
         const itemAddonMapPromise = fetchClientScopedDocuments(
@@ -3534,7 +3760,7 @@ export default function QrOrderingExperience({
           if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
             return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
           }
-          console.warn("Item add-on mapping fetch failed, continuing without add-ons:", error);
+          devWarn("Item add-on mapping fetch failed, continuing without add-ons:", error);
           return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
         });
         const [categoryDocs, menuDocs] = await withTimeout(
@@ -3923,7 +4149,7 @@ export default function QrOrderingExperience({
               applyBackendOrders(backendOrders);
             } catch (syncError) {
               if (!cancelled) {
-                console.warn("Initial bill sync failed:", syncError);
+                devWarn("Initial bill sync failed:", syncError);
               }
             }
           })();
@@ -3932,7 +4158,7 @@ export default function QrOrderingExperience({
         if (cancelled) {
           return;
         }
-        console.error(error);
+        devError(error);
         setLoadState("error");
         const message = getErrorMessage(error).toLowerCase();
         if (message.includes("timed out")) {
@@ -4872,10 +5098,19 @@ export default function QrOrderingExperience({
   }
 
   function buildKitchenStatusPopup(record: TableOrderRecord, normalizedStatus: string) {
+    const pendingStatuses = new Set(["PENDING", "NEW", "PLACED", "RECEIVED"]);
     const preparingStatuses = new Set(["PREPARING", "COOKING", "IN_PROGRESS"]);
     const readyStatuses = new Set(["READY"]);
     const servedStatuses = new Set(["SERVED", "DELIVERED", "COMPLETED", "CLOSED", "BILLED"]);
     const confirmedStatuses = new Set(["ACCEPTED", "CONFIRMED"]);
+
+    if (pendingStatuses.has(normalizedStatus)) {
+      return {
+        title: "Order Pending",
+        description: `${record.orderNumber} is pending kitchen confirmation.`,
+        tone: "info",
+      } satisfies StatusPopupState;
+    }
 
     if (servedStatuses.has(normalizedStatus)) {
       return {
@@ -4931,14 +5166,29 @@ export default function QrOrderingExperience({
     const transitionPopups: StatusPopupState[] = [];
 
     for (const record of records) {
+      const currentStatus = record.status.trim().toUpperCase();
       const previous = previousSnapshot[record.orderId];
       if (!previous) {
-        // Seed dedupe keys for already-known statuses to avoid replay spam.
-        markKitchenStatusAlertSeen(record.orderId, record.status);
+        const popup = buildKitchenStatusPopup(record, currentStatus);
+        const hasExistingPopupKey = hasSeenKitchenStatusAlert(record.orderId, currentStatus);
+        const isCurrentJourneyOrder =
+          record.orderId === activeOrderContextRef.current?.id ||
+          record.orderId === orderPlacedId ||
+          !isOrderClosed(record.status, record.paymentStatus);
+
+        // When snapshot is missing (newly observed order), still emit one safe
+        // status toast for the active/current-order journey.
+        if (popup && !hasExistingPopupKey && isCurrentJourneyOrder) {
+          transitionPopups.push(popup);
+          markKitchenStatusAlertSeen(record.orderId, currentStatus);
+          continue;
+        }
+
+        // Seed dedupe keys for non-eligible first-seen rows to avoid replay spam.
+        markKitchenStatusAlertSeen(record.orderId, currentStatus);
         continue;
       }
 
-      const currentStatus = record.status.trim().toUpperCase();
       const currentPaymentStatus = record.paymentStatus.trim().toUpperCase();
       const previousStatus = previous.status;
       const previousPaymentStatus = previous.paymentStatus;
@@ -4976,7 +5226,10 @@ export default function QrOrderingExperience({
       const readyPopup = transitionPopups.find((entry) => entry.title === "Order Ready");
       const preparingPopup = transitionPopups.find((entry) => entry.title === "Order Preparing");
       const confirmedPopup = transitionPopups.find((entry) => entry.title === "Order Confirmed");
-      showStatusPopup(servedPopup ?? readyPopup ?? preparingPopup ?? confirmedPopup ?? transitionPopups[0]);
+      const pendingPopup = transitionPopups.find((entry) => entry.title === "Order Pending");
+      showStatusPopup(
+        servedPopup ?? readyPopup ?? preparingPopup ?? confirmedPopup ?? pendingPopup ?? transitionPopups[0],
+      );
       return;
     }
   }
@@ -5066,7 +5319,7 @@ export default function QrOrderingExperience({
           message.includes("eligible for deletion") ||
           message.includes("not found");
         if (!isExpectedSafetyStop) {
-          console.warn("Settled order cleanup failed:", error);
+          devWarn("Settled order cleanup failed:", error);
         }
       } finally {
         inFlight.delete(order.orderId);
@@ -5184,7 +5437,7 @@ export default function QrOrderingExperience({
       setBillSyncMessage(successMessage);
       return true;
     } catch (error) {
-      console.error(error);
+      devError(error);
       const message = getErrorMessage(error).toLowerCase();
       const permissionIssue =
         message.includes("not authorized") ||
@@ -5387,7 +5640,7 @@ export default function QrOrderingExperience({
 
       setBillSyncMessage("Bill refreshed successfully.");
     } catch (error) {
-      console.error(error);
+      devError(error);
       const message = getErrorMessage(error).toLowerCase();
       if (message.includes("not authorized") || message.includes("user_unauthorized")) {
         setBillSyncMessage(
@@ -5607,7 +5860,7 @@ export default function QrOrderingExperience({
             paymentPayloadCandidates,
           );
         } catch (paymentError) {
-          console.error(paymentError);
+          devError(paymentError);
           setNoticeMessage(
             "Order placed. UPI confirmation is pending and will be verified by cashier.",
           );
@@ -5710,7 +5963,7 @@ export default function QrOrderingExperience({
       setKitchenInstructions("");
       setCartOpen(false);
     } catch (orderError) {
-      console.error(orderError);
+      devError(orderError);
       const rawMessage = getErrorMessage(orderError);
       const message = rawMessage.toLowerCase();
       if (message.includes("network") || message.includes("fetch")) {
@@ -5783,9 +6036,7 @@ export default function QrOrderingExperience({
       return;
     }
 
-    setLastUpiLaunchUri(finalLaunchUri);
     touchBillActivity();
-    console.log(`[UPI_RAW_URI] ${finalLaunchUri}`);
     window.location.href = finalLaunchUri;
   }
 
@@ -5805,7 +6056,6 @@ export default function QrOrderingExperience({
       return;
     }
 
-    setLastUpiLaunchUri(finalLaunchUri);
     setUpiQrUri(finalLaunchUri);
     setUpiQrAmount(sanitizedAmount);
     setUpiQrOpen(true);
@@ -5851,14 +6101,6 @@ export default function QrOrderingExperience({
           amount: billPayableTotal,
         })
       : "";
-  const cartUpiLaunchUri = useMemo(
-    () => normalizeRawUpiUriForLaunch(cartUpiLink),
-    [cartUpiLink],
-  );
-  const currentBillUpiLaunchUri = useMemo(
-    () => normalizeRawUpiUriForLaunch(currentBillUpiLink),
-    [currentBillUpiLink],
-  );
   const upiQrImageSrc = useMemo(() => buildUpiQrImageUrl(upiQrUri), [upiQrUri]);
   const upiQrAmountNumber = useMemo(() => {
     const parsed = Number(upiQrAmount);
@@ -7143,11 +7385,6 @@ export default function QrOrderingExperience({
                               {"Copy Amount"}
                             </button>
                           </div>
-                          {currentBillUpiLaunchUri || lastUpiLaunchUri ? (
-                            <p className="mt-2 break-all rounded-lg border border-zinc-700/60 bg-zinc-950/75 px-2 py-1.5 text-[10px] text-zinc-300 md:hidden">
-                              URI Debug: {currentBillUpiLaunchUri || lastUpiLaunchUri}
-                            </p>
-                          ) : null}
                           {!canLaunchUpiDeepLink ? (
                             <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950/70 p-2 text-[11px] text-zinc-400">
                               <p>
@@ -8001,11 +8238,6 @@ export default function QrOrderingExperience({
                           </button>
                         </div>
                       </>
-                    ) : null}
-                    {cartUpiLaunchUri || lastUpiLaunchUri ? (
-                      <p className="mt-2 break-all rounded-lg border border-zinc-700/60 bg-zinc-950/75 px-2 py-1.5 text-[10px] text-zinc-300 md:hidden">
-                        URI Debug: {cartUpiLaunchUri || lastUpiLaunchUri}
-                      </p>
                     ) : null}
                     {!canLaunchUpiDeepLink ? (
                       <div

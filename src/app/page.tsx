@@ -11,6 +11,19 @@ import { parseClientSettings, parseTables, type RestaurantSettings, type Restaur
 const ROOT_CLIENT_ID = "trustfirst_demo";
 
 type HomeLoadState = "loading" | "ready" | "error";
+const IS_DEV_BUILD = process.env.NODE_ENV !== "production";
+
+function devWarn(...args: unknown[]) {
+  if (IS_DEV_BUILD) {
+    console.warn(...args);
+  }
+}
+
+function devError(...args: unknown[]) {
+  if (IS_DEV_BUILD) {
+    console.error(...args);
+  }
+}
 
 function getRouteTableToken(table: RestaurantTable) {
   return (table.tableCode || table.tableNo || table.id).trim();
@@ -58,7 +71,7 @@ async function fetchHomepageTables(clientId: string) {
     });
   } catch (filteredError) {
     const filteredReason = getErrorMessage(filteredError);
-    console.warn("[HomeTables] Client-filtered tables fetch failed, retrying unfiltered fetch.", {
+    devWarn("[HomeTables] Client-filtered tables fetch failed, retrying unfiltered fetch.", {
       clientId,
       stage: "tables.filtered",
       reason: filteredReason,
@@ -109,7 +122,7 @@ export default function Home() {
             queries: [Query.equal("client_id", [ROOT_CLIENT_ID])],
             timeoutMs: 12000,
           }).catch((settingsError) => {
-            console.warn("[HomeTables] Settings fetch failed, continuing with defaults.", {
+            devWarn("[HomeTables] Settings fetch failed, continuing with defaults.", {
               clientId: ROOT_CLIENT_ID,
               stage: "settings.filtered",
               reason: getErrorMessage(settingsError),
@@ -133,7 +146,7 @@ export default function Home() {
           return;
         }
         const reason = toSafeTableLoadReason(error);
-        console.error("[HomeTables] Live tables load failed.", {
+        devError("[HomeTables] Live tables load failed.", {
           clientId: ROOT_CLIENT_ID,
           stage: "home.load",
           reason,

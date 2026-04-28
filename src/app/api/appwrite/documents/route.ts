@@ -20,13 +20,11 @@ function normalizeEnvValue(value: string | undefined) {
 const RAW_APPWRITE_ENDPOINT = process.env.APPWRITE_ENDPOINT ?? "";
 const RAW_APPWRITE_PROJECT_ID = process.env.APPWRITE_PROJECT_ID ?? "";
 const RAW_APPWRITE_DATABASE_ID = process.env.APPWRITE_DATABASE_ID ?? "";
-const RAW_NEXT_PUBLIC_APPWRITE_DATABASE_ID =
-  process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID ?? "";
 
 const APPWRITE_ENDPOINT = normalizeEnvValue(RAW_APPWRITE_ENDPOINT);
 const APPWRITE_PROJECT_ID = normalizeEnvValue(RAW_APPWRITE_PROJECT_ID);
 const APPWRITE_DATABASE_ID = normalizeEnvValue(RAW_APPWRITE_DATABASE_ID);
-const APPWRITE_API_KEY = process.env.APPWRITE_API_KEY ?? "";
+const APPWRITE_API_KEY = normalizeEnvValue(process.env.APPWRITE_API_KEY);
 
 const TABLES_COLLECTION_ID = "tables";
 const CATEGORIES_COLLECTION_ID = "categories";
@@ -69,6 +67,16 @@ const MAX_QUERY_COUNT = 10;
 const MAX_QUERY_LENGTH = 1200;
 const MAX_ORDER_ITEMS_SNAPSHOT_CHARS = 24_000;
 const MAX_KITCHEN_NOTE_LENGTH = 500;
+const RESPONSE_SECURITY_HEADERS: Record<string, string> = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+  "CDN-Cache-Control": "no-store",
+  "Netlify-CDN-Cache-Control": "no-store",
+  "Surrogate-Control": "no-store",
+  Pragma: "no-cache",
+  Expires: "0",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "same-origin",
+};
 
 const ALLOWED_QUERY_METHODS = new Set([
   "equal",
@@ -106,33 +114,15 @@ function buildAppwriteHeaders(useApiKey = false) {
   return headers;
 }
 
-function jsonError(message: string, status: number) {
-  return NextResponse.json({ message }, { status });
+function noStoreJson(payload: Record<string, unknown>, status: number) {
+  return NextResponse.json(payload, {
+    status,
+    headers: RESPONSE_SECURITY_HEADERS,
+  });
 }
 
-function logRouteDatabaseDebug(method: string, collectionId: string) {
-  const publicDatabaseId = normalizeEnvValue(RAW_NEXT_PUBLIC_APPWRITE_DATABASE_ID);
-  console.info("[AppwriteDocumentsRouteDebug]", {
-    method,
-    collectionId,
-    APPWRITE_DATABASE_ID: RAW_APPWRITE_DATABASE_ID,
-    NEXT_PUBLIC_APPWRITE_DATABASE_ID: RAW_NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-    finalDatabaseId: APPWRITE_DATABASE_ID,
-    finalDatabaseIdLength: APPWRITE_DATABASE_ID.length,
-    isRawServerDbQuoted:
-      (RAW_APPWRITE_DATABASE_ID.trim().startsWith('"') &&
-        RAW_APPWRITE_DATABASE_ID.trim().endsWith('"')) ||
-      (RAW_APPWRITE_DATABASE_ID.trim().startsWith("'") &&
-        RAW_APPWRITE_DATABASE_ID.trim().endsWith("'")),
-    isRawServerDbAngleWrapped:
-      RAW_APPWRITE_DATABASE_ID.trim().startsWith("<") &&
-      RAW_APPWRITE_DATABASE_ID.trim().endsWith(">"),
-    isRawServerDbTrimmed: RAW_APPWRITE_DATABASE_ID === RAW_APPWRITE_DATABASE_ID.trim(),
-    serverVsPublicDatabaseIdMatch:
-      APPWRITE_DATABASE_ID.length > 0 &&
-      publicDatabaseId.length > 0 &&
-      APPWRITE_DATABASE_ID === publicDatabaseId,
-  });
+function jsonError(message: string, status: number) {
+  return noStoreJson({ message }, status);
 }
 
 function ensureServerConfig() {
@@ -476,6 +466,46 @@ function sanitizeQueryList(values: string[]) {
   return sanitized;
 }
 
+function parseNormalizedQuery(query: string) {
+  try {
+    const parsed = JSON.parse(query) as {
+      method?: string;
+      attribute?: string;
+      values?: unknown;
+    };
+    const method = typeof parsed.method === "string" ? parsed.method.trim() : "";
+    const attribute = typeof parsed.attribute === "string" ? parsed.attribute.trim() : "";
+    const values = Array.isArray(parsed.values)
+      ? parsed.values
+      : "values" in parsed
+        ? [parsed.values]
+        : [];
+    return { method, attribute, values };
+  } catch {
+    return null;
+  }
+}
+
+function hasScopedOrderReadFilters(queries: string[]) {
+  let hasClientFilter = false;
+  let hasTableFilter = false;
+
+  for (const query of queries) {
+    const parsed = parseNormalizedQuery(query);
+    if (!parsed || parsed.method !== "equal") {
+      continue;
+    }
+    if (parsed.attribute === "client_id" && parsed.values.length > 0) {
+      hasClientFilter = true;
+    }
+    if (parsed.attribute === "table_id" && parsed.values.length > 0) {
+      hasTableFilter = true;
+    }
+  }
+
+  return hasClientFilter && hasTableFilter;
+}
+
 function extractUpstreamMessage(payload: Record<string, unknown>) {
   if (typeof payload.message === "string") {
     return payload.message;
@@ -768,7 +798,7 @@ function normalizeLegacyQuery(value: string) {
 }
 
 function normalizeQueryString(value: string) {
-  return normalizeJsonQuery(value) ?? normalizeLegacyQuery(value) ?? value;
+  return normalizeJsonQuery(value) ?? normalizeLegacyQuery(value);
 }
 
 async function parseResponse(response: Response) {
@@ -956,12 +986,7 @@ export async function GET(request: NextRequest) {
     return jsonError("Invalid query parameters.", 400);
   }
 
-  if (
-    collectionId === ORDERS_COLLECTION_ID &&
-    (queries.length === 0 ||
-      !queries.some((query) => query.includes("client_id")) ||
-      !queries.some((query) => query.includes("table_id")))
-  ) {
+  if (collectionId === ORDERS_COLLECTION_ID && !hasScopedOrderReadFilters(queries)) {
     return jsonError("Order read requires client and table filters.", 400);
   }
 
@@ -969,8 +994,6 @@ export async function GET(request: NextRequest) {
   for (const query of queries) {
     params.append("queries[]", query);
   }
-
-  logRouteDatabaseDebug("GET", collectionId);
 
   const upstreamUrl = `${APPWRITE_ENDPOINT}/databases/${encodeURIComponent(
     APPWRITE_DATABASE_ID,
@@ -992,7 +1015,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  return NextResponse.json(payload, { status: upstreamResponse.status });
+  return noStoreJson(payload, upstreamResponse.status);
 }
 
 export async function POST(request: NextRequest) {
@@ -1033,8 +1056,6 @@ export async function POST(request: NextRequest) {
     return jsonError("Invalid document payload.", 400);
   }
 
-  logRouteDatabaseDebug("POST", collectionId);
-
   const upstreamUrl = `${APPWRITE_ENDPOINT}/databases/${encodeURIComponent(
     APPWRITE_DATABASE_ID,
   )}/collections/${encodeURIComponent(collectionId)}/documents`;
@@ -1057,7 +1078,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  return NextResponse.json(payload, { status: upstreamResponse.status });
+  return noStoreJson(payload, upstreamResponse.status);
 }
 
 export async function PATCH(request: NextRequest) {
@@ -1104,8 +1125,6 @@ export async function PATCH(request: NextRequest) {
     return jsonError("Invalid update payload.", 400);
   }
 
-  logRouteDatabaseDebug("PATCH", collectionId);
-
   const upstreamUrl = `${APPWRITE_ENDPOINT}/databases/${encodeURIComponent(
     APPWRITE_DATABASE_ID,
   )}/collections/${encodeURIComponent(collectionId)}/documents/${encodeURIComponent(
@@ -1129,7 +1148,7 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  return NextResponse.json(payload, { status: upstreamResponse.status });
+  return noStoreJson(payload, upstreamResponse.status);
 }
 
 export async function DELETE(request: NextRequest) {
@@ -1158,8 +1177,6 @@ export async function DELETE(request: NextRequest) {
   if (!payload) {
     return jsonError("Document delete is not allowed.", 403);
   }
-
-  logRouteDatabaseDebug("DELETE", payload.collectionId);
 
   const upstreamDocumentUrl = `${APPWRITE_ENDPOINT}/databases/${encodeURIComponent(
     APPWRITE_DATABASE_ID,
@@ -1219,8 +1236,8 @@ export async function DELETE(request: NextRequest) {
     );
   }
 
-  return NextResponse.json(
+  return noStoreJson(
     { ok: true, deletedDocumentId: payload.documentId },
-    { status: 200 },
+    200,
   );
 }

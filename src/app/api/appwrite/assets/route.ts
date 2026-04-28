@@ -4,14 +4,44 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const APPWRITE_ENDPOINT = process.env.APPWRITE_ENDPOINT ?? "";
-const APPWRITE_PROJECT_ID = process.env.APPWRITE_PROJECT_ID ?? "";
-const APPWRITE_API_KEY = process.env.APPWRITE_API_KEY ?? "";
-const APPWRITE_BUCKET_ID = process.env.APPWRITE_BUCKET_ID ?? "";
+function normalizeEnvValue(value: string | undefined) {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const quoteWrapped =
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"));
+  const angleWrapped = trimmed.startsWith("<") && trimmed.endsWith(">");
+
+  return quoteWrapped || angleWrapped ? trimmed.slice(1, -1).trim() : trimmed;
+}
+
+const APPWRITE_ENDPOINT = normalizeEnvValue(process.env.APPWRITE_ENDPOINT);
+const APPWRITE_PROJECT_ID = normalizeEnvValue(process.env.APPWRITE_PROJECT_ID);
+const APPWRITE_API_KEY = normalizeEnvValue(process.env.APPWRITE_API_KEY);
+const APPWRITE_BUCKET_ID = normalizeEnvValue(process.env.APPWRITE_BUCKET_ID);
 const DEFAULT_BUCKET_ID = "restaurant-assets";
+const RESPONSE_SECURITY_HEADERS: Record<string, string> = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+  "CDN-Cache-Control": "no-store",
+  "Netlify-CDN-Cache-Control": "no-store",
+  "Surrogate-Control": "no-store",
+  Pragma: "no-cache",
+  Expires: "0",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "same-origin",
+};
 
 function jsonError(message: string, status: number) {
-  return NextResponse.json({ message }, { status });
+  return NextResponse.json(
+    { message },
+    {
+      status,
+      headers: RESPONSE_SECURITY_HEADERS,
+    },
+  );
 }
 
 function ensureServerConfig() {
@@ -121,10 +151,9 @@ export async function GET(request: NextRequest) {
   responseHeaders.set("Surrogate-Control", "no-store");
   responseHeaders.set("Pragma", "no-cache");
   responseHeaders.set("Expires", "0");
-  responseHeaders.set("No-Transform", "true");
+  responseHeaders.set("X-Content-Type-Options", "nosniff");
+  responseHeaders.set("Referrer-Policy", "same-origin");
   responseHeaders.set("Vary", "Accept, Origin");
-  responseHeaders.set("X-Asset-FileId", fileId);
-  responseHeaders.set("X-Asset-BucketId", effectiveBucketId);
 
   const body = await upstreamResponse.arrayBuffer();
   return new NextResponse(body, {

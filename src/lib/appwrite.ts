@@ -270,17 +270,7 @@ export async function createDocumentWithFallback(
       return await createDocument(collectionId, payload);
     } catch (error) {
       latestError = error;
-      const message =
-        error && typeof error === "object" && "message" in error
-          ? String(error.message).toLowerCase()
-          : "";
-
-      const shouldTryNextPayload =
-        /unknown attribute|invalid document structure|attribute not found|invalid type|missing required attribute/i.test(
-          message,
-        );
-
-      if (!shouldTryNextPayload) {
+      if (!isSchemaRetryableError(error)) {
         throw error;
       }
     }
@@ -313,17 +303,7 @@ export async function updateDocumentWithFallback(
       return await updateDocument(collectionId, documentId, payload);
     } catch (error) {
       latestError = error;
-      const message =
-        error && typeof error === "object" && "message" in error
-          ? String(error.message).toLowerCase()
-          : "";
-
-      const shouldTryNextPayload =
-        /unknown attribute|invalid document structure|attribute not found|invalid type|missing required attribute/i.test(
-          message,
-        );
-
-      if (!shouldTryNextPayload) {
+      if (!isSchemaRetryableError(error)) {
         throw error;
       }
     }
@@ -354,6 +334,17 @@ function extractFileId(value: string) {
   }
 
   return "";
+}
+
+function isSchemaRetryableError(error: unknown) {
+  const message =
+    error && typeof error === "object" && "message" in error
+      ? String(error.message).toLowerCase()
+      : "";
+
+  return /unknown attribute|invalid document structure|attribute not found|invalid type|missing required attribute/i.test(
+    message,
+  );
 }
 
 function normalizeStorageId(value: string) {
