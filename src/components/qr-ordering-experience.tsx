@@ -68,6 +68,32 @@ type SelectedModifier = {
   price: number;
 };
 
+type AddonSelectionMode = "single" | "multi";
+
+type ItemAddonOption = {
+  id: string;
+  name: string;
+  price: number;
+  sortOrder: number;
+};
+
+type ItemAddonGroup = {
+  id: string;
+  name: string;
+  sortOrder: number;
+  selectionMode: AddonSelectionMode;
+  required: boolean;
+  options: ItemAddonOption[];
+};
+
+type SelectedAddon = {
+  groupId: string;
+  groupName: string;
+  optionId: string;
+  optionName: string;
+  price: number;
+};
+
 type CartItem = {
   item: MenuItem;
   quantity: number;
@@ -146,6 +172,7 @@ type ActiveTableCartState = {
   table: string;
   cart: Record<string, number>;
   selectedModifiersByItem: Record<string, SelectedModifier[]>;
+  selectedAddonsByItem: Record<string, SelectedAddon[]>;
   kitchenInstructions: string;
   updatedAt: string;
 };
@@ -423,6 +450,328 @@ function getRecordNumber(source: Record<string, unknown>, keys: string[]) {
     }
   }
   return Number.NaN;
+}
+
+function getRecordBoolean(source: Record<string, unknown>, keys: string[], fallback: boolean) {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "number") {
+      if (value === 1) {
+        return true;
+      }
+      if (value === 0) {
+        return false;
+      }
+    }
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (["true", "1", "yes", "y", "required", "active"].includes(normalized)) {
+        return true;
+      }
+      if (["false", "0", "no", "n", "optional", "inactive"].includes(normalized)) {
+        return false;
+      }
+    }
+  }
+  return fallback;
+}
+
+function normalizeAddonSelectionMode(value: unknown, fallback: AddonSelectionMode = "multi") {
+  const normalized = toSafeString(value).toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+  if (
+    normalized === "single" ||
+    normalized === "one" ||
+    normalized === "radio" ||
+    normalized === "single_select"
+  ) {
+    return "single";
+  }
+  if (
+    normalized === "multi" ||
+    normalized === "multiple" ||
+    normalized === "checkbox" ||
+    normalized === "multi_select"
+  ) {
+    return "multi";
+  }
+  return fallback;
+}
+
+function parseSelectedAddon(value: unknown): SelectedAddon | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const source = value as Record<string, unknown>;
+  const groupId = toSafeString(source.groupId ?? source.group_id);
+  const groupName = sanitizeUserText(
+    toSafeString(source.groupName ?? source.group_name) || "Add-on Group",
+    80,
+  );
+  const optionId = toSafeString(source.optionId ?? source.option_id);
+  const optionName = sanitizeUserText(
+    toSafeString(source.optionName ?? source.option_name ?? source.name ?? source.label),
+    80,
+  );
+
+  if (!groupId || !optionId || !optionName) {
+    return null;
+  }
+
+  return {
+    groupId,
+    groupName,
+    optionId,
+    optionName,
+    price: toAmount(source.price ?? source.amount),
+  };
+}
+
+function parseSelectedAddonList(value: unknown): SelectedAddon[] {
+  if (!value) {
+    return [];
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+    try {
+      return parseSelectedAddonList(JSON.parse(trimmed) as unknown);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const parsed = value
+    .map((entry) => parseSelectedAddon(entry))
+    .filter((entry): entry is SelectedAddon => !!entry);
+  const seen = new Set<string>();
+  return parsed.filter((entry) => {
+    const token = `${entry.groupId}::${entry.optionId}`;
+    if (seen.has(token)) {
+      return false;
+    }
+    seen.add(token);
+    return true;
+  });
+}
+
+function buildItemAddonGroupsByItem(
+  routeClient: string,
+  menuItems: MenuItem[],
+  itemAddonMapDocs: Record<string, unknown>[],
+  addonGroupDocs: Record<string, unknown>[],
+  addonOptionDocs: Record<string, unknown>[],
+) {
+  const clientTokens = new Set(buildClientCandidates(routeClient).map((entry) => normalizeRouteToken(entry)));
+  const isDocInClientScope = (doc: Record<string, unknown>) => {
+    const clientValue = getRecordString(doc, ["client_id", "client"]);
+    if (!clientValue) {
+      return true;
+    }
+    return clientTokens.has(normalizeRouteToken(clientValue));
+  };
+
+  const menuItemByDirectToken = new Map<string, string>();
+  const menuItemByNormalizedToken = new Map<string, string>();
+  for (const item of menuItems) {
+    menuItemByDirectToken.set(item.id.toLowerCase(), item.id);
+    const nameToken = normalizeRouteToken(item.name);
+    if (nameToken && !menuItemByNormalizedToken.has(nameToken)) {
+      menuItemByNormalizedToken.set(nameToken, item.id);
+    }
+    const hindiToken = normalizeRouteToken(item.nameHi);
+    if (hindiToken && !menuItemByNormalizedToken.has(hindiToken)) {
+      menuItemByNormalizedToken.set(hindiToken, item.id);
+    }
+  }
+
+  const resolveMenuItemId = (rawToken: string) => {
+    const cleaned = rawToken.trim();
+    if (!cleaned) {
+      return "";
+    }
+    const direct = menuItemByDirectToken.get(cleaned.toLowerCase());
+    if (direct) {
+      return direct;
+    }
+    const normalized = normalizeRouteToken(cleaned);
+    return menuItemByNormalizedToken.get(normalized) ?? "";
+  };
+
+  const addonGroupLookup = new Map<
+    string,
+    { id: string; name: string; required: boolean; selectionMode: AddonSelectionMode; sortOrder: number }
+  >();
+  for (const rawDoc of addonGroupDocs) {
+    const doc = rawDoc as Record<string, unknown>;
+    if (!isDocInClientScope(doc)) {
+      continue;
+    }
+    const id = toSafeString(doc.$id);
+    if (!id) {
+      continue;
+    }
+    const isActive = getRecordBoolean(doc, ["active", "is_active", "enabled"], true);
+    if (!isActive) {
+      continue;
+    }
+    const name = sanitizeUserText(
+      getRecordString(doc, ["name", "title", "label", "group_name"]) || "Add-ons",
+      80,
+    );
+    const isMulti =
+      getRecordBoolean(doc, ["is_multi", "allow_multiple", "multiple"], false) ||
+      getRecordBoolean(doc, ["multi_select", "is_multi_select"], false);
+    const selectionMode = normalizeAddonSelectionMode(
+      getRecordString(doc, [
+        "selection_mode",
+        "selectionMode",
+        "selection_type",
+        "selectionType",
+        "input_type",
+        "type",
+      ]),
+      isMulti ? "multi" : "single",
+    );
+    const required = getRecordBoolean(doc, ["is_required", "required", "mandatory"], false);
+    const sortOrder = Number.isFinite(getRecordNumber(doc, ["sort_order", "display_order", "sortOrder", "position"]))
+      ? getRecordNumber(doc, ["sort_order", "display_order", "sortOrder", "position"])
+      : Number.MAX_SAFE_INTEGER;
+
+    addonGroupLookup.set(id, {
+      id,
+      name,
+      required,
+      selectionMode,
+      sortOrder,
+    });
+  }
+
+  const optionsByGroup = new Map<string, ItemAddonOption[]>();
+  for (const rawDoc of addonOptionDocs) {
+    const doc = rawDoc as Record<string, unknown>;
+    if (!isDocInClientScope(doc)) {
+      continue;
+    }
+    const id = toSafeString(doc.$id);
+    if (!id) {
+      continue;
+    }
+    const isActive = getRecordBoolean(doc, ["active", "is_active", "enabled"], true);
+    if (!isActive) {
+      continue;
+    }
+    const groupId = getRecordString(doc, ["addon_group_id", "group_id", "addonGroupId", "groupId"]);
+    if (!groupId || !addonGroupLookup.has(groupId)) {
+      continue;
+    }
+    const name = sanitizeUserText(
+      getRecordString(doc, ["name", "title", "label", "option_name"]) || "Option",
+      80,
+    );
+    const sortOrder = Number.isFinite(getRecordNumber(doc, ["sort_order", "display_order", "sortOrder", "position"]))
+      ? getRecordNumber(doc, ["sort_order", "display_order", "sortOrder", "position"])
+      : Number.MAX_SAFE_INTEGER;
+    const option: ItemAddonOption = {
+      id,
+      name,
+      price: toAmount(doc.price ?? doc.amount ?? doc.extra_price),
+      sortOrder,
+    };
+    const existing = optionsByGroup.get(groupId) ?? [];
+    existing.push(option);
+    optionsByGroup.set(groupId, existing);
+  }
+
+  const mappedGroupsByItem = new Map<string, Array<{ groupId: string; sortOrder: number }>>();
+  for (const rawDoc of itemAddonMapDocs) {
+    const doc = rawDoc as Record<string, unknown>;
+    if (!isDocInClientScope(doc)) {
+      continue;
+    }
+    const isActive = getRecordBoolean(doc, ["active", "is_active", "enabled"], true);
+    if (!isActive) {
+      continue;
+    }
+    const groupId = getRecordString(doc, ["addon_group_id", "group_id", "addonGroupId", "groupId"]);
+    if (!groupId || !addonGroupLookup.has(groupId)) {
+      continue;
+    }
+    const itemToken = getRecordString(doc, [
+      "item_id",
+      "menu_item_id",
+      "menuItemId",
+      "product_id",
+      "item",
+      "menu_item",
+      "item_name",
+      "menu_item_name",
+    ]);
+    const itemId = resolveMenuItemId(itemToken);
+    if (!itemId) {
+      continue;
+    }
+    const sortOrder = Number.isFinite(getRecordNumber(doc, ["sort_order", "display_order", "sortOrder", "position"]))
+      ? getRecordNumber(doc, ["sort_order", "display_order", "sortOrder", "position"])
+      : Number.MAX_SAFE_INTEGER;
+
+    const existing = mappedGroupsByItem.get(itemId) ?? [];
+    existing.push({ groupId, sortOrder });
+    mappedGroupsByItem.set(itemId, existing);
+  }
+
+  const result: Record<string, ItemAddonGroup[]> = {};
+  for (const [itemId, mappedGroups] of mappedGroupsByItem) {
+    const dedupedGroupMap = new Map<string, number>();
+    for (const mappedGroup of mappedGroups) {
+      const existingSort = dedupedGroupMap.get(mappedGroup.groupId);
+      if (existingSort === undefined || mappedGroup.sortOrder < existingSort) {
+        dedupedGroupMap.set(mappedGroup.groupId, mappedGroup.sortOrder);
+      }
+    }
+
+    const resolvedGroups = [...dedupedGroupMap.entries()]
+      .map(([groupId, mappedSortOrder]) => {
+        const group = addonGroupLookup.get(groupId);
+        if (!group) {
+          return null;
+        }
+        const options = [...(optionsByGroup.get(groupId) ?? [])]
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+        if (options.length === 0) {
+          return null;
+        }
+        return {
+          id: group.id,
+          name: group.name,
+          required: group.required,
+          selectionMode: group.selectionMode,
+          sortOrder:
+            Number.isFinite(mappedSortOrder) && mappedSortOrder !== Number.MAX_SAFE_INTEGER
+              ? mappedSortOrder
+              : group.sortOrder,
+          options,
+        } satisfies ItemAddonGroup;
+      })
+      .filter((entry): entry is ItemAddonGroup => !!entry)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+
+    if (resolvedGroups.length > 0) {
+      result[itemId] = resolvedGroups;
+    }
+  }
+
+  return result;
 }
 
 function parseUnknownStringList(value: unknown): string[] {
@@ -2088,12 +2437,29 @@ function parseActiveCartState(rawValue: string | null) {
       }
     }
 
+    const selectedAddonsByItem: Record<string, SelectedAddon[]> = {};
+    const addonSource =
+      parsed.selectedAddonsByItem && typeof parsed.selectedAddonsByItem === "object"
+        ? (parsed.selectedAddonsByItem as Record<string, unknown>)
+        : {};
+
+    for (const [itemId, entry] of Object.entries(addonSource)) {
+      if (!itemId || !cart[itemId]) {
+        continue;
+      }
+      const parsedAddons = parseSelectedAddonList(entry);
+      if (parsedAddons.length > 0) {
+        selectedAddonsByItem[itemId] = parsedAddons;
+      }
+    }
+
     return {
       version: ACTIVE_TABLE_STORAGE_VERSION,
       client: toSafeString(parsed.client),
       table: toSafeString(parsed.table),
       cart,
       selectedModifiersByItem,
+      selectedAddonsByItem,
       kitchenInstructions:
         sanitizeInstructionText(
           toSafeString(parsed.kitchenInstructions) ||
@@ -2648,6 +3014,12 @@ export default function QrOrderingExperience({
   const [selectedModifiersByItem, setSelectedModifiersByItem] = useState<
     Record<string, SelectedModifier[]>
   >({});
+  const [selectedAddonsByItem, setSelectedAddonsByItem] = useState<Record<string, SelectedAddon[]>>({});
+  const [itemAddonGroupsByItem, setItemAddonGroupsByItem] = useState<Record<string, ItemAddonGroup[]>>({});
+  const [addonPickerItemId, setAddonPickerItemId] = useState("");
+  const [addonPickerDraftByGroup, setAddonPickerDraftByGroup] = useState<Record<string, string[]>>({});
+  const [addonPickerError, setAddonPickerError] = useState("");
+  const [addonPickerMode, setAddonPickerMode] = useState<"add" | "edit">("add");
   const [isOffersExpanded, setIsOffersExpanded] = useState(false);
   const [kitchenInstructions, setKitchenInstructions] = useState("");
   const [isCartHydrated, setIsCartHydrated] = useState(false);
@@ -2813,6 +3185,12 @@ export default function QrOrderingExperience({
       setSearchText("");
       setBillOpen(false);
       setSelectedModifiersByItem({});
+      setSelectedAddonsByItem({});
+      setItemAddonGroupsByItem({});
+      setAddonPickerItemId("");
+      setAddonPickerDraftByGroup({});
+      setAddonPickerError("");
+      setAddonPickerMode("add");
       setKitchenInstructions("");
       setOffersToday([]);
 
@@ -2863,6 +3241,39 @@ export default function QrOrderingExperience({
             return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
           }
           console.warn("Offers fetch failed, continuing without offers:", error);
+          return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+        });
+        const addonGroupsPromise = fetchClientScopedDocuments(
+          appwriteConfig.collections.addonGroups,
+          routeClient,
+          { pageSize: 80, maxDocs: 360 },
+        ).catch((error) => {
+          if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
+            return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+          }
+          console.warn("Add-on groups fetch failed, continuing without add-ons:", error);
+          return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+        });
+        const addonOptionsPromise = fetchClientScopedDocuments(
+          appwriteConfig.collections.addonOptions,
+          routeClient,
+          { pageSize: 120, maxDocs: 800 },
+        ).catch((error) => {
+          if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
+            return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+          }
+          console.warn("Add-on options fetch failed, continuing without add-ons:", error);
+          return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+        });
+        const itemAddonMapPromise = fetchClientScopedDocuments(
+          appwriteConfig.collections.itemAddonMap,
+          routeClient,
+          { pageSize: 120, maxDocs: 800 },
+        ).catch((error) => {
+          if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
+            return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+          }
+          console.warn("Item add-on mapping fetch failed, continuing without add-ons:", error);
           return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
         });
         const [categoryDocs, menuDocs] = await withTimeout(
@@ -2960,6 +3371,7 @@ export default function QrOrderingExperience({
                 table: routeTable,
                 cart: legacyForRoute.cart,
                 selectedModifiersByItem: {},
+                selectedAddonsByItem: {},
                 kitchenInstructions: "",
                 updatedAt: legacyForRoute.updatedAt || nowIso,
               };
@@ -3009,10 +3421,12 @@ export default function QrOrderingExperience({
 
           const hydratedCart: Record<string, number> = {};
           const hydratedModifiers: Record<string, SelectedModifier[]> = {};
+          const hydratedAddons: Record<string, SelectedAddon[]> = {};
           let restoredInstructions = "";
           const validIds = new Set(parsedItems.map((item) => item.id));
           const cartSource = cartForRoute?.cart ?? legacyForRoute?.cart ?? {};
           const modifierSource = cartForRoute?.selectedModifiersByItem ?? {};
+          const addonSource = cartForRoute?.selectedAddonsByItem ?? {};
           restoredInstructions = sanitizeInstructionText(cartForRoute?.kitchenInstructions ?? "");
 
           for (const [itemId, qtyValue] of Object.entries(cartSource)) {
@@ -3029,6 +3443,16 @@ export default function QrOrderingExperience({
             const parsedModifiers = parseSelectedModifierList(selected);
             if (parsedModifiers.length > 0) {
               hydratedModifiers[itemId] = parsedModifiers;
+            }
+          }
+
+          for (const [itemId, selected] of Object.entries(addonSource)) {
+            if (!hydratedCart[itemId]) {
+              continue;
+            }
+            const parsedAddons = parseSelectedAddonList(selected);
+            if (parsedAddons.length > 0) {
+              hydratedAddons[itemId] = parsedAddons;
             }
           }
 
@@ -3086,10 +3510,12 @@ export default function QrOrderingExperience({
 
           setCart(hydratedCart);
           setSelectedModifiersByItem(hydratedModifiers);
+          setSelectedAddonsByItem(hydratedAddons);
           setKitchenInstructions(restoredInstructions);
         } else {
           setCart({});
           setSelectedModifiersByItem({});
+          setSelectedAddonsByItem({});
           setKitchenInstructions("");
           setTableOrders([]);
           tableOrdersRef.current = [];
@@ -3122,6 +3548,22 @@ export default function QrOrderingExperience({
           }
           setOffersToday(parseActiveOffers(offerDocs, routeClient, new Date()));
         });
+
+        void Promise.all([itemAddonMapPromise, addonGroupsPromise, addonOptionsPromise]).then(
+          ([itemAddonMapDocs, addonGroupDocs, addonOptionDocs]) => {
+            if (cancelled) {
+              return;
+            }
+            const resolved = buildItemAddonGroupsByItem(
+              routeClient,
+              parsedItems,
+              itemAddonMapDocs as Record<string, unknown>[],
+              addonGroupDocs as Record<string, unknown>[],
+              addonOptionDocs as Record<string, unknown>[],
+            );
+            setItemAddonGroupsByItem(resolved);
+          },
+        );
 
         // Sync backend orders in background so first load does not wait on order-history calls.
         if (ENABLE_BACKEND_ORDER_SYNC && shouldResumeOrderSync) {
@@ -3240,6 +3682,7 @@ export default function QrOrderingExperience({
     const nowIso = new Date().toISOString();
     const hasCart = Object.keys(cart).length > 0;
     const hasModifierSelections = Object.keys(selectedModifiersByItem).length > 0;
+    const hasAddonSelections = Object.keys(selectedAddonsByItem).length > 0;
     const hasInstructions = kitchenInstructions.trim().length > 0;
     const hasOpenOrder =
       !!activeOrderContext &&
@@ -3257,6 +3700,7 @@ export default function QrOrderingExperience({
       table: routeTable,
       cart,
       selectedModifiersByItem,
+      selectedAddonsByItem,
       kitchenInstructions: kitchenInstructions.trim(),
       updatedAt: nowIso,
     };
@@ -3286,7 +3730,7 @@ export default function QrOrderingExperience({
     const billStatePayload = JSON.stringify(activeBillState);
     const sessionStatePayload = JSON.stringify(activeSessionState);
 
-    if (hasCart || hasModifierSelections || hasInstructions) {
+    if (hasCart || hasModifierSelections || hasAddonSelections || hasInstructions) {
       if (persistedCartStateRef.current !== cartStatePayload) {
         window.localStorage.setItem(activeCartStorageKey, cartStatePayload);
         persistedCartStateRef.current = cartStatePayload;
@@ -3338,6 +3782,7 @@ export default function QrOrderingExperience({
     legacyTableSessionStorageKey,
     routeClient,
     routeTable,
+    selectedAddonsByItem,
     selectedModifiersByItem,
     tableOrders,
     billLastActivityAt,
@@ -3514,6 +3959,26 @@ export default function QrOrderingExperience({
     });
   }, [cart]);
 
+  useEffect(() => {
+    setSelectedAddonsByItem((current) => {
+      const next: Record<string, SelectedAddon[]> = {};
+      let changed = false;
+
+      for (const [itemId, selections] of Object.entries(current)) {
+        if ((cart[itemId] ?? 0) > 0 && selections.length > 0) {
+          next[itemId] = selections;
+          continue;
+        }
+        changed = true;
+      }
+
+      if (!changed && Object.keys(next).length === Object.keys(current).length) {
+        return current;
+      }
+      return next;
+    });
+  }, [cart]);
+
   const modifierOptionsByItem = useMemo(() => {
     const mapping: Record<string, ModifierOption[]> = {};
     for (const item of menuItems) {
@@ -3557,6 +4022,61 @@ export default function QrOrderingExperience({
 
     return resolved;
   }, [cartItems, modifierOptionsByItem, selectedModifiersByItem]);
+
+  const resolvedSelectedAddonsByItem = useMemo(() => {
+    const resolved: Record<string, SelectedAddon[]> = {};
+
+    for (const { item } of cartItems) {
+      const selected = selectedAddonsByItem[item.id] ?? [];
+      const addonGroups = itemAddonGroupsByItem[item.id] ?? [];
+      if (selected.length === 0 || addonGroups.length === 0) {
+        continue;
+      }
+
+      const groupLookup = new Map(addonGroups.map((group) => [group.id, group]));
+      const sanitized: SelectedAddon[] = [];
+      const seen = new Set<string>();
+
+      for (const entry of selected) {
+        const group = groupLookup.get(entry.groupId);
+        if (!group) {
+          continue;
+        }
+        const option = group.options.find((candidate) => candidate.id === entry.optionId);
+        if (!option) {
+          continue;
+        }
+        const dedupeToken = `${group.id}::${option.id}`;
+        if (seen.has(dedupeToken)) {
+          continue;
+        }
+        seen.add(dedupeToken);
+        sanitized.push({
+          groupId: group.id,
+          groupName: group.name,
+          optionId: option.id,
+          optionName: option.name,
+          price: option.price,
+        });
+      }
+
+      if (sanitized.length > 0) {
+        resolved[item.id] = sanitized;
+      }
+    }
+
+    return resolved;
+  }, [cartItems, itemAddonGroupsByItem, selectedAddonsByItem]);
+
+  const addonPickerItem = useMemo(
+    () => menuItems.find((item) => item.id === addonPickerItemId) ?? null,
+    [addonPickerItemId, menuItems],
+  );
+  const addonPickerGroups = useMemo(
+    () => (addonPickerItem ? itemAddonGroupsByItem[addonPickerItem.id] ?? [] : []),
+    [addonPickerItem, itemAddonGroupsByItem],
+  );
+  const addonPickerOpen = !!addonPickerItem && addonPickerGroups.length > 0;
 
   const subtotal = useMemo(() => {
     return cartItems.reduce((totalAmount, cartItem) => {
@@ -3791,6 +4311,7 @@ export default function QrOrderingExperience({
   function clearCart() {
     setCart({});
     setSelectedModifiersByItem({});
+    setSelectedAddonsByItem({});
     setKitchenInstructions("");
   }
 
@@ -3821,6 +4342,101 @@ export default function QrOrderingExperience({
       }
       return next;
     });
+  }
+
+  function closeAddonPicker() {
+    setAddonPickerItemId("");
+    setAddonPickerDraftByGroup({});
+    setAddonPickerError("");
+    setAddonPickerMode("add");
+  }
+
+  function openAddonPickerForItem(item: MenuItem, mode: "add" | "edit" = "add") {
+    const addonGroups = itemAddonGroupsByItem[item.id] ?? [];
+    if (addonGroups.length === 0) {
+      updateItemQuantity(item.id, 1);
+      return;
+    }
+
+    const existingSelections = resolvedSelectedAddonsByItem[item.id] ?? [];
+    const initialDraft: Record<string, string[]> = {};
+    for (const group of addonGroups) {
+      const selectedOptions = existingSelections
+        .filter((entry) => entry.groupId === group.id)
+        .map((entry) => entry.optionId);
+      if (selectedOptions.length > 0) {
+        initialDraft[group.id] =
+          group.selectionMode === "single" ? [selectedOptions[0]] : selectedOptions;
+      }
+    }
+
+    setAddonPickerItemId(item.id);
+    setAddonPickerDraftByGroup(initialDraft);
+    setAddonPickerError("");
+    setAddonPickerMode(mode);
+  }
+
+  function toggleAddonDraftOption(group: ItemAddonGroup, optionId: string) {
+    setAddonPickerDraftByGroup((current) => {
+      const existing = current[group.id] ?? [];
+      if (group.selectionMode === "single") {
+        return { ...current, [group.id]: [optionId] };
+      }
+
+      const isSelected = existing.includes(optionId);
+      const nextGroupSelection = isSelected
+        ? existing.filter((entry) => entry !== optionId)
+        : [...existing, optionId];
+      return {
+        ...current,
+        [group.id]: nextGroupSelection,
+      };
+    });
+    setAddonPickerError("");
+  }
+
+  function saveAddonSelectionAndAddItem() {
+    if (!addonPickerItem) {
+      return;
+    }
+
+    const nextSelection: SelectedAddon[] = [];
+    for (const group of addonPickerGroups) {
+      const selectedOptionIds = addonPickerDraftByGroup[group.id] ?? [];
+      if (group.required && selectedOptionIds.length === 0) {
+        setAddonPickerError(`Please select at least one option for ${group.name}.`);
+        return;
+      }
+
+      for (const optionId of selectedOptionIds) {
+        const option = group.options.find((entry) => entry.id === optionId);
+        if (!option) {
+          continue;
+        }
+        nextSelection.push({
+          groupId: group.id,
+          groupName: group.name,
+          optionId: option.id,
+          optionName: option.name,
+          price: option.price,
+        });
+      }
+    }
+
+    setSelectedAddonsByItem((current) => {
+      const next = { ...current };
+      if (nextSelection.length > 0) {
+        next[addonPickerItem.id] = nextSelection;
+      } else {
+        delete next[addonPickerItem.id];
+      }
+      return next;
+    });
+
+    if (addonPickerMode === "add") {
+      updateItemQuantity(addonPickerItem.id, 1);
+    }
+    closeAddonPicker();
   }
 
   function showStatusPopup(nextPopup: StatusPopupState) {
@@ -4486,6 +5102,7 @@ export default function QrOrderingExperience({
 
       setCart({});
       setSelectedModifiersByItem({});
+      setSelectedAddonsByItem({});
       setKitchenInstructions("");
       setCartOpen(false);
     } catch (orderError) {
@@ -5257,9 +5874,12 @@ export default function QrOrderingExperience({
               const parsedImageSrc = item.image.trim();
               const hasImage = parsedImageSrc.length > 0;
               const selectedModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
+              const selectedAddons = resolvedSelectedAddonsByItem[item.id] ?? [];
               const modifierTotal = getSelectedModifierTotal(selectedModifiers);
               const displayPrice = item.price + modifierTotal;
               const itemModifierOptions = modifierOptionsByItem[item.id] ?? [];
+              const itemAddonGroups = itemAddonGroupsByItem[item.id] ?? [];
+              const hasMappedAddons = itemAddonGroups.length > 0;
 
               return (
                 <article
@@ -5410,6 +6030,10 @@ export default function QrOrderingExperience({
                             borderColor: withAlpha(LUXURY_GOLD, 0.55),
                           }}
                           onClick={() => {
+                            if (hasMappedAddons) {
+                              openAddonPickerForItem(item);
+                              return;
+                            }
                             updateItemQuantity(item.id, 1);
                           }}
                         >
@@ -5456,7 +6080,35 @@ export default function QrOrderingExperience({
                       )}
                     </div>
 
-                    {itemModifierOptions.length > 0 ? (
+                    {hasMappedAddons ? (
+                      <div className="flex items-center justify-between gap-2">
+                        <p className={clsx("text-[11px]", secondaryTextClass)}>
+                          {selectedAddons.length > 0
+                            ? `${selectedAddons.length} add-on selection${selectedAddons.length > 1 ? "s" : ""}`
+                            : `${itemAddonGroups.length} add-on group${itemAddonGroups.length > 1 ? "s" : ""} available`}
+                        </p>
+                        <button
+                          type="button"
+                          className={clsx(
+                            "cafe-luxe-chip rounded-full border px-2 py-1 text-[11px] font-medium transition",
+                            isLightTheme
+                              ? "text-brand-dark/80 hover:bg-[#E8D9C5]"
+                              : "text-zinc-200 hover:bg-zinc-800",
+                          )}
+                          style={{
+                            borderColor: withAlpha(WARM_HIGHLIGHT, 0.25),
+                            backgroundColor: isLightTheme
+                              ? withAlpha(PALETTE_SURFACE, 0.95)
+                              : withAlpha(SOFT_DARK_SURFACE, 0.7),
+                          }}
+                          onClick={() => openAddonPickerForItem(item, "edit")}
+                        >
+                          {selectedAddons.length > 0 ? "Edit Add-ons" : "Choose Add-ons"}
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {!hasMappedAddons && itemModifierOptions.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5 pt-1">
                         {itemModifierOptions.slice(0, 3).map((option) => {
                           const selected = selectedModifiers.some((entry) => entry.id === option.id);
@@ -6310,7 +6962,10 @@ export default function QrOrderingExperience({
                   <div className="space-y-3">
                     {cartItems.map(({ item, quantity }) => {
                       const selected = resolvedSelectedModifiersByItem[item.id] ?? [];
+                      const selectedAddons = resolvedSelectedAddonsByItem[item.id] ?? [];
                       const modifierOptions = modifierOptionsByItem[item.id] ?? [];
+                      const itemAddonGroups = itemAddonGroupsByItem[item.id] ?? [];
+                      const hasMappedAddons = itemAddonGroups.length > 0;
                       const modifierUnitTotal = getSelectedModifierTotal(selected);
                       const effectiveUnit = item.price + modifierUnitTotal;
                       const secondaryLine = item.description || item.nameHi;
@@ -6366,6 +7021,30 @@ export default function QrOrderingExperience({
                             </div>
                           ) : null}
 
+                          {selectedAddons.length > 0 ? (
+                            <div className="mt-3 space-y-1.5">
+                              <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                                Selected Add-ons
+                              </p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {selectedAddons.map((addon) => (
+                                  <span
+                                    key={`${item.id}_addon_${addon.groupId}_${addon.optionId}`}
+                                    className="inline-flex items-center rounded-md border px-2 py-1 text-[11px] font-medium leading-none"
+                                    style={{
+                                      borderColor: withAlpha(WARM_HIGHLIGHT, 0.28),
+                                      backgroundColor: withAlpha(WARM_HIGHLIGHT, isLightTheme ? 0.22 : 0.12),
+                                      color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE,
+                                    }}
+                                  >
+                                    {addon.groupName}: {addon.optionName}
+                                    {addon.price > 0 ? ` (+${formatMoney(addon.price)})` : ""}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
                           <div className="mt-3 flex items-center justify-between gap-3">
                             <div
                               className={clsx(
@@ -6400,7 +7079,27 @@ export default function QrOrderingExperience({
                             </p>
                           </div>
 
-                          {modifierOptions.length > 0 ? (
+                          {hasMappedAddons ? (
+                            <div className="mt-3 flex items-center justify-between gap-2">
+                              <p className={clsx("text-[11px]", secondaryTextClass)}>
+                                {itemAddonGroups.length} group{itemAddonGroups.length > 1 ? "s" : ""} available
+                              </p>
+                              <button
+                                type="button"
+                                className={clsx(
+                                  "rounded-lg border px-2.5 py-1 text-[11px] font-medium transition",
+                                  isLightTheme
+                                    ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
+                                    : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                                )}
+                                onClick={() => openAddonPickerForItem(item, "edit")}
+                              >
+                                {selectedAddons.length > 0 ? "Edit Add-ons" : "Choose Add-ons"}
+                              </button>
+                            </div>
+                          ) : null}
+
+                          {!hasMappedAddons && modifierOptions.length > 0 ? (
                             <div className="mt-3">
                               <p className="mb-1.5 text-[10px] uppercase tracking-[0.14em] text-zinc-500">
                                 Add-ons
@@ -6793,6 +7492,167 @@ export default function QrOrderingExperience({
                   )}
                 </button>
               </div>
+            </div>
+          </aside>
+        </div>
+      ) : null}
+
+      {addonPickerOpen && addonPickerItem ? (
+        <div
+          className="fixed inset-0 z-[68] backdrop-blur-sm"
+          style={{ backgroundColor: overlayShade }}
+        >
+          <button
+            type="button"
+            className="absolute inset-0 h-full w-full cursor-default"
+            onClick={closeAddonPicker}
+            aria-label="Close add-on selector"
+          />
+          <aside
+            className={clsx(
+              "cafe-luxe-card-strong absolute inset-x-0 bottom-0 mx-auto w-full max-w-[520px] rounded-t-3xl border px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 shadow-[0_28px_80px_-40px_rgba(0,0,0,0.98)] md:inset-y-0 md:my-auto md:h-fit md:rounded-3xl",
+              isLightTheme
+                ? "border-[#C6A57B] bg-[#E8D9C5] text-brand-dark"
+                : "border-zinc-800 bg-zinc-950/95 text-zinc-100",
+            )}
+            style={{ borderColor: accentSubtle }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className={clsx("text-[10px] uppercase tracking-[0.16em]", isLightTheme ? "text-brand-dark/65" : "text-zinc-400")}>
+                  Select Add-ons
+                </p>
+                <h3 className={clsx("mt-1 line-clamp-2 text-sm font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
+                  {addonPickerItem.name}
+                </h3>
+              </div>
+              <button
+                type="button"
+                className={clsx(
+                  "rounded-lg border px-2.5 py-1 text-xs font-medium transition",
+                  isLightTheme
+                    ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
+                    : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                )}
+                onClick={closeAddonPicker}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-3 max-h-[54vh] space-y-3 overflow-y-auto pr-1">
+              {addonPickerGroups.map((group) => {
+                const selectedOptionIds = addonPickerDraftByGroup[group.id] ?? [];
+                return (
+                  <section
+                    key={`addon_group_${group.id}`}
+                    className={clsx(
+                      "rounded-2xl border p-3",
+                      isLightTheme
+                        ? "border-[#C6A57B] bg-[#F8F5F0]/90"
+                        : "border-zinc-800/30 bg-zinc-900/50",
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className={clsx("text-sm font-semibold", contentTextClass)}>{group.name}</p>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={clsx(
+                            "rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]",
+                            isLightTheme ? "border-[#C6A57B] bg-[#E8D9C5] text-brand-dark/80" : "border-zinc-700 text-zinc-300",
+                          )}
+                        >
+                          {group.selectionMode === "single" ? "Single" : "Multi"}
+                        </span>
+                        <span
+                          className={clsx(
+                            "rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]",
+                            group.required
+                              ? isLightTheme
+                                ? "border-[#C6A57B] bg-[#C6A57B] text-brand-dark"
+                                : "border-amber-400/40 bg-amber-400/20 text-amber-200"
+                              : isLightTheme
+                                ? "border-[#C6A57B] bg-[#E8D9C5] text-brand-dark/80"
+                                : "border-zinc-700 text-zinc-300",
+                          )}
+                        >
+                          {group.required ? "Required" : "Optional"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {group.options.map((option) => {
+                        const isSelected = selectedOptionIds.includes(option.id);
+                        return (
+                          <button
+                            key={`addon_option_${group.id}_${option.id}`}
+                            type="button"
+                            className={clsx(
+                              "inline-flex min-h-10 items-center justify-between rounded-xl border px-3 py-2 text-left text-xs font-medium transition",
+                              isSelected
+                                ? "text-zinc-950"
+                                : isLightTheme
+                                  ? "text-brand-dark/80"
+                                  : "text-zinc-200",
+                            )}
+                            style={
+                              isSelected
+                                ? {
+                                    borderColor: withAlpha(WARM_HIGHLIGHT, 0.5),
+                                    background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
+                                  }
+                                : {
+                                    borderColor: withAlpha(WARM_HIGHLIGHT, 0.25),
+                                    backgroundColor: isLightTheme
+                                      ? withAlpha(PALETTE_SURFACE, 0.95)
+                                      : withAlpha(SOFT_DARK_SURFACE, 0.7),
+                                  }
+                            }
+                            onClick={() => toggleAddonDraftOption(group, option.id)}
+                          >
+                            <span className="line-clamp-2">{option.name}</span>
+                            <span className="shrink-0 pl-2 text-[11px] font-semibold">
+                              {option.price > 0 ? `+${formatMoney(option.price)}` : "Free"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+
+            {addonPickerError ? (
+              <p className="mt-3 rounded-lg border border-rose-400/35 bg-rose-500/10 px-3 py-2 text-xs text-rose-600">
+                {addonPickerError}
+              </p>
+            ) : null}
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className={clsx(
+                  "rounded-xl border px-3 py-2.5 text-sm font-semibold transition",
+                  isLightTheme
+                    ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
+                    : "border-zinc-700 text-zinc-100 hover:bg-zinc-800",
+                )}
+                onClick={closeAddonPicker}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="cafe-luxe-cta rounded-xl border px-3 py-2.5 text-sm font-semibold text-zinc-950 transition active:translate-y-px"
+                style={{
+                  borderColor: withAlpha(WARM_HIGHLIGHT, 0.45),
+                  background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
+                }}
+                onClick={saveAddonSelectionAndAddItem}
+              >
+                {addonPickerMode === "add" ? "Add To Cart" : "Save Add-ons"}
+              </button>
             </div>
           </aside>
         </div>
