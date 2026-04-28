@@ -3260,6 +3260,7 @@ export default function QrOrderingExperience({
   const activeOrderContextRef = useRef<ActiveOrderContext | null>(null);
   const billLastActivityRef = useRef("");
   const orderSyncSnapshotRef = useRef<Record<string, { status: string; paymentStatus: string }>>({});
+  const shownKitchenStatusAlertKeysRef = useRef<Set<string>>(new Set());
   const ownedOrderIdsRef = useRef<Set<string>>(new Set());
   const settledOrderCleanupInFlightRef = useRef<Set<string>>(new Set());
   const persistedCartStateRef = useRef<string | null>(null);
@@ -4859,6 +4860,58 @@ export default function QrOrderingExperience({
     setStatusPopup(nextPopup);
   }
 
+  function markKitchenStatusAlertSeen(orderId: string, status: string) {
+    const key = `${orderId}:${status.trim().toUpperCase()}`;
+    shownKitchenStatusAlertKeysRef.current.add(key);
+    return key;
+  }
+
+  function hasSeenKitchenStatusAlert(orderId: string, status: string) {
+    const key = `${orderId}:${status.trim().toUpperCase()}`;
+    return shownKitchenStatusAlertKeysRef.current.has(key);
+  }
+
+  function buildKitchenStatusPopup(record: TableOrderRecord, normalizedStatus: string) {
+    const preparingStatuses = new Set(["PREPARING", "COOKING", "IN_PROGRESS"]);
+    const readyStatuses = new Set(["READY"]);
+    const servedStatuses = new Set(["SERVED", "DELIVERED", "COMPLETED", "CLOSED", "BILLED"]);
+    const confirmedStatuses = new Set(["ACCEPTED", "CONFIRMED"]);
+
+    if (servedStatuses.has(normalizedStatus)) {
+      return {
+        title: "Order Served",
+        description: `${record.orderNumber} has been served.`,
+        tone: "success",
+      } satisfies StatusPopupState;
+    }
+
+    if (readyStatuses.has(normalizedStatus)) {
+      return {
+        title: "Order Ready",
+        description: `${record.orderNumber} is ready to serve.`,
+        tone: "success",
+      } satisfies StatusPopupState;
+    }
+
+    if (preparingStatuses.has(normalizedStatus)) {
+      return {
+        title: "Order Preparing",
+        description: `${record.orderNumber} is now being prepared.`,
+        tone: "info",
+      } satisfies StatusPopupState;
+    }
+
+    if (confirmedStatuses.has(normalizedStatus)) {
+      return {
+        title: "Order Confirmed",
+        description: `${record.orderNumber} is confirmed by kitchen.`,
+        tone: "info",
+      } satisfies StatusPopupState;
+    }
+
+    return null;
+  }
+
   function syncOrderSnapshot(records: TableOrderRecord[]) {
     orderSyncSnapshotRef.current = records.reduce(
       (accumulator, record) => {
@@ -4875,12 +4928,13 @@ export default function QrOrderingExperience({
   function checkBackendTransitions(records: TableOrderRecord[]) {
     const previousSnapshot = orderSyncSnapshotRef.current;
     let paymentConfirmedRecord: TableOrderRecord | null = null;
-    let orderReadyRecord: TableOrderRecord | null = null;
-    let orderAcceptedRecord: TableOrderRecord | null = null;
+    const transitionPopups: StatusPopupState[] = [];
 
     for (const record of records) {
       const previous = previousSnapshot[record.orderId];
       if (!previous) {
+        // Seed dedupe keys for already-known statuses to avoid replay spam.
+        markKitchenStatusAlertSeen(record.orderId, record.status);
         continue;
       }
 
@@ -4897,13 +4951,12 @@ export default function QrOrderingExperience({
         continue;
       }
 
-      if (previousStatus !== "READY" && currentStatus === "READY") {
-        orderReadyRecord = record;
-        continue;
-      }
-
-      if (!isOrderAccepted(previousStatus) && isOrderAccepted(currentStatus)) {
-        orderAcceptedRecord = record;
+      if (previousStatus !== currentStatus) {
+        const popup = buildKitchenStatusPopup(record, currentStatus);
+        if (popup && !hasSeenKitchenStatusAlert(record.orderId, currentStatus)) {
+          transitionPopups.push(popup);
+          markKitchenStatusAlertSeen(record.orderId, currentStatus);
+        }
       }
     }
 
@@ -4918,22 +4971,13 @@ export default function QrOrderingExperience({
       return;
     }
 
-    if (orderReadyRecord) {
-      showStatusPopup({
-        title: "Order Ready",
-        description: `${orderReadyRecord.orderNumber} is ready to serve.`,
-        tone: "success",
-      });
+    if (transitionPopups.length > 0) {
+      const servedPopup = transitionPopups.find((entry) => entry.title === "Order Served");
+      const readyPopup = transitionPopups.find((entry) => entry.title === "Order Ready");
+      const preparingPopup = transitionPopups.find((entry) => entry.title === "Order Preparing");
+      const confirmedPopup = transitionPopups.find((entry) => entry.title === "Order Confirmed");
+      showStatusPopup(servedPopup ?? readyPopup ?? preparingPopup ?? confirmedPopup ?? transitionPopups[0]);
       return;
-    }
-
-    if (orderAcceptedRecord) {
-      const statusLabel = getOrderStatusLabel(orderAcceptedRecord.status);
-      showStatusPopup({
-        title: "Order Accepted",
-        description: `${orderAcceptedRecord.orderNumber} is now ${statusLabel.toLowerCase()}.`,
-        tone: "info",
-      });
     }
   }
 
