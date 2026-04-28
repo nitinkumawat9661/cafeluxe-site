@@ -1472,7 +1472,10 @@ function buildUpiPaymentLink({
     return "";
   }
 
-  const safeName = sanitizeUpiText(upiName, 60).replace(/[^a-zA-Z0-9 .,_-]/g, "");
+  const safeName = sanitizeUpiText(upiName, 60)
+    .replace(/[^a-zA-Z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
   const finalName = safeName || DEFAULT_UPI_NAME;
   const finalAmount = Number(amount).toFixed(2);
   return `upi://pay?pa=${normalizedUpiId}&pn=${finalName}&am=${finalAmount}&cu=INR`;
@@ -4622,6 +4625,14 @@ export default function QrOrderingExperience({
           amount: billPayableTotal,
         })
       : "";
+  const cartUpiLaunchUri = useMemo(
+    () => normalizeRawUpiUriForLaunch(cartUpiLink),
+    [cartUpiLink],
+  );
+  const currentBillUpiLaunchUri = useMemo(
+    () => normalizeRawUpiUriForLaunch(currentBillUpiLink),
+    [currentBillUpiLink],
+  );
   const upiQrImageSrc = useMemo(() => buildUpiQrImageUrl(upiQrUri), [upiQrUri]);
   const upiQrAmountNumber = useMemo(() => {
     const parsed = Number(upiQrAmount);
@@ -4966,7 +4977,7 @@ export default function QrOrderingExperience({
 
         {statusPopup ? (
           <div
-            className="mb-4 flex items-start gap-3 rounded-2xl border p-4 shadow-[0_18px_40px_-28px_rgba(0,0,0,0.75)]"
+            className="cafe-luxe-alert mb-4 flex items-start gap-3 rounded-2xl border p-4 shadow-[0_18px_40px_-28px_rgba(0,0,0,0.75)]"
             style={{
               borderColor:
                 statusPopup.tone === "success"
@@ -5005,7 +5016,7 @@ export default function QrOrderingExperience({
         ) : null}
 
         <section
-          className="mb-4 rounded-2xl border p-4 shadow-[0_24px_64px_-38px_rgba(0,0,0,0.98)]"
+          className="cafe-luxe-card mb-4 rounded-2xl border p-4 shadow-[0_24px_64px_-38px_rgba(0,0,0,0.98)]"
           style={{
             borderColor: accentSubtle,
             background: sectionGradient,
@@ -5046,7 +5057,7 @@ export default function QrOrderingExperience({
             {"Search Menu"}
           </label>
           <div
-            className="flex items-center gap-2 rounded-2xl border px-3 py-2.5 shadow-[0_18px_40px_-30px_rgba(0,0,0,0.92)]"
+            className="cafe-luxe-input-wrap flex items-center gap-2 rounded-2xl border px-3 py-2.5 shadow-[0_18px_40px_-30px_rgba(0,0,0,0.92)]"
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.32),
               background: sectionGradient,
@@ -5069,7 +5080,7 @@ export default function QrOrderingExperience({
 
         <section className="sticky top-[98px] z-10 mb-4 -mx-1 overflow-x-auto px-1">
           <div
-            className="inline-flex min-w-full gap-2 rounded-2xl border p-1.5 shadow-[0_20px_48px_-34px_rgba(122,109,96,0.28)] backdrop-blur"
+            className="cafe-luxe-card inline-flex min-w-full gap-2 rounded-2xl border p-1.5 shadow-[0_20px_48px_-34px_rgba(122,109,96,0.28)] backdrop-blur"
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.22),
               background: sectionGradient,
@@ -5078,7 +5089,7 @@ export default function QrOrderingExperience({
             <button
               type="button"
               className={clsx(
-                "flex-none rounded-xl px-4 py-2 text-sm font-semibold transition active:translate-y-px",
+                "cafe-luxe-chip flex-none rounded-xl px-4 py-2 text-sm font-semibold transition active:translate-y-px",
                 activeCategory === "all"
                   ? "text-brand-dark shadow-[0_12px_30px_-18px_rgba(0,0,0,0.5)]"
                   : isLightTheme ? "text-brand-dark/70 hover:text-brand-dark" : "text-white/70 hover:text-white",
@@ -5106,7 +5117,7 @@ export default function QrOrderingExperience({
                 key={category.id}
                 type="button"
                 className={clsx(
-                  "flex-none rounded-xl px-4 py-2 text-sm font-semibold transition active:translate-y-px",
+                  "cafe-luxe-chip flex-none rounded-xl px-4 py-2 text-sm font-semibold transition active:translate-y-px",
                   activeCategory === category.id
                     ? "text-brand-dark shadow-[0_12px_30px_-18px_rgba(0,0,0,0.5)]"
                     : isLightTheme ? "text-brand-dark/70 hover:text-brand-dark" : "text-white/70 hover:text-white",
@@ -5135,7 +5146,7 @@ export default function QrOrderingExperience({
 
         {offersToday.length > 0 ? (
           <section
-            className="mb-5 space-y-3 rounded-2xl border p-3.5 shadow-[0_24px_58px_-42px_rgba(0,0,0,0.34)]"
+            className="cafe-luxe-card mb-5 space-y-3 rounded-2xl border p-3.5 shadow-[0_24px_58px_-42px_rgba(0,0,0,0.34)]"
             style={{
               borderColor: withAlpha(PALETTE_PREMIUM, 0.8),
               background: `linear-gradient(155deg, ${withAlpha(PALETTE_PREMIUM, 0.7)} 0%, ${withAlpha(PALETTE_BASE, 0.9)} 48%, ${withAlpha(PALETTE_SUCCESS, 0.62)} 100%)`,
@@ -5159,7 +5170,7 @@ export default function QrOrderingExperience({
               {offersToday.map((offer) => (
                 <article
                   key={offer.id}
-                  className="rounded-2xl border px-3.5 py-3.5 shadow-[0_20px_48px_-34px_rgba(122,109,96,0.24)]"
+                  className="cafe-luxe-card rounded-2xl border px-3.5 py-3.5 shadow-[0_20px_48px_-34px_rgba(122,109,96,0.24)]"
                   style={{
                     borderColor: withAlpha(PALETTE_ACCENT, 0.26),
                     background: `linear-gradient(160deg, ${withAlpha(PALETTE_BASE, 0.96)} 0%, ${withAlpha(PALETTE_PREMIUM, 0.44)} 100%)`,
@@ -5216,7 +5227,7 @@ export default function QrOrderingExperience({
                 <article
                   key={item.id}
                   data-menu-item-id={item.id}
-                  className="group overflow-hidden rounded-xl border shadow-[0_26px_60px_-44px_rgba(0,0,0,0.98)] transition duration-300 hover:-translate-y-0.5 active:translate-y-[1px]"
+                  className="cafe-luxe-product-card group overflow-hidden rounded-xl border shadow-[0_26px_60px_-44px_rgba(0,0,0,0.98)] transition duration-300 hover:-translate-y-0.5 active:translate-y-[1px]"
                   style={{
                     borderColor: withAlpha(WARM_HIGHLIGHT, 0.23),
                     background: cardGradient,
@@ -5355,7 +5366,7 @@ export default function QrOrderingExperience({
                       ) : quantity === 0 ? (
                         <button
                           type="button"
-                          className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs font-semibold text-brand-dark shadow-[0_14px_34px_-20px_rgba(0,0,0,0.9)] transition active:translate-y-px sm:px-3.5 sm:py-2 sm:text-sm"
+                          className="cafe-luxe-cta inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs font-semibold text-brand-dark shadow-[0_14px_34px_-20px_rgba(0,0,0,0.9)] transition active:translate-y-px sm:px-3.5 sm:py-2 sm:text-sm"
                           style={{
                             backgroundColor: LUXURY_GOLD,
                             borderColor: withAlpha(LUXURY_GOLD, 0.55),
@@ -5415,8 +5426,8 @@ export default function QrOrderingExperience({
                             <button
                               key={`${item.id}_${option.id}`}
                               type="button"
-                              className={clsx(
-                                "rounded-full border px-2 py-1 text-[11px] font-medium transition",
+                      className={clsx(
+                        "cafe-luxe-chip rounded-full border px-2 py-1 text-[11px] font-medium transition",
                                 selected
                                   ? "text-zinc-950"
                                   : isLightTheme
@@ -5465,7 +5476,7 @@ export default function QrOrderingExperience({
       {!isStandaloneCartRoute ? (
       <div className="fixed inset-x-0 bottom-0 z-30 px-4 pb-4 sm:px-6">
         <div
-          className="mx-auto w-full max-w-4xl rounded-2xl border p-2 shadow-[0_30px_80px_-44px_rgba(0,0,0,0.98)] backdrop-blur-xl"
+          className="cafe-luxe-card-strong mx-auto w-full max-w-4xl rounded-2xl border p-2 shadow-[0_30px_80px_-44px_rgba(0,0,0,0.98)] backdrop-blur-xl"
           style={{
             borderColor: withAlpha(WARM_HIGHLIGHT, 0.3),
             background: bottomBarGradient,
@@ -5474,7 +5485,7 @@ export default function QrOrderingExperience({
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              className="flex items-center justify-between rounded-xl border px-4 py-3 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)] transition active:translate-y-px"
+              className="cafe-luxe-cta flex items-center justify-between rounded-xl border px-4 py-3 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)] transition active:translate-y-px"
               style={{
                 borderColor: withAlpha(ROYAL_NAVY, 0.34),
                 background: isLightTheme
@@ -5500,7 +5511,7 @@ export default function QrOrderingExperience({
 
             <button
               type="button"
-              className="flex items-center justify-between rounded-xl border px-4 py-3 text-brand-dark shadow-[0_16px_36px_-24px_rgba(0,0,0,0.95)] transition disabled:cursor-not-allowed disabled:opacity-60 active:translate-y-px"
+              className="cafe-luxe-cta flex items-center justify-between rounded-xl border px-4 py-3 text-brand-dark shadow-[0_16px_36px_-24px_rgba(0,0,0,0.95)] transition disabled:cursor-not-allowed disabled:opacity-60 active:translate-y-px"
               style={{
                 borderColor: withAlpha(LUXURY_GOLD, 0.42),
                 background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
@@ -5834,9 +5845,9 @@ export default function QrOrderingExperience({
                               {"Copy Amount"}
                             </button>
                           </div>
-                          {canLaunchUpiDeepLink && lastUpiLaunchUri ? (
+                          {currentBillUpiLaunchUri || lastUpiLaunchUri ? (
                             <p className="mt-2 break-all rounded-lg border border-zinc-700/60 bg-zinc-950/75 px-2 py-1.5 text-[10px] text-zinc-300 md:hidden">
-                              URI Debug: {lastUpiLaunchUri}
+                              URI Debug: {currentBillUpiLaunchUri || lastUpiLaunchUri}
                             </p>
                           ) : null}
                           {!canLaunchUpiDeepLink ? (
@@ -6233,7 +6244,7 @@ export default function QrOrderingExperience({
                 {cartItems.length === 0 ? (
                   <div
                     className={clsx(
-                      "space-y-3 rounded-2xl border p-4 text-sm",
+                      "cafe-luxe-card space-y-3 rounded-2xl border p-4 text-sm",
                       isLightTheme
                         ? "border-[#C6A57B] bg-[#E8D9C5] text-brand-dark/75"
                         : "border-zinc-800 bg-zinc-900/60 text-zinc-300",
@@ -6267,7 +6278,7 @@ export default function QrOrderingExperience({
                         <section
                           key={item.id}
                           className={clsx(
-                            "rounded-2xl border p-3.5",
+                            "cafe-luxe-card rounded-2xl border p-3.5",
                             isLightTheme
                               ? "border-[#C6A57B] bg-[#E8D9C5]"
                               : "border-zinc-800/30 bg-[#F8F5F0]/10",
@@ -6409,7 +6420,7 @@ export default function QrOrderingExperience({
                 {applicableCartOffers.length > 0 ? (
                   <section
                     className={clsx(
-                      "space-y-2 rounded-2xl border p-3.5",
+                      "cafe-luxe-card space-y-2 rounded-2xl border p-3.5",
                       isLightTheme
                         ? "border-[#C6A57B] bg-[#E8D9C5]"
                         : "border-zinc-800 bg-zinc-900/55",
@@ -6451,7 +6462,7 @@ export default function QrOrderingExperience({
 
                 <section
                   className={clsx(
-                    "space-y-3 rounded-2xl border p-3.5",
+                    "cafe-luxe-card space-y-3 rounded-2xl border p-3.5",
                     isLightTheme
                       ? "border-[#C6A57B] bg-[#E8D9C5]"
                       : "border-zinc-800 bg-zinc-900/55",
@@ -6494,7 +6505,7 @@ export default function QrOrderingExperience({
                 {paymentMethod === "UPI" ? (
                   <section
                     className={clsx(
-                      "rounded-2xl border p-3.5 text-sm",
+                      "cafe-luxe-card rounded-2xl border p-3.5 text-sm",
                       contentTextClass,
                       isLightTheme
                         ? "border-[#C6A57B] bg-[#E8D9C5]"
@@ -6519,7 +6530,7 @@ export default function QrOrderingExperience({
                       <>
                         <button
                           type="button"
-                          className="mt-3 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold text-zinc-950 transition active:translate-y-px"
+                          className="cafe-luxe-cta mt-3 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold text-zinc-950 transition active:translate-y-px"
                           style={{
                             borderColor: withAlpha(WARM_HIGHLIGHT, 0.45),
                             background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
@@ -6568,9 +6579,9 @@ export default function QrOrderingExperience({
                         </div>
                       </>
                     ) : null}
-                    {canLaunchUpiDeepLink && lastUpiLaunchUri ? (
+                    {cartUpiLaunchUri || lastUpiLaunchUri ? (
                       <p className="mt-2 break-all rounded-lg border border-zinc-700/60 bg-zinc-950/75 px-2 py-1.5 text-[10px] text-zinc-300 md:hidden">
-                        URI Debug: {lastUpiLaunchUri}
+                        URI Debug: {cartUpiLaunchUri || lastUpiLaunchUri}
                       </p>
                     ) : null}
                     {!canLaunchUpiDeepLink ? (
@@ -6648,7 +6659,7 @@ export default function QrOrderingExperience({
 
                 <section
                   className={clsx(
-                    "rounded-2xl border p-3.5",
+                    "cafe-luxe-card rounded-2xl border p-3.5",
                     isLightTheme
                       ? "border-[#C6A57B] bg-[#E8D9C5]"
                       : "border-zinc-800 bg-zinc-900/55",
@@ -6678,7 +6689,7 @@ export default function QrOrderingExperience({
 
                 <section
                   className={clsx(
-                    "space-y-2 rounded-2xl border px-3.5 py-3.5 text-sm",
+                    "cafe-luxe-card space-y-2 rounded-2xl border px-3.5 py-3.5 text-sm",
                     contentTextClass,
                     isLightTheme
                       ? "border-[#C6A57B] bg-[#E8D9C5]"
@@ -6723,7 +6734,7 @@ export default function QrOrderingExperience({
 
                 <button
                   type="button"
-                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-brand-dark transition disabled:cursor-not-allowed disabled:opacity-50"
+                  className="cafe-luxe-cta inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-brand-dark transition disabled:cursor-not-allowed disabled:opacity-50"
                   style={{
                     borderColor: withAlpha(ROYAL_NAVY, 0.4),
                     background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
@@ -6759,7 +6770,7 @@ export default function QrOrderingExperience({
           />
           <aside
             className={clsx(
-              "absolute inset-x-0 bottom-0 mx-auto w-full max-w-[480px] rounded-t-3xl border px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 shadow-[0_28px_80px_-40px_rgba(0,0,0,0.98)] md:inset-y-0 md:my-auto md:h-fit md:rounded-3xl",
+              "cafe-luxe-card-strong absolute inset-x-0 bottom-0 mx-auto w-full max-w-[480px] rounded-t-3xl border px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 shadow-[0_28px_80px_-40px_rgba(0,0,0,0.98)] md:inset-y-0 md:my-auto md:h-fit md:rounded-3xl",
               isLightTheme
                 ? "border-[#C6A57B] bg-[#E8D9C5] text-brand-dark"
                 : "border-zinc-800 bg-zinc-950/95 text-zinc-100",
