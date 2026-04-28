@@ -4640,6 +4640,34 @@ export default function QrOrderingExperience({
     () => new Map(menuItems.map((item) => [item.id, item])),
     [menuItems],
   );
+  const unpaidOfferEvaluationLines = useMemo(() => {
+    return unpaidMergedItems.map((lineItem) => {
+      const menuItem = menuItemLookup.get(lineItem.itemId);
+      return {
+        itemId: lineItem.itemId,
+        name: lineItem.name,
+        quantity: lineItem.quantity,
+        unitPrice: lineItem.unitPrice,
+        lineTotal: lineItem.lineTotal,
+        categoryRefs: menuItem?.categoryRefs ?? [],
+      } satisfies OfferEvaluationLine;
+    });
+  }, [menuItemLookup, unpaidMergedItems]);
+  const applicableUnpaidOffers = useMemo(
+    () => evaluateApplicableOffers(offersToday, unpaidOfferEvaluationLines, unpaidSubtotal),
+    [offersToday, unpaidOfferEvaluationLines, unpaidSubtotal],
+  );
+  const bestUnpaidOffer = useMemo(
+    () => pickBestApplicableOffer(applicableUnpaidOffers, unpaidFinalTotal),
+    [applicableUnpaidOffers, unpaidFinalTotal],
+  );
+  const unpaidOfferDiscountAmount = bestUnpaidOffer?.discountAmount ?? 0;
+  const unpaidOnlyPayableTotal = useMemo(() => {
+    if (!hasAggregatedUnpaidBill) {
+      return 0;
+    }
+    return roundCurrency(Math.max(0, unpaidFinalTotal - unpaidOfferDiscountAmount));
+  }, [hasAggregatedUnpaidBill, unpaidFinalTotal, unpaidOfferDiscountAmount]);
   const billOfferEvaluationLines = useMemo(() => {
     return currentBillItems.map((lineItem) => {
       const menuItem = menuItemLookup.get(lineItem.itemId);
@@ -4684,7 +4712,7 @@ export default function QrOrderingExperience({
     () => unpaidOrders.filter((order) => order.paymentMethod === "UPI"),
     [unpaidOrders],
   );
-  const unpaidTotal = billPayableTotal;
+  const unpaidTotal = unpaidOnlyPayableTotal;
 
   function updateItemQuantity(itemId: string, delta: number) {
     setCart((current) => {
