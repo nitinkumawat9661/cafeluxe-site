@@ -185,6 +185,9 @@ type ActiveTableBillState = {
   activeOrder: ActiveOrderContext | null;
   orders: TableOrderRecord[];
   lastActivityAt: string;
+  ownerBrowserId?: string;
+  ownerScopeKey?: string;
+  ownedOrderIds?: string[];
   updatedAt: string;
 };
 
@@ -196,6 +199,8 @@ type ActiveTableSessionState = {
   hasBillOrders: boolean;
   activeOrder: ActiveOrderContext | null;
   lastActivityAt: string;
+  ownerBrowserId?: string;
+  ownerScopeKey?: string;
   updatedAt: string;
 };
 
@@ -247,18 +252,30 @@ type CustomerOrderHistory = {
   updatedAt: string;
 };
 
+type CustomerBillScopeState = {
+  version: number;
+  browserId: string;
+  client: string;
+  table: string;
+  orderIds: string[];
+  updatedAt: string;
+};
+
 const ENABLE_BACKEND_ORDER_SYNC =
   process.env.NEXT_PUBLIC_ENABLE_BACKEND_ORDER_SYNC === "true";
 
 const CUSTOMER_BROWSER_ID_KEY = "customer_browser_id";
 const CUSTOMER_PROFILE_KEY = "customer_profile";
 const CUSTOMER_ORDER_HISTORY_PREFIX = "customer_order_history";
+const CUSTOMER_BILL_SCOPE_PREFIX = "customer_bill_scope";
 const CLIENT_CACHE_RESET_MARKER_KEY = "cafeluxe_cache_reset_20260424";
 const CUSTOMER_PROFILE_VERSION = 1;
 const CUSTOMER_ORDER_HISTORY_VERSION = 1;
+const CUSTOMER_BILL_SCOPE_VERSION = 1;
 const MAX_LOCAL_RECENT_ORDERS = 30;
 const MAX_LOCAL_FAVORITES = 24;
 const MAX_LOCAL_HISTORY_PER_CLIENT = 40;
+const MAX_LOCAL_BILL_SCOPE_ORDERS = 120;
 const MAX_STORED_STATE_CHARS = 120_000;
 const ACTIVE_TABLE_STORAGE_VERSION = 1;
 const REQUEST_TIMEOUT_MS = 12000;
@@ -2198,11 +2215,125 @@ function buildCustomerHistoryStorageKey(client: string, browserId: string) {
   return `${CUSTOMER_ORDER_HISTORY_PREFIX}_${normalizeRouteToken(client)}_${browserId}`;
 }
 
+function buildCustomerBillScopeStorageKey(client: string, table: string, browserId: string) {
+  return `${CUSTOMER_BILL_SCOPE_PREFIX}_${normalizeRouteToken(client)}_${normalizeRouteToken(table)}_${browserId}`;
+}
+
+function buildCustomerBillOwnerScopeKey(client: string, table: string, browserId: string) {
+  return [normalizeRouteToken(client), normalizeRouteToken(table), browserId].join("|");
+}
+
+function normalizeOwnedOrderIds(values: unknown) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    const orderId = toSafeString(value);
+    if (!orderId || seen.has(orderId)) {
+      continue;
+    }
+    seen.add(orderId);
+    normalized.push(orderId);
+    if (normalized.length >= MAX_LOCAL_BILL_SCOPE_ORDERS) {
+      break;
+    }
+  }
+  return normalized;
+}
+
+function parseCustomerBillScopeState(
+  rawValue: string | null,
+  browserId: string,
+  client: string,
+  table: string,
+) {
+  if (!rawValue || isStoragePayloadTooLarge(rawValue)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    const storedBrowserId = toSafeString(parsed.browserId);
+    const storedClient = toSafeString(parsed.client);
+    const storedTable = toSafeString(parsed.table);
+    if (!storedBrowserId || !storedClient || !storedTable) {
+      return null;
+    }
+    if (storedBrowserId !== browserId) {
+      return null;
+    }
+    if (normalizeRouteToken(storedClient) !== normalizeRouteToken(client)) {
+      return null;
+    }
+    if (normalizeRouteToken(storedTable) !== normalizeRouteToken(table)) {
+      return null;
+    }
+
+    return {
+      version: CUSTOMER_BILL_SCOPE_VERSION,
+      browserId: storedBrowserId,
+      client: storedClient,
+      table: storedTable,
+      orderIds: normalizeOwnedOrderIds(parsed.orderIds),
+      updatedAt: toSafeString(parsed.updatedAt) || new Date().toISOString(),
+    } satisfies CustomerBillScopeState;
+  } catch {
+    return null;
+  }
+}
+
+function collectOwnedOrderIdsFromHistory(
+  history: CustomerOrderHistory,
+  client: string,
+  tableCandidates: string[],
+) {
+  const clientKey = normalizeClientHistoryKey(client);
+  const clientOrders = history.byClient[clientKey] ?? [];
+  if (clientOrders.length === 0) {
+    return [];
+  }
+
+  const normalizedTableCandidates = new Set(
+    tableCandidates.map((entry) => normalizeRouteToken(entry)).filter(Boolean),
+  );
+
+  const ownedOrderIds: string[] = [];
+  const seen = new Set<string>();
+  for (const order of clientOrders) {
+    const orderId = toSafeString(order.orderId);
+    if (!orderId || seen.has(orderId)) {
+      continue;
+    }
+    const normalizedOrderTable = normalizeRouteToken(order.table);
+    if (
+      normalizedTableCandidates.size > 0 &&
+      normalizedOrderTable &&
+      !normalizedTableCandidates.has(normalizedOrderTable)
+    ) {
+      continue;
+    }
+    seen.add(orderId);
+    ownedOrderIds.push(orderId);
+    if (ownedOrderIds.length >= MAX_LOCAL_BILL_SCOPE_ORDERS) {
+      break;
+    }
+  }
+
+  return ownedOrderIds;
+}
+
 function isResettableClientCacheKey(key: string) {
   return (
     key === CUSTOMER_BROWSER_ID_KEY ||
     key === CUSTOMER_PROFILE_KEY ||
     key.startsWith(`${CUSTOMER_ORDER_HISTORY_PREFIX}_`) ||
+    key.startsWith(`${CUSTOMER_BILL_SCOPE_PREFIX}_`) ||
     key.startsWith("active_cart_") ||
     key.startsWith("active_bill_") ||
     key.startsWith("active_session_") ||
@@ -2562,6 +2693,9 @@ function parseActiveBillState(rawValue: string | null) {
         toSafeString(parsed.updatedAt) ||
         activeOrder?.updatedAt ||
         "",
+      ownerBrowserId: toSafeString(parsed.ownerBrowserId) || toSafeString(parsed.owner_browser_id),
+      ownerScopeKey: toSafeString(parsed.ownerScopeKey) || toSafeString(parsed.owner_scope_key),
+      ownedOrderIds: normalizeOwnedOrderIds(parsed.ownedOrderIds ?? parsed.owned_order_ids),
       updatedAt: toSafeString(parsed.updatedAt) || activeOrder?.updatedAt || new Date().toISOString(),
     } satisfies ActiveTableBillState;
   } catch {
@@ -2602,6 +2736,8 @@ function parseActiveSessionState(rawValue: string | null) {
         toSafeString(parsed.last_activity_at) ||
         toSafeString(parsed.updatedAt) ||
         "",
+      ownerBrowserId: toSafeString(parsed.ownerBrowserId) || toSafeString(parsed.owner_browser_id),
+      ownerScopeKey: toSafeString(parsed.ownerScopeKey) || toSafeString(parsed.owner_scope_key),
       updatedAt: toSafeString(parsed.updatedAt) || new Date().toISOString(),
     } satisfies ActiveTableSessionState;
   } catch {
@@ -2678,6 +2814,28 @@ function isRecordForRoute(
   );
 }
 
+function isRecordOwnedByCurrentBrowser(
+  record: { ownerBrowserId?: string; ownerScopeKey?: string } | null,
+  browserId: string,
+  ownerScopeKey: string,
+) {
+  if (!record) {
+    return false;
+  }
+
+  const storedOwnerScope = toSafeString(record.ownerScopeKey);
+  if (storedOwnerScope && ownerScopeKey && storedOwnerScope !== ownerScopeKey) {
+    return false;
+  }
+
+  const storedBrowserId = toSafeString(record.ownerBrowserId);
+  if (storedBrowserId && browserId && storedBrowserId !== browserId) {
+    return false;
+  }
+
+  return true;
+}
+
 function isOrderClosed(status: string, paymentStatus: string) {
   const closedOrderStatuses = new Set([
     "CLOSED",
@@ -2724,19 +2882,11 @@ function isPaymentConfirmed(status: string) {
   return ["PAID", "SETTLED", "COMPLETED"].includes(normalized);
 }
 
-function shouldDropClosedOrdersForInactivity(lastActivityAt: string) {
-  const activityTimestamp = toTimestamp(lastActivityAt);
-  if (!activityTimestamp) {
-    return false;
-  }
-  return Date.now() - activityTimestamp >= BILL_INACTIVITY_TIMEOUT_MS;
-}
-
 function applyBillInactivityPolicy(records: TableOrderRecord[], lastActivityAt: string) {
+  // Closed/settled rows must never remain in active customer bill state.
+  // Keep the same function signature so existing call sites remain stable.
+  void lastActivityAt;
   if (records.length === 0) {
-    return records;
-  }
-  if (!shouldDropClosedOrdersForInactivity(lastActivityAt)) {
     return records;
   }
   return records.filter((record) => !isOrderClosed(record.status, record.paymentStatus));
@@ -3113,6 +3263,8 @@ export default function QrOrderingExperience({
   const activeOrderContextRef = useRef<ActiveOrderContext | null>(null);
   const billLastActivityRef = useRef("");
   const orderSyncSnapshotRef = useRef<Record<string, { status: string; paymentStatus: string }>>({});
+  const ownedOrderIdsRef = useRef<Set<string>>(new Set());
+  const settledOrderCleanupInFlightRef = useRef<Set<string>>(new Set());
   const persistedCartStateRef = useRef<string | null>(null);
   const persistedBillStateRef = useRef<string | null>(null);
   const persistedSessionStateRef = useRef<string | null>(null);
@@ -3139,12 +3291,59 @@ export default function QrOrderingExperience({
     }
     return buildCustomerHistoryStorageKey(routeClient, customerBrowserId);
   }, [customerBrowserId, routeClient]);
+  const customerBillScopeStorageKey = useMemo(() => {
+    if (!customerBrowserId) {
+      return "";
+    }
+    return buildCustomerBillScopeStorageKey(routeClient, routeTable, customerBrowserId);
+  }, [customerBrowserId, routeClient, routeTable]);
+  const customerBillOwnerScopeKey = useMemo(() => {
+    if (!customerBrowserId) {
+      return "";
+    }
+    return buildCustomerBillOwnerScopeKey(routeClient, routeTable, customerBrowserId);
+  }, [customerBrowserId, routeClient, routeTable]);
 
   const isLightTheme = true;
 
   function touchBillActivity(activityAt = new Date().toISOString()) {
     setBillLastActivityAt(activityAt);
     billLastActivityRef.current = activityAt;
+  }
+
+  function persistOwnedOrderIds(orderIdsInput: Iterable<string>, browserIdInput?: string) {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const resolvedBrowserId = browserIdInput || customerBrowserId || ensureBrowserCustomerId();
+    if (!resolvedBrowserId) {
+      return;
+    }
+
+    const uniqueOrderIds = normalizeOwnedOrderIds([...orderIdsInput]);
+    ownedOrderIdsRef.current = new Set(uniqueOrderIds);
+
+    const storageKey = buildCustomerBillScopeStorageKey(routeClient, routeTable, resolvedBrowserId);
+    const payload: CustomerBillScopeState = {
+      version: CUSTOMER_BILL_SCOPE_VERSION,
+      browserId: resolvedBrowserId,
+      client: routeClient,
+      table: routeTable,
+      orderIds: uniqueOrderIds,
+      updatedAt: new Date().toISOString(),
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+  }
+
+  function trackOwnedOrderId(orderId: string, browserIdInput?: string) {
+    const sanitizedOrderId = toSafeString(orderId);
+    if (!sanitizedOrderId) {
+      return;
+    }
+    const nextOwnedOrderIds = new Set(ownedOrderIdsRef.current);
+    nextOwnedOrderIds.add(sanitizedOrderId);
+    persistOwnedOrderIds(nextOwnedOrderIds, browserIdInput);
   }
 
   useEffect(() => {
@@ -3412,16 +3611,81 @@ export default function QrOrderingExperience({
           const legacySession = parseLegacyPersistedSession(
             window.localStorage.getItem(legacyTableSessionStorageKey),
           );
+          const resolvedBrowserId = customerBrowserId || ensureBrowserCustomerId();
+          if (!customerBrowserId && resolvedBrowserId) {
+            setCustomerBrowserId(resolvedBrowserId);
+          }
+          const ownerScopeKey = buildCustomerBillOwnerScopeKey(
+            routeClient,
+            routeTable,
+            resolvedBrowserId,
+          );
+          const scopeStorageKey = buildCustomerBillScopeStorageKey(
+            routeClient,
+            routeTable,
+            resolvedBrowserId,
+          );
+          const scopeState = parseCustomerBillScopeState(
+            window.localStorage.getItem(scopeStorageKey),
+            resolvedBrowserId,
+            routeClient,
+            routeTable,
+          );
+          const historyStorageKey = buildCustomerHistoryStorageKey(routeClient, resolvedBrowserId);
+          const historyState = parseCustomerOrderHistory(
+            window.localStorage.getItem(historyStorageKey),
+            resolvedBrowserId,
+          );
+          const ownedOrderIds = new Set<string>(scopeState?.orderIds ?? []);
+          for (const orderId of collectOwnedOrderIdsFromHistory(historyState, routeClient, [
+            routeTable,
+            matchedTable.tableNo,
+            matchedTable.tableCode,
+          ])) {
+            ownedOrderIds.add(orderId);
+          }
 
           const cartForRoute = isRecordForRoute(activeCartState, routeClient, routeTable)
             ? activeCartState
             : null;
-          const billForRoute = isRecordForRoute(activeBillState, routeClient, routeTable)
+          const billForRouteCandidate = isRecordForRoute(activeBillState, routeClient, routeTable)
             ? activeBillState
             : null;
-          const sessionForRoute = isRecordForRoute(activeSessionState, routeClient, routeTable)
+          const sessionForRouteCandidate = isRecordForRoute(activeSessionState, routeClient, routeTable)
             ? activeSessionState
             : null;
+          const billForRoute = isRecordOwnedByCurrentBrowser(
+            billForRouteCandidate,
+            resolvedBrowserId,
+            ownerScopeKey,
+          )
+            ? billForRouteCandidate
+            : null;
+          const sessionForRoute = isRecordOwnedByCurrentBrowser(
+            sessionForRouteCandidate,
+            resolvedBrowserId,
+            ownerScopeKey,
+          )
+            ? sessionForRouteCandidate
+            : null;
+          if (billForRoute?.ownedOrderIds) {
+            for (const orderId of billForRoute.ownedOrderIds) {
+              ownedOrderIds.add(orderId);
+            }
+          }
+          if (billForRoute?.orders) {
+            for (const record of billForRoute.orders) {
+              if (record.orderId) {
+                ownedOrderIds.add(record.orderId);
+              }
+            }
+          }
+          if (billForRoute?.activeOrder?.id) {
+            ownedOrderIds.add(billForRoute.activeOrder.id);
+          }
+          ownedOrderIdsRef.current = ownedOrderIds;
+          persistOwnedOrderIds(ownedOrderIds, resolvedBrowserId);
+
           const legacyForRoute = isRecordForRoute(legacySession, routeClient, routeTable)
             ? legacySession
             : null;
@@ -3458,6 +3722,9 @@ export default function QrOrderingExperience({
                 orders: [],
                 lastActivityAt:
                   legacyForRoute.activeOrder?.updatedAt || legacyForRoute.updatedAt || nowIso,
+                ownerBrowserId: resolvedBrowserId,
+                ownerScopeKey: ownerScopeKey,
+                ownedOrderIds: legacyForRoute.activeOrder?.id ? [legacyForRoute.activeOrder.id] : [],
                 updatedAt: legacyForRoute.activeOrder.updatedAt || legacyForRoute.updatedAt || nowIso,
               };
               window.localStorage.setItem(activeBillStorageKey, JSON.stringify(migratedBill));
@@ -3472,6 +3739,8 @@ export default function QrOrderingExperience({
                 hasBillOrders: false,
                 activeOrder: legacyForRoute.activeOrder,
                 lastActivityAt: legacyForRoute.updatedAt || nowIso,
+                ownerBrowserId: resolvedBrowserId,
+                ownerScopeKey: ownerScopeKey,
                 updatedAt: legacyForRoute.updatedAt || nowIso,
               };
               window.localStorage.setItem(
@@ -3525,7 +3794,9 @@ export default function QrOrderingExperience({
             sessionForRoute?.activeOrder ??
             legacyForRoute?.activeOrder ??
             null;
-          const persistedOrders = billForRoute?.orders ?? [];
+          const persistedOrders = (billForRoute?.orders ?? []).filter((order) =>
+            ownedOrderIdsRef.current.has(order.orderId),
+          );
           const restoredBillActivityAt =
             billForRoute?.lastActivityAt ||
             sessionForRoute?.lastActivityAt ||
@@ -3541,6 +3812,10 @@ export default function QrOrderingExperience({
             restoredBillActivityAt || (restoredOrders.length > 0 || restoredOrder ? new Date().toISOString() : "");
           setBillLastActivityAt(nextBillActivityAt);
           billLastActivityRef.current = nextBillActivityAt;
+
+          if (restoredOrder && !ownedOrderIdsRef.current.has(restoredOrder.id)) {
+            restoredOrder = null;
+          }
 
           if (!restoredOrder && restoredOrders.length > 0) {
             restoredOrder = getLatestOrderContextFromRecords(restoredOrders);
@@ -3629,12 +3904,17 @@ export default function QrOrderingExperience({
           },
         );
 
+        const cleanupClientId = matchedTable.clientId || routeClient;
+
+        // One-time prune of old paid/settled/closed bills for this table scope.
+        void runSettledOrderCleanupForRoute(cleanupClientId, matchedTable.id);
+
         // Sync backend orders in background so first load does not wait on order-history calls.
         if (ENABLE_BACKEND_ORDER_SYNC && shouldResumeOrderSync) {
           void (async () => {
             try {
               const backendOrders = await withTimeout(
-                fetchTableOrderRecords(matchedTable.clientId || routeClient, matchedTable.id),
+                fetchTableOrderRecords(cleanupClientId, matchedTable.id),
                 BILL_SYNC_TIMEOUT_MS,
                 "Initial bill sync",
               );
@@ -3757,6 +4037,33 @@ export default function QrOrderingExperience({
       activeOrderContext?.updatedAt ||
       tableOrders[0]?.updatedAt ||
       nowIso;
+    const resolvedBrowserId = customerBrowserId || ensureBrowserCustomerId();
+    const resolvedOwnerScopeKey = resolvedBrowserId
+      ? buildCustomerBillOwnerScopeKey(routeClient, routeTable, resolvedBrowserId)
+      : "";
+    const mergedOwnedOrderIds = new Set<string>(ownedOrderIdsRef.current);
+    for (const order of tableOrders) {
+      mergedOwnedOrderIds.add(order.orderId);
+    }
+    if (activeOrderContext?.id) {
+      mergedOwnedOrderIds.add(activeOrderContext.id);
+    }
+    const normalizedOwnedOrderIds = normalizeOwnedOrderIds([...mergedOwnedOrderIds]);
+    ownedOrderIdsRef.current = new Set(normalizedOwnedOrderIds);
+    if (resolvedBrowserId) {
+      const scopeStorageKey =
+        customerBillScopeStorageKey ||
+        buildCustomerBillScopeStorageKey(routeClient, routeTable, resolvedBrowserId);
+      const scopePayload: CustomerBillScopeState = {
+        version: CUSTOMER_BILL_SCOPE_VERSION,
+        browserId: resolvedBrowserId,
+        client: routeClient,
+        table: routeTable,
+        orderIds: normalizedOwnedOrderIds,
+        updatedAt: nowIso,
+      };
+      window.localStorage.setItem(scopeStorageKey, JSON.stringify(scopePayload));
+    }
 
     const activeCartState: ActiveTableCartState = {
       version: ACTIVE_TABLE_STORAGE_VERSION,
@@ -3776,6 +4083,9 @@ export default function QrOrderingExperience({
       activeOrder: hasOpenOrder ? activeOrderContext : null,
       orders: tableOrders,
       lastActivityAt: effectiveBillLastActivityAt,
+      ownerBrowserId: resolvedBrowserId || undefined,
+      ownerScopeKey: resolvedOwnerScopeKey || undefined,
+      ownedOrderIds: normalizedOwnedOrderIds,
       updatedAt: activeOrderContext?.updatedAt || nowIso,
     };
 
@@ -3787,6 +4097,8 @@ export default function QrOrderingExperience({
       hasBillOrders,
       activeOrder: hasOpenOrder ? activeOrderContext : null,
       lastActivityAt: effectiveBillLastActivityAt,
+      ownerBrowserId: resolvedBrowserId || undefined,
+      ownerScopeKey: resolvedOwnerScopeKey || undefined,
       updatedAt: nowIso,
     };
 
@@ -3841,6 +4153,8 @@ export default function QrOrderingExperience({
     activeCartStorageKey,
     activeSessionStorageKey,
     cart,
+    customerBillScopeStorageKey,
+    customerBrowserId,
     kitchenInstructions,
     isCartHydrated,
     legacyTableSessionStorageKey,
@@ -4598,12 +4912,135 @@ export default function QrOrderingExperience({
     }
   }
 
+  function getOrderRetentionAnchorTimestamp(order: TableOrderRecord) {
+    return toTimestamp(order.updatedAt) || toTimestamp(order.createdAt);
+  }
+
+  function isSettledOrderEligibleForDelete(order: TableOrderRecord, nowTimestamp: number) {
+    if (!isOrderClosed(order.status, order.paymentStatus)) {
+      return false;
+    }
+    const anchor = getOrderRetentionAnchorTimestamp(order);
+    if (!anchor) {
+      return false;
+    }
+    return nowTimestamp - anchor >= BILL_INACTIVITY_TIMEOUT_MS;
+  }
+
+  async function deleteSettledOrderFromBackend(
+    order: TableOrderRecord,
+    clientId: string,
+    tableId: string,
+  ) {
+    const response = await fetch("/api/appwrite/documents", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      cache: "no-store",
+      body: JSON.stringify({
+        collectionId: appwriteConfig.collections.orders,
+        documentId: order.orderId,
+        clientId,
+        tableId,
+      }),
+    });
+
+    if (response.ok) {
+      return true;
+    }
+
+    let message = `Cleanup request failed (${response.status}).`;
+    try {
+      const payload = (await response.json()) as { message?: string };
+      if (typeof payload?.message === "string" && payload.message.trim()) {
+        message = payload.message.trim();
+      }
+    } catch {
+      // Ignore parse issues and keep fallback message.
+    }
+
+    throw new Error(message);
+  }
+
+  async function cleanupSettledOrders(
+    records: TableOrderRecord[],
+    clientId: string,
+    tableId: string,
+  ) {
+    if (!clientId || !tableId || records.length === 0) {
+      return;
+    }
+
+    const nowTimestamp = Date.now();
+    const eligibleOrders = records.filter(
+      (order) =>
+        order.source === "backend" && isSettledOrderEligibleForDelete(order, nowTimestamp),
+    );
+
+    if (eligibleOrders.length === 0) {
+      return;
+    }
+
+    for (const order of eligibleOrders) {
+      const inFlight = settledOrderCleanupInFlightRef.current;
+      if (inFlight.has(order.orderId)) {
+        continue;
+      }
+
+      inFlight.add(order.orderId);
+      try {
+        await deleteSettledOrderFromBackend(order, clientId, tableId);
+      } catch (error) {
+        const message = getErrorMessage(error).toLowerCase();
+        const isExpectedSafetyStop =
+          message.includes("retention window") ||
+          message.includes("eligible for deletion") ||
+          message.includes("not found");
+        if (!isExpectedSafetyStop) {
+          console.warn("Settled order cleanup failed:", error);
+        }
+      } finally {
+        inFlight.delete(order.orderId);
+      }
+    }
+  }
+
+  async function runSettledOrderCleanupForRoute(clientId: string, tableId: string) {
+    if (!clientId || !tableId) {
+      return;
+    }
+
+    try {
+      const backendRecords = await withTimeout(
+        fetchTableOrderRecords(clientId, tableId),
+        BILL_SYNC_TIMEOUT_MS,
+        "Settled bill cleanup",
+      );
+      if (backendRecords.length === 0) {
+        return;
+      }
+      await cleanupSettledOrders(backendRecords, clientId, tableId);
+    } catch {
+      // Keep cleanup silent to avoid interrupting customer flow.
+    }
+  }
+
   function applyBackendOrders(backendRecords: TableOrderRecord[]) {
     if (backendRecords.length === 0) {
       return "none" as const;
     }
 
-    const mergedRecords = mergeTableOrderRecords(tableOrdersRef.current, backendRecords);
+    const ownedOrderIds = ownedOrderIdsRef.current;
+    const scopedBackendRecords =
+      ownedOrderIds.size > 0
+        ? backendRecords.filter((record) => ownedOrderIds.has(record.orderId))
+        : [];
+
+    const mergedRecords = mergeTableOrderRecords(tableOrdersRef.current, scopedBackendRecords);
+    if (tableInfo?.id) {
+      const cleanupClientId = tableInfo.clientId || routeClient;
+      void cleanupSettledOrders(mergedRecords, cleanupClientId, tableInfo.id);
+    }
     checkBackendTransitions(mergedRecords);
     const activityMarker = billLastActivityRef.current;
     const previousVisibleRecords = applyBillInactivityPolicy(
@@ -5117,6 +5554,7 @@ export default function QrOrderingExperience({
       };
       setActiveOrderContext(nextActiveOrderContext);
       activeOrderContextRef.current = nextActiveOrderContext;
+      trackOwnedOrderId(createdOrder.$id, browserIdForOrder);
       const placedOrderRecord = buildTableOrderRecordFromCart(
         createdOrder.$id,
         orderNumber,
@@ -5133,6 +5571,10 @@ export default function QrOrderingExperience({
       const mergedLocalOrders = mergeTableOrderRecords(tableOrdersRef.current, [placedOrderRecord]);
       setTableOrders(mergedLocalOrders);
       tableOrdersRef.current = mergedLocalOrders;
+      persistOwnedOrderIds(
+        mergedLocalOrders.map((record) => record.orderId),
+        browserIdForOrder,
+      );
       syncOrderSnapshot(mergedLocalOrders);
       setBillSyncMessage("Order added to your bill.");
       touchBillActivity(nowIso);

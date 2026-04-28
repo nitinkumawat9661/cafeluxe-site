@@ -61,6 +61,7 @@ const SAFE_ORDER_PAYMENT_SWITCH_FIELDS = new Set([
 const ALLOWED_PAYMENT_METHODS = new Set(["UPI", "COUNTER"]);
 const ALLOWED_PENDING_PAYMENT_STATUSES = new Set(["UNPAID", "PENDING"]);
 const ALLOWED_SETTLED_PAYMENT_STATUSES = new Set(["PAID", "SETTLED", "COMPLETED"]);
+const ALLOWED_CLOSED_ORDER_STATUSES = new Set(["CLOSED", "COMPLETED", "BILLED", "SETTLED"]);
 const SETTLED_ORDER_DELETE_MIN_AGE_MS = 60 * 60 * 1000;
 
 const MAX_BODY_SIZE_BYTES = 48 * 1024;
@@ -1189,12 +1190,10 @@ export async function DELETE(request: NextRequest) {
     return jsonError("Document scope mismatch for delete request.", 403);
   }
 
-  const paymentStatus = sanitizeEnum(
-    currentDoc.payment_status,
-    ALLOWED_SETTLED_PAYMENT_STATUSES,
-  );
-  if (!paymentStatus) {
-    return jsonError("Only settled bills are eligible for deletion.", 409);
+  const paymentStatus = sanitizeEnum(currentDoc.payment_status, ALLOWED_SETTLED_PAYMENT_STATUSES);
+  const orderStatus = sanitizeEnum(currentDoc.status, ALLOWED_CLOSED_ORDER_STATUSES);
+  if (!paymentStatus && !orderStatus) {
+    return jsonError("Only paid, settled, or closed bills are eligible for deletion.", 409);
   }
 
   const now = Date.now();
