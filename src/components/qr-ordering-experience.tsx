@@ -1708,6 +1708,48 @@ function getSelectedModifierTotal(modifiers: SelectedModifier[]) {
   return modifiers.reduce((sum, modifier) => sum + toAmount(modifier.price), 0);
 }
 
+function getSelectedAddonTotal(addons: SelectedAddon[]) {
+  return addons.reduce((sum, addon) => sum + toAmount(addon.price), 0);
+}
+
+function toAddonAsModifier(addon: SelectedAddon): SelectedModifier {
+  return {
+    id: `addon_${normalizeModifierId(`${addon.groupId}_${addon.optionId}`)}`,
+    label: `${addon.groupName}: ${addon.optionName}`,
+    price: toAmount(addon.price),
+  };
+}
+
+function mergeCustomizations(
+  baseModifiers: SelectedModifier[],
+  addons: SelectedAddon[],
+) {
+  if (addons.length === 0) {
+    return baseModifiers;
+  }
+
+  const merged: SelectedModifier[] = [];
+  const seen = new Set<string>();
+  for (const modifier of baseModifiers) {
+    const token = normalizeModifierId(modifier.id || modifier.label);
+    if (!token || seen.has(token)) {
+      continue;
+    }
+    seen.add(token);
+    merged.push(modifier);
+  }
+  for (const addon of addons) {
+    const addonModifier = toAddonAsModifier(addon);
+    const token = normalizeModifierId(addonModifier.id || addonModifier.label);
+    if (!token || seen.has(token)) {
+      continue;
+    }
+    seen.add(token);
+    merged.push(addonModifier);
+  }
+  return merged;
+}
+
 function getBillLineKey(itemId: string, modifiers: SelectedModifier[]) {
   const token = modifiers
     .map((modifier) => modifier.id)
@@ -4078,18 +4120,31 @@ export default function QrOrderingExperience({
   );
   const addonPickerOpen = !!addonPickerItem && addonPickerGroups.length > 0;
 
+  const pricedCustomizationsByItem = useMemo(() => {
+    const merged: Record<string, SelectedModifier[]> = {};
+    for (const { item } of cartItems) {
+      const baseModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
+      const selectedAddons = resolvedSelectedAddonsByItem[item.id] ?? [];
+      const mergedCustomizations = mergeCustomizations(baseModifiers, selectedAddons);
+      if (mergedCustomizations.length > 0) {
+        merged[item.id] = mergedCustomizations;
+      }
+    }
+    return merged;
+  }, [cartItems, resolvedSelectedAddonsByItem, resolvedSelectedModifiersByItem]);
+
   const subtotal = useMemo(() => {
     return cartItems.reduce((totalAmount, cartItem) => {
-      const selected = resolvedSelectedModifiersByItem[cartItem.item.id] ?? [];
+      const selected = pricedCustomizationsByItem[cartItem.item.id] ?? [];
       const modifierUnitTotal = getSelectedModifierTotal(selected);
       const unitPrice = cartItem.item.price + modifierUnitTotal;
       return totalAmount + unitPrice * cartItem.quantity;
     }, 0);
-  }, [cartItems, resolvedSelectedModifiersByItem]);
+  }, [cartItems, pricedCustomizationsByItem]);
 
   const hasCustomizationsInCart = useMemo(
-    () => Object.keys(resolvedSelectedModifiersByItem).length > 0,
-    [resolvedSelectedModifiersByItem],
+    () => Object.keys(pricedCustomizationsByItem).length > 0,
+    [pricedCustomizationsByItem],
   );
 
   const normalizedCurrency = useMemo(() => {
@@ -4108,7 +4163,7 @@ export default function QrOrderingExperience({
   const formatMoney = (value: number) => formatInr(value, normalizedCurrency);
   const cartOfferEvaluationLines = useMemo(() => {
     return cartItems.map((cartItem) => {
-      const selected = resolvedSelectedModifiersByItem[cartItem.item.id] ?? [];
+      const selected = pricedCustomizationsByItem[cartItem.item.id] ?? [];
       const modifierUnitTotal = getSelectedModifierTotal(selected);
       const unitPrice = cartItem.item.price + modifierUnitTotal;
       return {
@@ -4120,7 +4175,7 @@ export default function QrOrderingExperience({
         categoryRefs: cartItem.item.categoryRefs,
       } satisfies OfferEvaluationLine;
     });
-  }, [cartItems, resolvedSelectedModifiersByItem]);
+  }, [cartItems, pricedCustomizationsByItem]);
   const applicableCartOffers = useMemo(
     () => evaluateApplicableOffers(offersToday, cartOfferEvaluationLines, subtotal),
     [cartOfferEvaluationLines, offersToday, subtotal],
@@ -4893,7 +4948,7 @@ export default function QrOrderingExperience({
     const trimmedInstructions = sanitizeInstructionText(kitchenInstructions);
     const compactItems = cartItems.map((cartItem) => ({
       ...(() => {
-        const selectedModifiers = resolvedSelectedModifiersByItem[cartItem.item.id] ?? [];
+        const selectedModifiers = pricedCustomizationsByItem[cartItem.item.id] ?? [];
         const modifierTotalPerUnit = getSelectedModifierTotal(selectedModifiers);
         const unitPrice = cartItem.item.price + modifierTotalPerUnit;
         return {
@@ -5034,7 +5089,7 @@ export default function QrOrderingExperience({
         computedPayableTotal,
         nowIso,
         cartItems,
-        resolvedSelectedModifiersByItem,
+        pricedCustomizationsByItem,
         trimmedInstructions,
       );
       const mergedLocalOrders = mergeTableOrderRecords(tableOrdersRef.current, [placedOrderRecord]);
@@ -5876,7 +5931,8 @@ export default function QrOrderingExperience({
               const selectedModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
               const selectedAddons = resolvedSelectedAddonsByItem[item.id] ?? [];
               const modifierTotal = getSelectedModifierTotal(selectedModifiers);
-              const displayPrice = item.price + modifierTotal;
+              const addonTotal = getSelectedAddonTotal(selectedAddons);
+              const displayPrice = item.price + modifierTotal + addonTotal;
               const itemModifierOptions = modifierOptionsByItem[item.id] ?? [];
               const itemAddonGroups = itemAddonGroupsByItem[item.id] ?? [];
               const hasMappedAddons = itemAddonGroups.length > 0;
@@ -6000,10 +6056,10 @@ export default function QrOrderingExperience({
                         >
                           {formatMoney(displayPrice)}
                         </p>
-                        {selectedModifiers.length > 0 ? (
+                        {selectedModifiers.length > 0 || selectedAddons.length > 0 ? (
                           <p className={clsx("text-[11px]", mutedTextClass)}>
-                            +{selectedModifiers.length} customization
-                            {selectedModifiers.length > 1 ? "s" : ""}
+                            +{selectedModifiers.length + selectedAddons.length} customization
+                            {selectedModifiers.length + selectedAddons.length > 1 ? "s" : ""}
                           </p>
                         ) : null}
                       </div>
@@ -6966,7 +7022,8 @@ export default function QrOrderingExperience({
                       const modifierOptions = modifierOptionsByItem[item.id] ?? [];
                       const itemAddonGroups = itemAddonGroupsByItem[item.id] ?? [];
                       const hasMappedAddons = itemAddonGroups.length > 0;
-                      const modifierUnitTotal = getSelectedModifierTotal(selected);
+                      const pricedSelections = pricedCustomizationsByItem[item.id] ?? selected;
+                      const modifierUnitTotal = getSelectedModifierTotal(pricedSelections);
                       const effectiveUnit = item.price + modifierUnitTotal;
                       const secondaryLine = item.description || item.nameHi;
 
