@@ -20,11 +20,13 @@ function normalizeEnvValue(value: string | undefined) {
 const RAW_APPWRITE_ENDPOINT = process.env.APPWRITE_ENDPOINT ?? "";
 const RAW_APPWRITE_PROJECT_ID = process.env.APPWRITE_PROJECT_ID ?? "";
 const RAW_APPWRITE_DATABASE_ID = process.env.APPWRITE_DATABASE_ID ?? "";
+const RAW_WEB_ADMIN_APPROVAL_PIN = process.env.WEB_ADMIN_APPROVAL_PIN ?? "";
 
 const APPWRITE_ENDPOINT = normalizeEnvValue(RAW_APPWRITE_ENDPOINT);
 const APPWRITE_PROJECT_ID = normalizeEnvValue(RAW_APPWRITE_PROJECT_ID);
 const APPWRITE_DATABASE_ID = normalizeEnvValue(RAW_APPWRITE_DATABASE_ID);
 const APPWRITE_API_KEY = normalizeEnvValue(process.env.APPWRITE_API_KEY);
+const WEB_ADMIN_APPROVAL_PIN = normalizeEnvValue(RAW_WEB_ADMIN_APPROVAL_PIN);
 
 const TABLES_COLLECTION_ID = "tables";
 const CATEGORIES_COLLECTION_ID = "categories";
@@ -55,9 +57,19 @@ const SAFE_ORDER_PAYMENT_SWITCH_FIELDS = new Set([
   "payment_method",
   "payment_status",
 ]);
+const SAFE_ORDER_UTR_SUBMISSION_FIELDS = new Set([
+  "payment_method",
+  "payment_status",
+  "utr_number",
+]);
+const SAFE_ORDER_ADMIN_APPROVAL_FIELDS = new Set(["payment_status"]);
 
 const ALLOWED_PAYMENT_METHODS = new Set(["UPI", "COUNTER"]);
-const ALLOWED_PENDING_PAYMENT_STATUSES = new Set(["UNPAID", "PENDING"]);
+const ALLOWED_PENDING_PAYMENT_STATUSES = new Set([
+  "UNPAID",
+  "PENDING",
+  "PENDING_VERIFICATION",
+]);
 const ALLOWED_SETTLED_PAYMENT_STATUSES = new Set(["PAID", "SETTLED", "COMPLETED"]);
 const ALLOWED_CLOSED_ORDER_STATUSES = new Set(["CLOSED", "COMPLETED", "BILLED", "SETTLED"]);
 const SETTLED_ORDER_DELETE_MIN_AGE_MS = 60 * 60 * 1000;
@@ -67,6 +79,7 @@ const MAX_QUERY_COUNT = 10;
 const MAX_QUERY_LENGTH = 1200;
 const MAX_ORDER_ITEMS_SNAPSHOT_CHARS = 24_000;
 const MAX_KITCHEN_NOTE_LENGTH = 500;
+const MAX_UTR_LENGTH = 12;
 const RESPONSE_SECURITY_HEADERS: Record<string, string> = {
   "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
   "CDN-Cache-Control": "no-store",
@@ -192,6 +205,24 @@ function sanitizeEnum(value: unknown, allowedValues: Set<string>) {
   }
   const normalized = value.trim().toUpperCase();
   return allowedValues.has(normalized) ? normalized : "";
+}
+
+function sanitizeUtrNumber(value: unknown) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const digitsOnly = value.replace(/\D/g, "").trim();
+  if (!/^\d{12}$/.test(digitsOnly)) {
+    return "";
+  }
+  return digitsOnly.slice(0, MAX_UTR_LENGTH);
+}
+
+function sanitizeAdminPin(value: unknown) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 128);
 }
 
 function sanitizeAmount(value: unknown, min: number, max: number) {
@@ -936,6 +967,58 @@ function sanitizeOrderPaymentSwitchPatch(documentData: Record<string, unknown>) 
   } satisfies Record<string, unknown>;
 }
 
+function sanitizeOrderUtrSubmissionPatch(documentData: Record<string, unknown>) {
+  const keys = Object.keys(documentData);
+  if (keys.length === 0) {
+    return null;
+  }
+  if (keys.some((key) => !SAFE_ORDER_UTR_SUBMISSION_FIELDS.has(key))) {
+    return null;
+  }
+
+  const paymentMethod = sanitizeEnum(documentData.payment_method, ALLOWED_PAYMENT_METHODS);
+  const paymentStatus = sanitizeEnum(documentData.payment_status, ALLOWED_PENDING_PAYMENT_STATUSES);
+  const utrNumber = sanitizeUtrNumber(documentData.utr_number);
+
+  if (paymentMethod !== "UPI" || paymentStatus !== "PENDING_VERIFICATION" || !utrNumber) {
+    return null;
+  }
+
+  return {
+    payment_method: "UPI",
+    payment_status: "PENDING_VERIFICATION",
+    utr_number: utrNumber,
+  } satisfies Record<string, unknown>;
+}
+
+function sanitizeOrderAdminApprovalPatch(documentData: Record<string, unknown>) {
+  const keys = Object.keys(documentData);
+  if (keys.length === 0) {
+    return null;
+  }
+  if (keys.some((key) => !SAFE_ORDER_ADMIN_APPROVAL_FIELDS.has(key))) {
+    return null;
+  }
+
+  const paymentStatus = sanitizeEnum(documentData.payment_status, ALLOWED_SETTLED_PAYMENT_STATUSES);
+  if (paymentStatus !== "COMPLETED") {
+    return null;
+  }
+
+  return {
+    payment_status: "COMPLETED",
+  } satisfies Record<string, unknown>;
+}
+
+function sanitizePatchScope(source: Record<string, unknown>) {
+  const clientId = sanitizeIdentifier(source.clientId ?? source.client_id, 64);
+  const tableId = sanitizeIdentifier(source.tableId ?? source.table_id, 64);
+  if (!clientId || !tableId) {
+    return null;
+  }
+  return { clientId, tableId };
+}
+
 function sanitizeCreatePayload(
   collectionId: string,
   documentData: Record<string, unknown>,
@@ -1106,6 +1189,8 @@ export async function PATCH(request: NextRequest) {
   const source = body as Record<string, unknown>;
   const collectionId = normalizeCollectionId(source.collectionId);
   const documentId = normalizeDocumentId(source.documentId);
+  const scope = sanitizePatchScope(source);
+  const adminPin = sanitizeAdminPin(source.adminPin ?? source.admin_pin);
   const documentData =
     source.documentData && typeof source.documentData === "object"
       ? (source.documentData as Record<string, unknown>)
@@ -1120,7 +1205,24 @@ export async function PATCH(request: NextRequest) {
     return jsonError("Document update is not allowed.", 403);
   }
 
-  const sanitizedData = sanitizeOrderPaymentSwitchPatch(documentData);
+  let sanitizedData: Record<string, unknown> | null = null;
+  let requiresScopeVerification = false;
+
+  if (adminPin) {
+    if (!WEB_ADMIN_APPROVAL_PIN || adminPin !== WEB_ADMIN_APPROVAL_PIN) {
+      return jsonError("Admin approval is not authorized.", 403);
+    }
+    sanitizedData = sanitizeOrderAdminApprovalPatch(documentData);
+  } else if (Object.hasOwn(documentData, "utr_number")) {
+    if (!scope) {
+      return jsonError("Order scope is required for UTR verification update.", 403);
+    }
+    sanitizedData = sanitizeOrderUtrSubmissionPatch(documentData);
+    requiresScopeVerification = true;
+  } else {
+    sanitizedData = sanitizeOrderPaymentSwitchPatch(documentData);
+  }
+
   if (!sanitizedData) {
     return jsonError("Invalid update payload.", 400);
   }
@@ -1130,6 +1232,28 @@ export async function PATCH(request: NextRequest) {
   )}/collections/${encodeURIComponent(collectionId)}/documents/${encodeURIComponent(
     documentId,
   )}`;
+
+  if (requiresScopeVerification && scope) {
+    const currentDocResponse = await fetch(upstreamUrl, {
+      method: "GET",
+      headers: buildAppwriteHeaders(true),
+      cache: "no-store",
+    });
+    const currentDocPayload = await parseResponse(currentDocResponse);
+    if (!currentDocResponse.ok) {
+      return jsonError(
+        sanitizeUpstreamErrorMessage(currentDocResponse.status, currentDocPayload),
+        currentDocResponse.status,
+      );
+    }
+
+    const currentDoc = currentDocPayload as Record<string, unknown>;
+    const docClientId = sanitizeIdentifier(currentDoc.client_id, 64);
+    const docTableId = sanitizeIdentifier(currentDoc.table_id, 64);
+    if (docClientId !== scope.clientId || docTableId !== scope.tableId) {
+      return jsonError("Document scope mismatch for verification update.", 403);
+    }
+  }
 
   const upstreamResponse = await fetch(upstreamUrl, {
     method: "PATCH",
