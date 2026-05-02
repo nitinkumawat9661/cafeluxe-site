@@ -3480,8 +3480,6 @@ export default function QrOrderingExperience({
   const [upiQrUri, setUpiQrUri] = useState("");
   const [upiQrAmount, setUpiQrAmount] = useState("");
   const [upiQrOpen, setUpiQrOpen] = useState(false);
-  const [utrNumberInput, setUtrNumberInput] = useState("");
-  const [submittingUtr, setSubmittingUtr] = useState(false);
   const [placingOrder, setPlacingOrder] = useState(false);
   const [billSyncing, setBillSyncing] = useState(false);
   const [billSyncMessage, setBillSyncMessage] = useState("");
@@ -4950,12 +4948,6 @@ export default function QrOrderingExperience({
     () => unpaidOrders.filter((order) => order.paymentMethod === "UPI"),
     [unpaidOrders],
   );
-  const currentBillUtrNumber = useMemo(() => {
-    const uniqueUtrs = unpaidOrders
-      .map((order) => order.utrNumber.trim())
-      .filter(Boolean);
-    return uniqueUtrs[0] ?? "";
-  }, [unpaidOrders]);
   const unpaidTotal = unpaidOnlyPayableTotal;
 
   function updateItemQuantity(itemId: string, delta: number) {
@@ -5720,7 +5712,23 @@ export default function QrOrderingExperience({
     }
   }
 
-  async function handlePlaceOrder() {
+  function navigateToMenuAfterOrder() {
+    if (isStandaloneCartRoute) {
+      window.setTimeout(() => {
+        router.replace(tableRoutePath);
+      }, 650);
+      return;
+    }
+
+    window.setTimeout(() => {
+      setCartOpen(false);
+      if (typeof window !== "undefined") {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    }, 650);
+  }
+
+  async function handlePlaceOrder(options?: { redirectToMenuAfterSuccess?: boolean }) {
     if (placeOrderLockRef.current || placingOrder || cartCount === 0 || !tableInfo) {
       return;
     }
@@ -5982,6 +5990,11 @@ export default function QrOrderingExperience({
       setSelectedAddonsByItem({});
       setKitchenInstructions("");
       setCartOpen(false);
+
+      if (options?.redirectToMenuAfterSuccess) {
+        setNoticeMessage("Order placed successfully.");
+        navigateToMenuAfterOrder();
+      }
     } catch (orderError) {
       devError(orderError);
       const rawMessage = getErrorMessage(orderError);
@@ -6029,113 +6042,6 @@ export default function QrOrderingExperience({
       setNoticeMessage(
         "Unable to copy automatically. Please copy manually from the details shown.",
       );
-    }
-  }
-
-  async function readWebsiteRouteError(response: Response) {
-    try {
-      const payload = (await response.json()) as { message?: string; error?: string };
-      return payload.message || payload.error || `Request failed (${response.status})`;
-    } catch {
-      return `Request failed (${response.status})`;
-    }
-  }
-
-  async function handleSubmitUpiVerification() {
-    const normalizedUtr = utrNumberInput.replace(/\D/g, "").trim();
-    if (!/^\d{12}$/.test(normalizedUtr)) {
-      setNoticeMessage("Please enter a valid 12-digit UTR / Reference number.");
-      return;
-    }
-
-    if (!tableInfo) {
-      setNoticeMessage("Table details are still loading. Please retry in a moment.");
-      return;
-    }
-
-    const pendingOrders = unpaidOrders.filter(
-      (order) => !isOrderClosed(order.status, order.paymentStatus),
-    );
-    if (pendingOrders.length === 0) {
-      setNoticeMessage("No active unpaid orders are available for verification.");
-      return;
-    }
-
-    setSubmittingUtr(true);
-    const nowIso = new Date().toISOString();
-    touchBillActivity(nowIso);
-
-    try {
-      for (const order of pendingOrders) {
-        const response = await fetch("/api/appwrite/documents", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          cache: "no-store",
-          body: JSON.stringify({
-            collectionId: appwriteConfig.collections.orders,
-            documentId: order.orderId,
-            clientId: tableInfo.clientId || routeClient,
-            tableId: tableInfo.id,
-            documentData: {
-              payment_method: "UPI",
-              payment_status: "PENDING_VERIFICATION",
-              utr_number: normalizedUtr,
-            },
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(await readWebsiteRouteError(response));
-        }
-      }
-
-      setTableOrders((current) =>
-        current.map((entry) =>
-          pendingOrders.some((order) => order.orderId === entry.orderId)
-            ? {
-                ...entry,
-                paymentMethod: "UPI",
-                paymentStatus: "PENDING_VERIFICATION",
-                utrNumber: normalizedUtr,
-                updatedAt: nowIso,
-              }
-            : entry,
-        ),
-      );
-      if (
-        activeOrderContextRef.current &&
-        pendingOrders.some((order) => order.orderId === activeOrderContextRef.current?.id)
-      ) {
-        const nextContext: ActiveOrderContext = {
-          id: activeOrderContextRef.current.id,
-          status: activeOrderContextRef.current.status,
-          paymentStatus: "PENDING_VERIFICATION",
-          updatedAt: nowIso,
-        };
-        setActiveOrderContext(nextContext);
-        activeOrderContextRef.current = nextContext;
-      }
-      setBillSyncMessage("Payment submitted for cashier verification.");
-      setNoticeMessage("UTR submitted. Your payment is now pending verification.");
-      setUtrNumberInput("");
-      showStatusPopup({
-        title: "Payment Submitted",
-        description: "Your UTR has been shared for manual verification.",
-        tone: "info",
-      });
-    } catch (error) {
-      devError(error);
-      const message = getErrorMessage(error).toLowerCase();
-      if (message.includes("unknown attribute") || message.includes("utr_number")) {
-        setNoticeMessage("UTR field is not available in the current order schema. Please ask staff to enable it.");
-      } else if (message.includes("not authorized") || message.includes("403")) {
-        setNoticeMessage("This payment could not be submitted from the current session. Please ask staff for help.");
-      } else {
-        setNoticeMessage("Unable to submit payment verification right now. Please retry.");
-      }
-    } finally {
-      setSubmittingUtr(false);
     }
   }
 
@@ -7514,79 +7420,13 @@ export default function QrOrderingExperience({
                           </div>
                           <div
                             className={clsx(
-                              "mt-3 rounded-xl border p-3",
+                              "mt-3 rounded-xl border p-3 text-xs",
                               isLightTheme
-                                ? "border-[#C6A57B] bg-[#F8F5F0]/92"
-                                : "border-zinc-800 bg-zinc-950/60",
+                                ? "border-[#C6A57B] bg-[#F8F5F0]/92 text-brand-dark/75"
+                                : "border-zinc-800 bg-zinc-950/60 text-zinc-300",
                             )}
                           >
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <p className={clsx("text-xs font-semibold uppercase tracking-[0.12em]", isLightTheme ? "text-brand-dark/70" : "text-zinc-400")}>
-                                  Payment Verification
-                                </p>
-                                <p className={clsx("mt-1 text-xs", isLightTheme ? "text-brand-dark/75" : "text-zinc-300")}>
-                                  Share your 12-digit UTR after payment so admin can verify it manually.
-                                </p>
-                              </div>
-                              {currentBillUtrNumber ? (
-                                <span
-                                  className={clsx(
-                                    "rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]",
-                                    isLightTheme
-                                      ? "border-[#C6A57B] bg-[#E8D9C5] text-brand-dark"
-                                      : "border-zinc-700 bg-zinc-900 text-zinc-100",
-                                  )}
-                                >
-                                  Submitted
-                                </span>
-                              ) : null}
-                            </div>
-                            {currentBillUtrNumber ? (
-                              <p className={clsx("mt-2 text-xs font-medium", isLightTheme ? "text-brand-dark" : "text-zinc-200")}>
-                                Current UTR: {currentBillUtrNumber}
-                              </p>
-                            ) : null}
-                            <label className="mt-3 block">
-                              <span className={clsx("text-[11px] font-medium", isLightTheme ? "text-brand-dark/75" : "text-zinc-400")}>
-                                12-digit UTR / Reference No.
-                              </span>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                autoComplete="off"
-                                maxLength={12}
-                                value={utrNumberInput}
-                                onChange={(event) =>
-                                  setUtrNumberInput(event.target.value.replace(/\D/g, "").slice(0, 12))
-                                }
-                                className={clsx(
-                                  "mt-1 h-11 w-full rounded-xl border px-3 text-sm outline-none transition",
-                                  isLightTheme
-                                    ? "border-[#C6A57B] bg-white/80 text-brand-dark placeholder:text-brand-dark/40 focus:border-[#C6A57B] focus:bg-white"
-                                    : "border-zinc-700 bg-zinc-900 text-zinc-100 placeholder:text-zinc-500",
-                                )}
-                                placeholder="Enter UTR number"
-                              />
-                            </label>
-                            <button
-                              type="button"
-                              disabled={submittingUtr}
-                              className={clsx(
-                                "mt-3 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold transition",
-                                submittingUtr
-                                  ? "cursor-not-allowed opacity-70"
-                                  : "",
-                              )}
-                              style={{
-                                borderColor: withAlpha(WARM_HIGHLIGHT, 0.45),
-                                background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
-                                color: "#18120f",
-                              }}
-                              onClick={handleSubmitUpiVerification}
-                            >
-                              {submittingUtr ? "Submitting..." : "Confirm Payment"}
-                            </button>
+                            Complete the payment in your UPI app, then staff will verify it from the order dashboard.
                           </div>
                           {!canLaunchUpiDeepLink ? (
                             <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950/70 p-2 text-[11px] text-zinc-400">
@@ -8440,6 +8280,21 @@ export default function QrOrderingExperience({
                             {"Copy Amount"}
                           </button>
                         </div>
+                        <button
+                          type="button"
+                          className="cafe-luxe-cta mt-3 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold text-zinc-950 transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+                          style={{
+                            borderColor: withAlpha(ROYAL_NAVY, 0.35),
+                            background: `linear-gradient(180deg, ${PALETTE_SURFACE} 0%, ${WARM_HIGHLIGHT} 100%)`,
+                          }}
+                          onClick={() => void handlePlaceOrder({ redirectToMenuAfterSuccess: true })}
+                          disabled={cartCount === 0 || placingOrder}
+                        >
+                          {placingOrder ? "Placing Order..." : "Payment Done"}
+                        </button>
+                        <p className="mt-2 text-[11px] opacity-70">
+                          After paying in your UPI app, tap Payment Done to send the order for manual verification.
+                        </p>
                       </>
                     ) : null}
                     {!canLaunchUpiDeepLink ? (
@@ -8590,25 +8445,27 @@ export default function QrOrderingExperience({
                   </div>
                 </section>
 
-                <button
-                  type="button"
-                  className="cafe-luxe-cta inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-brand-dark transition disabled:cursor-not-allowed disabled:opacity-50"
-                  style={{
-                    borderColor: withAlpha(ROYAL_NAVY, 0.4),
-                    background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
-                  }}
-                  onClick={handlePlaceOrder}
-                  disabled={cartCount === 0 || placingOrder}
-                >
-                  {placingOrder ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Placing Order...
-                    </>
-                  ) : (
-                    "Place Order"
-                  )}
-                </button>
+                {paymentMethod === "COUNTER" ? (
+                  <button
+                    type="button"
+                    className="cafe-luxe-cta inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-brand-dark transition disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{
+                      borderColor: withAlpha(ROYAL_NAVY, 0.4),
+                      background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
+                    }}
+                    onClick={() => void handlePlaceOrder()}
+                    disabled={cartCount === 0 || placingOrder}
+                  >
+                    {placingOrder ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Placing Order...
+                      </>
+                    ) : (
+                      "Place Order"
+                    )}
+                  </button>
+                ) : null}
               </div>
             </div>
           </aside>
