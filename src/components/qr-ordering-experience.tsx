@@ -395,7 +395,11 @@ function sanitizeUserText(value: string, maxLength: number) {
 }
 
 function sanitizeInstructionText(value: string) {
-  return sanitizeUserText(value, MAX_INSTRUCTION_LENGTH);
+  // Preserve internal and trailing spaces while removing control chars and angle brackets.
+  return value
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/[<>]/g, "")
+    .slice(0, MAX_INSTRUCTION_LENGTH);
 }
 
 function sanitizeSearchInput(value: string) {
@@ -6383,6 +6387,7 @@ export default function QrOrderingExperience({
                     <span className="uppercase tracking-[0.14em] opacity-80">Call Support</span>
                   </a>
                 ) : null}
+                {/* UPI 'Payment Done' action relocated to cart summary */}
               </div>
               <div
                 className="shrink-0 rounded-2xl border px-3.5 py-2.5 text-right shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]"
@@ -8084,16 +8089,45 @@ export default function QrOrderingExperience({
                                       )}
                                       style={
                                         isSelected
-                                          ? {
-                                              borderColor: withAlpha(WARM_HIGHLIGHT, 0.5),
-                                              background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
-                                            }
-                                          : {
-                                              borderColor: withAlpha(WARM_HIGHLIGHT, 0.25),
-                                              backgroundColor: isLightTheme
-                                                ? withAlpha(PALETTE_SURFACE, 0.95)
-                                                : withAlpha(SOFT_DARK_SURFACE, 0.7),
-                                            }
+                                          })}
+                                        </div>
+                                      ) : null}
+                                    </div>
+
+                                    {/* Kitchen Instructions placed directly below Items and above Offers */}
+                                    <div className="mt-4">
+                                      <section
+                                        className={clsx(
+                                          "cafe-luxe-card rounded-2xl border p-3.5",
+                                          isLightTheme ? "border-[#C6A57B] bg-[#E8D9C5]" : "border-zinc-800 bg-zinc-900/55",
+                                        )}
+                                      >
+                                        <label
+                                          htmlFor="kitchen-instructions"
+                                          className={clsx("mb-2 block text-sm font-medium", isLightTheme ? "text-brand-dark/80" : "text-zinc-300")}
+                                        >
+                                          {"Kitchen Instructions"}
+                                        </label>
+                                        <textarea
+                                          id="kitchen-instructions"
+                                          value={kitchenInstructions}
+                                          onChange={(event) => setKitchenInstructions(sanitizeInstructionText(event.target.value))}
+                                          placeholder={"Example: make it spicy, less onion, no mayo"}
+                                          className={clsx(
+                                            "cafe-luxe-input-wrap min-h-[88px] w-full resize-none rounded-xl border px-3 py-2.5 text-sm leading-5 outline-none",
+                                            isLightTheme
+                                              ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark placeholder:text-brand-dark/45 focus:border-[#E8D9C5]"
+                                              : "border-zinc-700 bg-zinc-950/70 text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500",
+                                          )}
+                                        />
+                                      </section>
+                                    </div>
+
+                                    <div
+                                      className={clsx(
+                                        "space-y-4 border-t px-5 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 md:px-5",
+                                        isLightTheme ? "border-[#C6A57B]" : "border-zinc-800",
+                                      )}
                                       }
                                       onClick={() => toggleModifierSelection(item.id, option)}
                                     >
@@ -8280,21 +8314,7 @@ export default function QrOrderingExperience({
                             {"Copy Amount"}
                           </button>
                         </div>
-                        <button
-                          type="button"
-                          className="cafe-luxe-cta mt-3 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold text-zinc-950 transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-                          style={{
-                            borderColor: withAlpha(ROYAL_NAVY, 0.35),
-                            background: `linear-gradient(180deg, ${PALETTE_SURFACE} 0%, ${WARM_HIGHLIGHT} 100%)`,
-                          }}
-                          onClick={() => void handlePlaceOrder({ redirectToMenuAfterSuccess: true })}
-                          disabled={cartCount === 0 || placingOrder}
-                        >
-                          {placingOrder ? "Placing Order..." : "Payment Done"}
-                        </button>
-                        <p className="mt-2 text-[11px] opacity-70">
-                          After paying in your UPI app, tap Payment Done to send the order for manual verification.
-                        </p>
+                        {/* Payment Done action moved below pricing summary */}
                       </>
                     ) : null}
                     {!canLaunchUpiDeepLink ? (
@@ -8370,35 +8390,6 @@ export default function QrOrderingExperience({
                   </section>
                 ) : null}
 
-                <section
-                  className={clsx(
-                    "cafe-luxe-card rounded-2xl border p-3.5",
-                    isLightTheme
-                      ? "border-[#C6A57B] bg-[#E8D9C5]"
-                      : "border-zinc-800 bg-zinc-900/55",
-                  )}
-                >
-                  <label
-                    htmlFor="kitchen-instructions"
-                    className={clsx("mb-2 block text-sm font-medium", isLightTheme ? "text-brand-dark/80" : "text-zinc-300")}
-                  >
-                    {"Kitchen Instructions"}
-                  </label>
-                  <textarea
-                    id="kitchen-instructions"
-                    value={kitchenInstructions}
-                    onChange={(event) =>
-                      setKitchenInstructions(sanitizeInstructionText(event.target.value))
-                    }
-                    placeholder={"Example: make it spicy, less onion, no mayo"}
-                    className={clsx(
-                      "cafe-luxe-input-wrap min-h-[88px] w-full resize-none rounded-xl border px-3 py-2.5 text-sm leading-5 outline-none",
-                      isLightTheme
-                        ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark placeholder:text-brand-dark/45 focus:border-[#E8D9C5]"
-                        : "border-zinc-700 bg-zinc-950/70 text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500",
-                    )}
-                  />
-                </section>
 
                 <section
                   className={clsx(
