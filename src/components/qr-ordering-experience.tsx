@@ -1133,14 +1133,49 @@ function getOfferMinimumCartValue(source: Record<string, unknown>) {
   return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
+function normalizeOfferDiscountType(source: Record<string, unknown>) {
+  const value = getRecordString(source, [
+    "discount_type",
+    "discountType",
+    "discount_kind",
+    "discountKind",
+  ])
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  if (
+    value === "percent" ||
+    value === "percentage" ||
+    value === "percent_discount" ||
+    value === "percentage_discount"
+  ) {
+    return "percentage" as const;
+  }
+
+  if (
+    value === "flat" ||
+    value === "fixed" ||
+    value === "fixed_amount" ||
+    value === "flat_discount" ||
+    value === "amount"
+  ) {
+    return "flat" as const;
+  }
+
+  return "" as const;
+}
+
 function estimateOfferDiscount(
   source: Record<string, unknown>,
   baseAmount: number,
 ) {
-  if (baseAmount <= 0) {
+  const safeBaseAmount = roundCurrency(Math.max(0, Number(baseAmount) || 0));
+  if (safeBaseAmount <= 0) {
     return null;
   }
 
+  const normalizedDiscountType = normalizeOfferDiscountType(source);
   const percentage = getRecordNumber(source, [
     "discount_percent",
     "discount_percentage",
@@ -1148,17 +1183,10 @@ function estimateOfferDiscount(
     "percent",
     "off_percent",
   ]);
-  const maxDiscount = getRecordNumber(source, ["max_discount", "maximum_discount"]);
-  if (Number.isFinite(percentage) && percentage > 0) {
-    const computed = (baseAmount * percentage) / 100;
-    const capped =
-      Number.isFinite(maxDiscount) && maxDiscount > 0
-        ? Math.min(computed, maxDiscount)
-        : computed;
-    return roundCurrency(Math.max(0, Math.min(baseAmount, capped)));
-  }
-
-  const flat = getRecordNumber(source, [
+  const directDiscountValue = getRecordNumber(source, [
+    "discountValue",
+    "discount_value",
+    "discount",
     "discount_amount",
     "flat_discount",
     "flat_discount_amount",
@@ -1166,11 +1194,70 @@ function estimateOfferDiscount(
     "amount",
     "value",
   ]);
-  if (Number.isFinite(flat) && flat > 0) {
-    return roundCurrency(Math.max(0, Math.min(baseAmount, flat)));
+  const maxDiscount = getRecordNumber(source, ["max_discount", "maximum_discount"]);
+  if (
+    (normalizedDiscountType === "percentage" &&
+      Number.isFinite(directDiscountValue) &&
+      directDiscountValue > 0) ||
+    (Number.isFinite(percentage) && percentage > 0)
+  ) {
+    const effectivePercentage =
+      normalizedDiscountType === "percentage" &&
+      Number.isFinite(directDiscountValue) &&
+      directDiscountValue > 0
+        ? directDiscountValue
+        : percentage;
+    const computed = (safeBaseAmount * effectivePercentage) / 100;
+    const capped =
+      Number.isFinite(maxDiscount) && maxDiscount > 0
+        ? Math.min(computed, maxDiscount)
+        : computed;
+    return roundCurrency(Math.max(0, Math.min(safeBaseAmount, capped)));
+  }
+
+  if (Number.isFinite(directDiscountValue) && directDiscountValue > 0) {
+    return roundCurrency(Math.max(0, Math.min(safeBaseAmount, directDiscountValue)));
   }
 
   return null;
+}
+
+function resolveAppliedOfferDiscountAmount(
+  appliedOffer: ApplicableOfferPreview | null,
+  subtotalAmount: number,
+  taxesAmount: number,
+) {
+  const safeSubtotal = roundCurrency(Math.max(0, Number(subtotalAmount) || 0));
+  const safeTaxes = roundCurrency(Math.max(0, Number(taxesAmount) || 0));
+  const safePreDiscountTotal = roundCurrency(safeSubtotal + safeTaxes);
+  if (!appliedOffer || safePreDiscountTotal <= 0) {
+    return 0;
+  }
+
+  const rawDiscount =
+    Number.isFinite(appliedOffer.estimatedBenefit ?? Number.NaN)
+      ? Number(appliedOffer.estimatedBenefit ?? 0)
+      : Number(appliedOffer.discountValue ?? 0);
+  const safeDiscount = roundCurrency(Math.max(0, Number.isFinite(rawDiscount) ? rawDiscount : 0));
+
+  return roundCurrency(Math.min(safePreDiscountTotal, safeDiscount));
+}
+
+function sumTableOrderPayableAmount(orders: TableOrderRecord[]) {
+  return roundCurrency(
+    orders.reduce((sum, order) => {
+      if (order.totalAmount > 0) {
+        return sum + toAmount(order.totalAmount);
+      }
+      if (order.subtotal > 0) {
+        return sum + toAmount(order.subtotal);
+      }
+      return (
+        sum +
+        order.items.reduce((itemSum, item) => itemSum + toAmount(item.lineTotal), 0)
+      );
+    }, 0),
+  );
 }
 
 function evaluateFlatDiscountOffer(
@@ -4789,9 +4876,17 @@ export default function QrOrderingExperience({
   const bestCartOfferId = bestCartOffer?.offer.offerId ?? "";
   const appliedOffer = appliedCartOffer;
   const taxes = taxAmount;
-  // Force parsing of double value from Appwrite
-  const discountAmount = appliedOffer && appliedOffer.discountValue ? Number(appliedOffer.discountValue) : 0;
-  const finalTotal = Number(subtotal) + Number(taxes) - discountAmount;
+  const safeSubtotal = roundCurrency(Math.max(0, Number(subtotal) || 0));
+  const safeTaxes = roundCurrency(Math.max(0, Number(taxes) || 0));
+  const discountAmount = resolveAppliedOfferDiscountAmount(appliedOffer, safeSubtotal, safeTaxes);
+  const finalTotal = roundCurrency(Math.max(0, safeSubtotal + safeTaxes - discountAmount));
+  console.log("Offer Debug", {
+    subtotal: safeSubtotal,
+    taxes: safeTaxes,
+    appliedOffer,
+    discountAmount,
+    finalTotal,
+  });
 
   useEffect(() => {
     const nextApplicableOffers = resolveApplicableOffersForSubtotal(
@@ -4955,13 +5050,19 @@ export default function QrOrderingExperience({
     () => pickBestApplicableOffer(applicableUnpaidOffers, unpaidFinalTotal),
     [applicableUnpaidOffers, unpaidFinalTotal],
   );
-  const unpaidOfferDiscountAmount = bestUnpaidOffer?.discountAmount ?? 0;
+  const unpaidStoredPayableTotal = useMemo(
+    () => sumTableOrderPayableAmount(unpaidOrders),
+    [unpaidOrders],
+  );
+  const unpaidOfferDiscountAmount = roundCurrency(
+    Math.max(0, unpaidFinalTotal - unpaidStoredPayableTotal),
+  );
   const unpaidOnlyPayableTotal = useMemo(() => {
     if (!hasAggregatedUnpaidBill) {
       return 0;
     }
-    return roundCurrency(Math.max(0, unpaidFinalTotal - unpaidOfferDiscountAmount));
-  }, [hasAggregatedUnpaidBill, unpaidFinalTotal, unpaidOfferDiscountAmount]);
+    return unpaidStoredPayableTotal;
+  }, [hasAggregatedUnpaidBill, unpaidStoredPayableTotal]);
   const billOfferEvaluationLines = useMemo(() => {
     return currentBillItems.map((lineItem) => {
       const menuItem = menuItemLookup.get(lineItem.itemId);
@@ -4983,8 +5084,14 @@ export default function QrOrderingExperience({
     () => pickBestApplicableOffer(applicableBillOffers, currentBillFinalTotal),
     [applicableBillOffers, currentBillFinalTotal],
   );
-  const billOfferDiscountAmount = bestBillOffer?.discountAmount ?? 0;
-  const billPayableTotal = roundCurrency(Math.max(0, currentBillFinalTotal - billOfferDiscountAmount));
+  const currentBillOrders = hasAggregatedUnpaidBill ? unpaidOrders : tableOrders;
+  const billPayableTotal = useMemo(
+    () => sumTableOrderPayableAmount(currentBillOrders),
+    [currentBillOrders],
+  );
+  const billOfferDiscountAmount = roundCurrency(
+    Math.max(0, currentBillFinalTotal - billPayableTotal),
+  );
   const currentBillInstructions = useMemo(() => {
     if (!hasAggregatedUnpaidBill) {
       return latestBillOrder?.instructions?.trim() ?? "";
@@ -5851,17 +5958,11 @@ export default function QrOrderingExperience({
       compactItems.reduce((sum, entry) => sum + toAmount(entry.line_total), 0) * 100,
     ) / 100;
     const computedTaxAmount = Math.round((computedSubtotal * taxPercentage) / 100 * 100) / 100;
-    const computedTotal = Math.round((computedSubtotal + computedTaxAmount) * 100) / 100;
-    const computedOfferDiscount = roundCurrency(
-      Math.min(
-        computedTotal,
-        Math.max(
-          0,
-          Number.isFinite(appliedCartOffer?.estimatedBenefit ?? Number.NaN)
-            ? (appliedCartOffer?.estimatedBenefit ?? 0)
-            : 0,
-        ),
-      ),
+    const computedTotal = roundCurrency(computedSubtotal + computedTaxAmount);
+    const computedOfferDiscount = resolveAppliedOfferDiscountAmount(
+      appliedCartOffer,
+      computedSubtotal,
+      computedTaxAmount,
     );
     const computedPayableTotal = roundCurrency(
       Math.max(0, computedTotal - computedOfferDiscount),
