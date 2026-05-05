@@ -154,6 +154,8 @@ type ApplicableOfferPreview = {
   estimatedBenefit: number | null;
 };
 
+type CartOfferSelectionMode = "auto" | "manual";
+
 type StatusPopupState = {
   title: string;
   description: string;
@@ -1500,7 +1502,15 @@ function evaluateApplicableOffers(
       deduped.set(preview.offerId, preview);
     }
   }
-  return [...deduped.values()];
+  return [...deduped.values()].sort((left, right) => {
+    const leftBenefit = Number.isFinite(left.estimatedBenefit ?? Number.NaN)
+      ? left.estimatedBenefit ?? 0
+      : 0;
+    const rightBenefit = Number.isFinite(right.estimatedBenefit ?? Number.NaN)
+      ? right.estimatedBenefit ?? 0
+      : 0;
+    return rightBenefit - leftBenefit;
+  });
 }
 
 function pickBestApplicableOffer(
@@ -3481,6 +3491,9 @@ export default function QrOrderingExperience({
   const [cartOpen, setCartOpen] = useState(false);
   const [billOpen, setBillOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("COUNTER");
+  const [selectedCartOfferId, setSelectedCartOfferId] = useState("");
+  const [cartOfferSelectionMode, setCartOfferSelectionMode] =
+    useState<CartOfferSelectionMode>("auto");
   const [canLaunchUpiDeepLink, setCanLaunchUpiDeepLink] = useState(false);
   const [upiQrUri, setUpiQrUri] = useState("");
   const [upiQrAmount, setUpiQrAmount] = useState("");
@@ -4761,8 +4774,76 @@ export default function QrOrderingExperience({
     () => pickBestApplicableOffer(applicableCartOffers, total),
     [applicableCartOffers, total],
   );
-  const cartOfferDiscountAmount = bestCartOffer?.discountAmount ?? 0;
+  const bestCartOfferId = bestCartOffer?.offer.offerId ?? "";
+  const selectedApplicableCartOffer = useMemo(() => {
+    if (applicableCartOffers.length === 0) {
+      return null as { offer: ApplicableOfferPreview; discountAmount: number } | null;
+    }
+
+    const targetOfferId =
+      cartOfferSelectionMode === "manual" && selectedCartOfferId
+        ? selectedCartOfferId
+        : bestCartOfferId;
+    if (!targetOfferId) {
+      return bestCartOffer;
+    }
+
+    const matchedPreview = applicableCartOffers.find((offer) => offer.offerId === targetOfferId);
+    if (!matchedPreview) {
+      return bestCartOffer;
+    }
+
+    const estimatedBenefit = Number.isFinite(matchedPreview.estimatedBenefit ?? Number.NaN)
+      ? matchedPreview.estimatedBenefit ?? 0
+      : 0;
+    const normalizedDiscount = roundCurrency(Math.min(Math.max(0, estimatedBenefit), total));
+    if (normalizedDiscount <= 0) {
+      return bestCartOffer;
+    }
+
+    return {
+      offer: matchedPreview,
+      discountAmount: normalizedDiscount,
+    };
+  }, [
+    applicableCartOffers,
+    bestCartOffer,
+    bestCartOfferId,
+    cartOfferSelectionMode,
+    selectedCartOfferId,
+    total,
+  ]);
+  const cartOfferDiscountAmount = selectedApplicableCartOffer?.discountAmount ?? 0;
   const cartPayableTotal = roundCurrency(Math.max(0, total - cartOfferDiscountAmount));
+
+  useEffect(() => {
+    if (applicableCartOffers.length === 0 || !bestCartOfferId) {
+      if (selectedCartOfferId || cartOfferSelectionMode !== "auto") {
+        setSelectedCartOfferId("");
+        setCartOfferSelectionMode("auto");
+      }
+      return;
+    }
+
+    if (cartOfferSelectionMode === "manual") {
+      const manualOfferStillValid = applicableCartOffers.some(
+        (offer) => offer.offerId === selectedCartOfferId,
+      );
+      if (manualOfferStillValid) {
+        return;
+      }
+    }
+
+    if (selectedCartOfferId !== bestCartOfferId || cartOfferSelectionMode !== "auto") {
+      setSelectedCartOfferId(bestCartOfferId);
+      setCartOfferSelectionMode("auto");
+    }
+  }, [
+    applicableCartOffers,
+    bestCartOfferId,
+    cartOfferSelectionMode,
+    selectedCartOfferId,
+  ]);
 
   const mergedBillItems = useMemo(
     () => mergeBillItemsFromOrders(tableOrders, menuItems),
@@ -5802,7 +5883,12 @@ export default function QrOrderingExperience({
     const computedOfferDiscount = roundCurrency(
       Math.min(
         computedTotal,
-        Math.max(0, Number.isFinite(bestCartOffer?.discountAmount ?? Number.NaN) ? (bestCartOffer?.discountAmount ?? 0) : 0),
+        Math.max(
+          0,
+          Number.isFinite(selectedApplicableCartOffer?.discountAmount ?? Number.NaN)
+            ? (selectedApplicableCartOffer?.discountAmount ?? 0)
+            : 0,
+        ),
       ),
     );
     const computedPayableTotal = roundCurrency(
@@ -8160,40 +8246,118 @@ export default function QrOrderingExperience({
                 {applicableCartOffers.length > 0 ? (
                   <section
                     className={clsx(
-                      "cafe-luxe-card space-y-2 rounded-2xl border p-3.5",
+                      "cafe-luxe-card space-y-3 rounded-2xl border p-3.5",
                       isLightTheme
                         ? "border-[#C6A57B] bg-[#E8D9C5]"
                         : "border-zinc-800 bg-zinc-900/55",
                     )}
                   >
-                    <p className={clsx("cafe-luxe-section-title text-sm font-medium", isLightTheme ? "text-brand-dark/80" : "text-zinc-200")}>
-                      Applicable Offers
-                    </p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className={clsx("cafe-luxe-section-title text-sm font-medium", isLightTheme ? "text-brand-dark/80" : "text-zinc-200")}>
+                          Applicable Offers
+                        </p>
+                        <p className={clsx("mt-1 text-[11px]", secondaryTextClass)}>
+                          Best offer is auto-applied. You can switch to another eligible offer anytime.
+                        </p>
+                      </div>
+                      {cartOfferSelectionMode === "manual" && bestCartOfferId ? (
+                        <button
+                          type="button"
+                          className={clsx(
+                            "rounded-lg border px-2.5 py-1 text-[11px] font-medium transition",
+                            isLightTheme
+                              ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
+                              : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                          )}
+                          onClick={() => {
+                            setSelectedCartOfferId(bestCartOfferId);
+                            setCartOfferSelectionMode("auto");
+                          }}
+                        >
+                          Use Best Offer
+                        </button>
+                      ) : null}
+                    </div>
                     <div className="space-y-2">
                       {applicableCartOffers.map((offerPreview) => (
                         <div
                           key={`cart_offer_${offerPreview.offerId}`}
                           className={clsx(
-                            "cafe-luxe-offer-card rounded-xl border px-3 py-2",
-                            isLightTheme
-                              ? "border-[#C6A57B] bg-[#E8D9C5]"
-                              : "border-zinc-800/30 bg-[#F8F5F0]/10",
+                            "cafe-luxe-offer-card rounded-xl border px-3 py-2.5 transition",
+                            selectedApplicableCartOffer?.offer.offerId === offerPreview.offerId
+                              ? isLightTheme
+                                ? "border-[#C6A57B] bg-[#F8F5F0]"
+                                : "border-zinc-600 bg-zinc-900/80"
+                              : isLightTheme
+                                ? "border-[#C6A57B] bg-[#E8D9C5]"
+                                : "border-zinc-800/30 bg-[#F8F5F0]/10",
                           )}
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <p className={clsx("truncate text-sm font-semibold", contentTextClass)}>
-                              {offerPreview.offerName}
-                            </p>
-                            <span className={clsx("shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]", mutedTextClass)}>
-                              {offerPreview.offerType}
-                            </span>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="radio"
+                                  name="cart-applied-offer"
+                                  checked={selectedApplicableCartOffer?.offer.offerId === offerPreview.offerId}
+                                  onChange={() => {
+                                    setSelectedCartOfferId(offerPreview.offerId);
+                                    setCartOfferSelectionMode(
+                                      offerPreview.offerId === bestCartOfferId ? "auto" : "manual",
+                                    );
+                                  }}
+                                  className="h-4 w-4 accent-[#C6A57B]"
+                                />
+                                <p className={clsx("truncate text-sm font-semibold", contentTextClass)}>
+                                  {offerPreview.offerName}
+                                </p>
+                              </div>
+                              <p className={clsx("mt-1 text-[11px]", secondaryTextClass)}>
+                                {offerPreview.matchedReason}
+                              </p>
+                              <p className={clsx("mt-1 text-[11px] font-medium", isLightTheme ? "text-brand-dark" : "text-zinc-200")}>
+                                {offerPreview.estimatedBenefit !== null
+                                  ? `Save ${formatMoney(offerPreview.estimatedBenefit)}`
+                                  : "Discount based on offer terms"}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 flex-col items-end gap-2">
+                              <span className={clsx("rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]", mutedTextClass)}>
+                                {offerPreview.offerType}
+                              </span>
+                              {selectedApplicableCartOffer?.offer.offerId === offerPreview.offerId ? (
+                                <span
+                                  className={clsx(
+                                    "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]",
+                                    isLightTheme
+                                      ? "border-[#C6A57B] bg-[#C6A57B]/20 text-brand-dark"
+                                      : "border-zinc-600 bg-zinc-800 text-zinc-100",
+                                  )}
+                                >
+                                  {cartOfferSelectionMode === "manual" ? "Selected" : "Best Applied"}
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className={clsx(
+                                    "rounded-lg border px-2.5 py-1 text-[11px] font-medium transition",
+                                    isLightTheme
+                                      ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
+                                      : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                                  )}
+                                  onClick={() => {
+                                    setSelectedCartOfferId(offerPreview.offerId);
+                                    setCartOfferSelectionMode(
+                                      offerPreview.offerId === bestCartOfferId ? "auto" : "manual",
+                                    );
+                                  }}
+                                >
+                                  Apply
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <p className={clsx("mt-1 text-[11px]", secondaryTextClass)}>{offerPreview.matchedReason}</p>
-                          <p className={clsx("mt-1 text-[11px] font-medium", isLightTheme ? "text-brand-dark" : "text-zinc-200")}>
-                            {offerPreview.estimatedBenefit !== null
-                              ? `Estimated benefit: ${formatMoney(offerPreview.estimatedBenefit)}`
-                              : "Estimated benefit: based on offer terms"}
-                          </p>
                         </div>
                       ))}
                     </div>
@@ -8417,11 +8581,11 @@ export default function QrOrderingExperience({
                     <span className="opacity-80">Tax</span>
                     <span className="font-semibold">{formatMoney(taxAmount)}</span>
                   </div>
-                  {bestCartOffer ? (
+                  {selectedApplicableCartOffer ? (
                     <>
                       <div className="flex items-center justify-between">
                         <span className="opacity-80">Applied Offer</span>
-                        <span className="font-semibold">{bestCartOffer.offer.offerName}</span>
+                        <span className="font-semibold">{selectedApplicableCartOffer.offer.offerName}</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="opacity-80">Offer Discount</span>
