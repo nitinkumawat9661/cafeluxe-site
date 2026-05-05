@@ -4787,7 +4787,7 @@ export default function QrOrderingExperience({
     () => Number(((subtotal * taxPercentage) / 100).toFixed(2)),
     [subtotal, taxPercentage],
   );
-  const total = subtotal + taxAmount;
+  const preDiscountTotal = roundCurrency(subtotal + taxAmount);
   const formatMoney = (value: number) => formatInr(value, normalizedCurrency);
   const cartOfferEvaluationLines = useMemo(() => {
     return cartItems.map((cartItem) => {
@@ -4805,12 +4805,14 @@ export default function QrOrderingExperience({
     });
   }, [cartItems, pricedCustomizationsByItem]);
   const bestCartOffer = useMemo(
-    () => pickBestApplicableOffer(applicableCartOffers, total),
-    [applicableCartOffers, total],
+    () => pickBestApplicableOffer(applicableCartOffers, preDiscountTotal),
+    [applicableCartOffers, preDiscountTotal],
   );
   const bestCartOfferId = bestCartOffer?.offer.offerId ?? "";
   const cartOfferDiscountAmount = appliedCartOffer?.discountAmount ?? 0;
-  const cartPayableTotal = roundCurrency(Math.max(0, total - cartOfferDiscountAmount));
+  const cartFinalTotal = roundCurrency(
+    Math.max(0, preDiscountTotal - (appliedCartOffer?.discountAmount || 0)),
+  );
 
   useEffect(() => {
     const nextApplicableOffers = resolveApplicableOffersForSubtotal(
@@ -4820,20 +4822,20 @@ export default function QrOrderingExperience({
     );
     setApplicableCartOffers(nextApplicableOffers);
 
-    const nextBestOffer = pickBestApplicableOffer(nextApplicableOffers, total);
+    const nextBestOffer = pickBestApplicableOffer(nextApplicableOffers, preDiscountTotal);
     const manualPreview = manualSelectedCartOfferId
       ? nextApplicableOffers.find((offer) => offer.offerId === manualSelectedCartOfferId) ?? null
       : null;
 
     const nextAppliedOffer =
-      materializeAppliedOfferSelection(manualPreview, total) ?? nextBestOffer;
+      materializeAppliedOfferSelection(manualPreview, preDiscountTotal) ?? nextBestOffer;
 
     if (!manualPreview && manualSelectedCartOfferId) {
       setManualSelectedCartOfferId("");
     }
 
     setAppliedCartOffer(nextAppliedOffer);
-  }, [subtotal, offersToday, cartOfferEvaluationLines, total, manualSelectedCartOfferId]);
+  }, [subtotal, offersToday, cartOfferEvaluationLines, preDiscountTotal, manualSelectedCartOfferId]);
 
   const mergedBillItems = useMemo(
     () => mergeBillItemsFromOrders(tableOrders, menuItems),
@@ -6204,7 +6206,7 @@ export default function QrOrderingExperience({
       ? buildUpiPaymentLink({
           upiId: configuredUpiId,
           upiName: configuredUpiName,
-          amount: cartPayableTotal,
+          amount: cartFinalTotal,
         })
       : "";
   const currentBillUpiLink =
@@ -7174,7 +7176,7 @@ export default function QrOrderingExperience({
                 {"Cart"} {cartCount > 0 ? `(${cartCount})` : ""}
               </span>
               <span className="rounded-lg bg-black/10 px-2 py-1 text-xs font-semibold">
-                {formatMoney(cartPayableTotal)}
+                {formatMoney(cartFinalTotal)}
               </span>
             </button>
           </div>
@@ -8415,7 +8417,7 @@ export default function QrOrderingExperience({
                       )}
                     >
                       <span className="text-xs opacity-70">Payable Amount</span>
-                      <span className="text-sm font-semibold">{formatMoney(cartPayableTotal)}</span>
+                      <span className="text-sm font-semibold">{formatMoney(cartFinalTotal)}</span>
                     </div>
                     {cartUpiLink ? (
                       <>
@@ -8438,7 +8440,7 @@ export default function QrOrderingExperience({
                               ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
                               : "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800",
                           )}
-                          onClick={() => handleShowUpiQr(cartUpiLink, cartPayableTotal)}
+                          onClick={() => handleShowUpiQr(cartUpiLink, cartFinalTotal)}
                         >
                           {"Pay By QR (Recommended)"}
                         </button>
@@ -8463,7 +8465,7 @@ export default function QrOrderingExperience({
                                 ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
                                 : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                             )}
-                            onClick={() => copyTextWithNotice(Number(cartPayableTotal).toFixed(2), "Amount copied.")}
+                            onClick={() => copyTextWithNotice(Number(cartFinalTotal).toFixed(2), "Amount copied.")}
                           >
                             {"Copy Amount"}
                           </button>
@@ -8527,7 +8529,7 @@ export default function QrOrderingExperience({
                             )}
                             onClick={() =>
                               copyTextWithNotice(
-                                Number(cartPayableTotal).toFixed(2),
+                                Number(cartFinalTotal).toFixed(2),
                                 "Amount copied.",
                               )
                             }
@@ -8553,7 +8555,7 @@ export default function QrOrderingExperience({
                   )}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="opacity-80">Original Subtotal</span>
+                    <span className="opacity-80">Subtotal</span>
                     <span className="font-semibold">{formatMoney(subtotal)}</span>
                   </div>
                   {hasCustomizationsInCart ? (
@@ -8565,25 +8567,36 @@ export default function QrOrderingExperience({
                     </div>
                   ) : null}
                   <div className="flex items-center justify-between">
-                    <span className="opacity-80">Tax</span>
+                    <span className="opacity-80">Taxes</span>
                     <span className="font-semibold">{formatMoney(taxAmount)}</span>
                   </div>
+                  <div className="flex items-center justify-between">
+                    <span className="opacity-80">Discount Applied</span>
+                    <span
+                      className={clsx(
+                        "font-semibold",
+                        cartOfferDiscountAmount > 0
+                          ? isLightTheme
+                            ? "text-emerald-700"
+                            : "text-emerald-300"
+                          : isLightTheme
+                            ? "text-brand-dark/70"
+                            : "text-zinc-400",
+                      )}
+                    >
+                      -{formatMoney(cartOfferDiscountAmount)}
+                    </span>
+                  </div>
                   {appliedCartOffer ? (
-                    <>
-                      <div className="flex items-center justify-between">
-                        <span className="opacity-80">Applied Offer</span>
-                        <span className="font-semibold">{appliedCartOffer.offer.offerName}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="opacity-80">Offer Discount</span>
-                        <span className="font-semibold">-{formatMoney(cartOfferDiscountAmount)}</span>
-                      </div>
-                    </>
+                    <div className="flex items-center justify-between">
+                      <span className="opacity-80">Applied Offer</span>
+                      <span className="font-semibold">{appliedCartOffer.offer.offerName}</span>
+                    </div>
                   ) : null}
                   <div className="flex items-center justify-between">
                     <span className="opacity-80">Final Payable</span>
                     <span className="font-semibold" style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE }}>
-                      {formatMoney(cartPayableTotal)}
+                      {formatMoney(cartFinalTotal)}
                     </span>
                   </div>
                 </section>
