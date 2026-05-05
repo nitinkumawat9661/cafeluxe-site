@@ -154,7 +154,10 @@ type ApplicableOfferPreview = {
   estimatedBenefit: number | null;
 };
 
-type CartOfferSelectionMode = "auto" | "manual";
+type AppliedOfferSelection = {
+  offer: ApplicableOfferPreview;
+  discountAmount: number;
+};
 
 type StatusPopupState = {
   title: string;
@@ -1542,6 +1545,41 @@ function pickBestApplicableOffer(
   return {
     offer: ranked[0].offer,
     discountAmount: ranked[0].estimatedBenefit,
+  };
+}
+
+function resolveApplicableOffersForSubtotal(
+  subtotalAmount: number,
+  lines: OfferEvaluationLine[],
+  allOffers: Offer[],
+) {
+  return evaluateApplicableOffers(allOffers, lines, subtotalAmount);
+}
+
+function materializeAppliedOfferSelection(
+  preview: ApplicableOfferPreview | null,
+  maxPayableAmount: number,
+): AppliedOfferSelection | null {
+  if (!preview) {
+    return null;
+  }
+
+  const safeMax = roundCurrency(Math.max(0, maxPayableAmount));
+  if (safeMax <= 0) {
+    return null;
+  }
+
+  const estimatedBenefit = Number.isFinite(preview.estimatedBenefit ?? Number.NaN)
+    ? preview.estimatedBenefit ?? 0
+    : 0;
+  const discountAmount = roundCurrency(Math.min(safeMax, Math.max(0, estimatedBenefit)));
+  if (discountAmount <= 0) {
+    return null;
+  }
+
+  return {
+    offer: preview,
+    discountAmount,
   };
 }
 
@@ -3491,9 +3529,9 @@ export default function QrOrderingExperience({
   const [cartOpen, setCartOpen] = useState(false);
   const [billOpen, setBillOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("COUNTER");
-  const [selectedCartOfferId, setSelectedCartOfferId] = useState("");
-  const [cartOfferSelectionMode, setCartOfferSelectionMode] =
-    useState<CartOfferSelectionMode>("auto");
+  const [applicableCartOffers, setApplicableCartOffers] = useState<ApplicableOfferPreview[]>([]);
+  const [manualSelectedCartOfferId, setManualSelectedCartOfferId] = useState("");
+  const [appliedCartOffer, setAppliedCartOffer] = useState<AppliedOfferSelection | null>(null);
   const [canLaunchUpiDeepLink, setCanLaunchUpiDeepLink] = useState(false);
   const [upiQrUri, setUpiQrUri] = useState("");
   const [upiQrAmount, setUpiQrAmount] = useState("");
@@ -4766,84 +4804,36 @@ export default function QrOrderingExperience({
       } satisfies OfferEvaluationLine;
     });
   }, [cartItems, pricedCustomizationsByItem]);
-  const applicableCartOffers = useMemo(
-    () => evaluateApplicableOffers(offersToday, cartOfferEvaluationLines, subtotal),
-    [cartOfferEvaluationLines, offersToday, subtotal],
-  );
   const bestCartOffer = useMemo(
     () => pickBestApplicableOffer(applicableCartOffers, total),
     [applicableCartOffers, total],
   );
   const bestCartOfferId = bestCartOffer?.offer.offerId ?? "";
-  const selectedApplicableCartOffer = useMemo(() => {
-    if (applicableCartOffers.length === 0) {
-      return null as { offer: ApplicableOfferPreview; discountAmount: number } | null;
-    }
-
-    const targetOfferId =
-      cartOfferSelectionMode === "manual" && selectedCartOfferId
-        ? selectedCartOfferId
-        : bestCartOfferId;
-    if (!targetOfferId) {
-      return bestCartOffer;
-    }
-
-    const matchedPreview = applicableCartOffers.find((offer) => offer.offerId === targetOfferId);
-    if (!matchedPreview) {
-      return bestCartOffer;
-    }
-
-    const estimatedBenefit = Number.isFinite(matchedPreview.estimatedBenefit ?? Number.NaN)
-      ? matchedPreview.estimatedBenefit ?? 0
-      : 0;
-    const normalizedDiscount = roundCurrency(Math.min(Math.max(0, estimatedBenefit), total));
-    if (normalizedDiscount <= 0) {
-      return bestCartOffer;
-    }
-
-    return {
-      offer: matchedPreview,
-      discountAmount: normalizedDiscount,
-    };
-  }, [
-    applicableCartOffers,
-    bestCartOffer,
-    bestCartOfferId,
-    cartOfferSelectionMode,
-    selectedCartOfferId,
-    total,
-  ]);
-  const cartOfferDiscountAmount = selectedApplicableCartOffer?.discountAmount ?? 0;
+  const cartOfferDiscountAmount = appliedCartOffer?.discountAmount ?? 0;
   const cartPayableTotal = roundCurrency(Math.max(0, total - cartOfferDiscountAmount));
 
   useEffect(() => {
-    if (applicableCartOffers.length === 0 || !bestCartOfferId) {
-      if (selectedCartOfferId || cartOfferSelectionMode !== "auto") {
-        setSelectedCartOfferId("");
-        setCartOfferSelectionMode("auto");
-      }
-      return;
+    const nextApplicableOffers = resolveApplicableOffersForSubtotal(
+      subtotal,
+      cartOfferEvaluationLines,
+      offersToday,
+    );
+    setApplicableCartOffers(nextApplicableOffers);
+
+    const nextBestOffer = pickBestApplicableOffer(nextApplicableOffers, total);
+    const manualPreview = manualSelectedCartOfferId
+      ? nextApplicableOffers.find((offer) => offer.offerId === manualSelectedCartOfferId) ?? null
+      : null;
+
+    const nextAppliedOffer =
+      materializeAppliedOfferSelection(manualPreview, total) ?? nextBestOffer;
+
+    if (!manualPreview && manualSelectedCartOfferId) {
+      setManualSelectedCartOfferId("");
     }
 
-    if (cartOfferSelectionMode === "manual") {
-      const manualOfferStillValid = applicableCartOffers.some(
-        (offer) => offer.offerId === selectedCartOfferId,
-      );
-      if (manualOfferStillValid) {
-        return;
-      }
-    }
-
-    if (selectedCartOfferId !== bestCartOfferId || cartOfferSelectionMode !== "auto") {
-      setSelectedCartOfferId(bestCartOfferId);
-      setCartOfferSelectionMode("auto");
-    }
-  }, [
-    applicableCartOffers,
-    bestCartOfferId,
-    cartOfferSelectionMode,
-    selectedCartOfferId,
-  ]);
+    setAppliedCartOffer(nextAppliedOffer);
+  }, [subtotal, offersToday, cartOfferEvaluationLines, total, manualSelectedCartOfferId]);
 
   const mergedBillItems = useMemo(
     () => mergeBillItemsFromOrders(tableOrders, menuItems),
@@ -5885,8 +5875,8 @@ export default function QrOrderingExperience({
         computedTotal,
         Math.max(
           0,
-          Number.isFinite(selectedApplicableCartOffer?.discountAmount ?? Number.NaN)
-            ? (selectedApplicableCartOffer?.discountAmount ?? 0)
+          Number.isFinite(appliedCartOffer?.discountAmount ?? Number.NaN)
+            ? (appliedCartOffer?.discountAmount ?? 0)
             : 0,
         ),
       ),
@@ -8261,7 +8251,7 @@ export default function QrOrderingExperience({
                           Best offer is auto-applied. You can switch to another eligible offer anytime.
                         </p>
                       </div>
-                      {cartOfferSelectionMode === "manual" && bestCartOfferId ? (
+                      {manualSelectedCartOfferId && manualSelectedCartOfferId !== bestCartOfferId ? (
                         <button
                           type="button"
                           className={clsx(
@@ -8271,8 +8261,7 @@ export default function QrOrderingExperience({
                               : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                           )}
                           onClick={() => {
-                            setSelectedCartOfferId(bestCartOfferId);
-                            setCartOfferSelectionMode("auto");
+                            setManualSelectedCartOfferId("");
                           }}
                         >
                           Use Best Offer
@@ -8285,7 +8274,7 @@ export default function QrOrderingExperience({
                           key={`cart_offer_${offerPreview.offerId}`}
                           className={clsx(
                             "cafe-luxe-offer-card rounded-xl border px-3 py-2.5 transition",
-                            selectedApplicableCartOffer?.offer.offerId === offerPreview.offerId
+                            appliedCartOffer?.offer.offerId === offerPreview.offerId
                               ? isLightTheme
                                 ? "border-[#C6A57B] bg-[#F8F5F0]"
                                 : "border-zinc-600 bg-zinc-900/80"
@@ -8300,11 +8289,10 @@ export default function QrOrderingExperience({
                                 <input
                                   type="radio"
                                   name="cart-applied-offer"
-                                  checked={selectedApplicableCartOffer?.offer.offerId === offerPreview.offerId}
+                                  checked={appliedCartOffer?.offer.offerId === offerPreview.offerId}
                                   onChange={() => {
-                                    setSelectedCartOfferId(offerPreview.offerId);
-                                    setCartOfferSelectionMode(
-                                      offerPreview.offerId === bestCartOfferId ? "auto" : "manual",
+                                    setManualSelectedCartOfferId(
+                                      offerPreview.offerId === bestCartOfferId ? "" : offerPreview.offerId,
                                     );
                                   }}
                                   className="h-4 w-4 accent-[#C6A57B]"
@@ -8326,7 +8314,7 @@ export default function QrOrderingExperience({
                               <span className={clsx("rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]", mutedTextClass)}>
                                 {offerPreview.offerType}
                               </span>
-                              {selectedApplicableCartOffer?.offer.offerId === offerPreview.offerId ? (
+                              {appliedCartOffer?.offer.offerId === offerPreview.offerId ? (
                                 <span
                                   className={clsx(
                                     "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]",
@@ -8335,7 +8323,7 @@ export default function QrOrderingExperience({
                                       : "border-zinc-600 bg-zinc-800 text-zinc-100",
                                   )}
                                 >
-                                  {cartOfferSelectionMode === "manual" ? "Selected" : "Best Applied"}
+                                  {manualSelectedCartOfferId ? "Selected" : "Best Applied"}
                                 </span>
                               ) : (
                                 <button
@@ -8347,9 +8335,8 @@ export default function QrOrderingExperience({
                                       : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                                   )}
                                   onClick={() => {
-                                    setSelectedCartOfferId(offerPreview.offerId);
-                                    setCartOfferSelectionMode(
-                                      offerPreview.offerId === bestCartOfferId ? "auto" : "manual",
+                                    setManualSelectedCartOfferId(
+                                      offerPreview.offerId === bestCartOfferId ? "" : offerPreview.offerId,
                                     );
                                   }}
                                 >
@@ -8581,11 +8568,11 @@ export default function QrOrderingExperience({
                     <span className="opacity-80">Tax</span>
                     <span className="font-semibold">{formatMoney(taxAmount)}</span>
                   </div>
-                  {selectedApplicableCartOffer ? (
+                  {appliedCartOffer ? (
                     <>
                       <div className="flex items-center justify-between">
                         <span className="opacity-80">Applied Offer</span>
-                        <span className="font-semibold">{selectedApplicableCartOffer.offer.offerName}</span>
+                        <span className="font-semibold">{appliedCartOffer.offer.offerName}</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="opacity-80">Offer Discount</span>
