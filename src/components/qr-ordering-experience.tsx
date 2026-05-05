@@ -4787,10 +4787,11 @@ export default function QrOrderingExperience({
     [applicableCartOffers, preDiscountTotal],
   );
   const bestCartOfferId = bestCartOffer?.offer.offerId ?? "";
-  const discountAmount = appliedCartOffer?.discountValue
-    ? parseFloat(appliedCartOffer.discountValue)
-    : 0;
-  const finalTotal = parseFloat(String(subtotal)) + parseFloat(String(taxAmount)) - discountAmount;
+  const appliedOffer = appliedCartOffer;
+  const taxes = taxAmount;
+  // Force parsing of double value from Appwrite
+  const discountAmount = appliedOffer && appliedOffer.discountValue ? Number(appliedOffer.discountValue) : 0;
+  const finalTotal = Number(subtotal) + Number(taxes) - discountAmount;
 
   useEffect(() => {
     const nextApplicableOffers = resolveApplicableOffersForSubtotal(
@@ -8250,12 +8251,12 @@ export default function QrOrderingExperience({
                       ) : null}
                     </div>
                     <div className="space-y-2">
-                      {applicableCartOffers.map((offerPreview) => (
+                      {applicableCartOffers.map((offer) => (
                         <div
-                          key={`cart_offer_${offerPreview.offerId}`}
+                          key={`cart_offer_${offer.offerId}`}
                           className={clsx(
                             "cafe-luxe-offer-card rounded-xl border px-3 py-2.5 transition",
-                            appliedCartOffer?.offerId === offerPreview.offerId
+                            appliedOffer?.$id === offer.$id
                               ? isLightTheme
                                 ? "border-[#C6A57B] bg-[#F8F5F0]"
                                 : "border-zinc-600 bg-zinc-900/80"
@@ -8267,31 +8268,34 @@ export default function QrOrderingExperience({
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <div className="flex items-center gap-2">
-                                <input
-                                  type="radio"
-                                  name="cart-applied-offer"
-                                  checked={appliedCartOffer?.$id === offerPreview.$id}
-                                  onChange={() => setAppliedCartOffer(offerPreview)}
-                                  className="h-4 w-4 accent-[#C6A57B]"
+                                <input 
+                                  type="radio" 
+                                  name="offer_radio_group"
+                                  checked={appliedOffer?.$id === offer.$id} 
+                                  onChange={() => {
+                                    console.log("Offer Manually Selected:", offer); // FOR DEBUGGING
+                                    setAppliedCartOffer(offer);
+                                  }} 
+                                  className="cursor-pointer w-4 h-4"
                                 />
                                 <p className={clsx("truncate text-sm font-semibold", contentTextClass)}>
-                                  {offerPreview.offerName}
+                                  {offer.offerName}
                                 </p>
                               </div>
                               <p className={clsx("mt-1 text-[11px]", secondaryTextClass)}>
-                                {offerPreview.matchedReason}
+                                {offer.matchedReason}
                               </p>
                               <p className={clsx("mt-1 text-[11px] font-medium", isLightTheme ? "text-brand-dark" : "text-zinc-200")}>
-                                {offerPreview.estimatedBenefit !== null
-                                  ? `Save ${formatMoney(offerPreview.estimatedBenefit)}`
+                                {offer.estimatedBenefit !== null
+                                  ? `Save ${formatMoney(offer.estimatedBenefit)}`
                                   : "Discount based on offer terms"}
                               </p>
                             </div>
                             <div className="flex shrink-0 flex-col items-end gap-2">
                               <span className={clsx("rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]", mutedTextClass)}>
-                                {offerPreview.offerType}
+                                {offer.offerType}
                               </span>
-                              {appliedCartOffer?.$id === offerPreview.$id ? (
+                              {appliedOffer?.$id === offer.$id ? (
                                 <span
                                   className={clsx(
                                     "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]",
@@ -8300,7 +8304,7 @@ export default function QrOrderingExperience({
                                       : "border-zinc-600 bg-zinc-800 text-zinc-100",
                                   )}
                                 >
-                                  {appliedCartOffer.offerId === bestCartOfferId ? "Best Applied" : "Selected"}
+                                  {appliedOffer?.offerId === bestCartOfferId ? "Best Applied" : "Selected"}
                                 </span>
                               ) : (
                                 <button
@@ -8311,7 +8315,7 @@ export default function QrOrderingExperience({
                                       ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
                                       : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                                   )}
-                                  onClick={() => setAppliedCartOffer(offerPreview)}
+                                  onClick={() => setAppliedCartOffer(offer)}
                                 >
                                   Apply
                                 </button>
@@ -8541,22 +8545,9 @@ export default function QrOrderingExperience({
                     <span className="opacity-80">Taxes</span>
                     <span className="font-semibold">{formatMoney(taxAmount)}</span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="opacity-80">Discount Applied</span>
-                    <span
-                      className={clsx(
-                        "font-semibold",
-                        discountAmount > 0
-                          ? isLightTheme
-                            ? "text-emerald-700"
-                            : "text-emerald-300"
-                          : isLightTheme
-                            ? "text-brand-dark/70"
-                            : "text-zinc-400",
-                      )}
-                    >
-                      -₹{discountAmount.toFixed(2)}
-                    </span>
+                  <div className="flex justify-between w-full">
+                    <span>Discount Applied</span>
+                    <span className="text-green-600">-₹{discountAmount.toFixed(2)}</span>
                   </div>
                   {appliedCartOffer ? (
                     <div className="flex items-center justify-between">
@@ -8564,11 +8555,9 @@ export default function QrOrderingExperience({
                       <span className="font-semibold">{appliedCartOffer.offerName}</span>
                     </div>
                   ) : null}
-                  <div className="flex items-center justify-between">
-                    <span className="opacity-80">Final Payable</span>
-                    <span className="font-semibold" style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE }}>
-                      ₹{finalTotal.toFixed(2)}
-                    </span>
+                  <div className="flex justify-between w-full font-bold text-lg">
+                    <span>Final Payable</span>
+                    <span>₹{finalTotal.toFixed(2)}</span>
                   </div>
                 </section>
 
