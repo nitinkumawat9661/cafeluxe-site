@@ -4821,20 +4821,32 @@ export default function QrOrderingExperience({
       offersToday,
     );
     setApplicableCartOffers(nextApplicableOffers);
+    if (nextApplicableOffers.length === 0) {
+      if (manualSelectedCartOfferId) {
+        setManualSelectedCartOfferId("");
+      }
+      setAppliedCartOffer(null);
+      return;
+    }
 
-    const nextBestOffer = pickBestApplicableOffer(nextApplicableOffers, preDiscountTotal);
     const manualPreview = manualSelectedCartOfferId
       ? nextApplicableOffers.find((offer) => offer.offerId === manualSelectedCartOfferId) ?? null
       : null;
 
-    const nextAppliedOffer =
-      materializeAppliedOfferSelection(manualPreview, preDiscountTotal) ?? nextBestOffer;
+    if (manualPreview) {
+      setAppliedCartOffer(
+        materializeAppliedOfferSelection(manualPreview, preDiscountTotal),
+      );
+      return;
+    }
 
-    if (!manualPreview && manualSelectedCartOfferId) {
+    if (manualSelectedCartOfferId) {
       setManualSelectedCartOfferId("");
     }
 
-    setAppliedCartOffer(nextAppliedOffer);
+    setAppliedCartOffer(
+      materializeAppliedOfferSelection(nextApplicableOffers[0] ?? null, preDiscountTotal),
+    );
   }, [subtotal, offersToday, cartOfferEvaluationLines, preDiscountTotal, manualSelectedCartOfferId]);
 
   const mergedBillItems = useMemo(
