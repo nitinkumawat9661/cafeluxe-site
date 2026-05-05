@@ -147,11 +147,13 @@ type OfferEvaluationLine = {
 };
 
 type ApplicableOfferPreview = {
+  $id: string;
   offerId: string;
   offerName: string;
   offerType: OfferEvaluationType;
   matchedReason: string;
   estimatedBenefit: number | null;
+  discountValue: string;
 };
 
 type StatusPopupState = {
@@ -1201,11 +1203,13 @@ function evaluateFlatDiscountOffer(
       : `Cart matched flat discount criteria (${scopedCriteriaResult.scope} scope).`;
 
   return {
+    $id: offer.id,
     offerId: offer.id,
     offerName: offer.name,
     offerType: "flat_discount",
     matchedReason,
     estimatedBenefit,
+    discountValue: String(estimatedBenefit ?? 0),
   };
 }
 
@@ -1303,11 +1307,13 @@ function evaluateBxgyOffer(
       : null;
 
   return {
+    $id: offer.id,
     offerId: offer.id,
     offerName: offer.name,
     offerType: "bxgy",
     matchedReason: `Buy ${buyQty}, get ${getQty} criteria matched (${scopedCriteriaResult.scope} scope).`,
     estimatedBenefit,
+    discountValue: String(estimatedBenefit ?? 0),
   };
 }
 
@@ -1409,11 +1415,13 @@ function evaluateComboOffer(
 
   const estimatedBenefit = estimateOfferDiscount(raw, subtotalAmount);
   return {
+    $id: offer.id,
     offerId: offer.id,
     offerName: offer.name,
     offerType: "combo",
     matchedReason: `${matchedReason} (${scopedCriteriaResult.scope} scope).`,
     estimatedBenefit,
+    discountValue: String(estimatedBenefit ?? 0),
   };
 }
 
@@ -1445,11 +1453,13 @@ function evaluateTimeBasedOffer(
   const estimatedBenefit = estimateOfferDiscount(raw, eligibleSubtotal);
 
   return {
+    $id: offer.id,
     offerId: offer.id,
     offerName: offer.name,
     offerType: "time_based",
     matchedReason: `Live time-window offer matched your current cart (${scopedCriteriaResult.scope} scope).`,
     estimatedBenefit,
+    discountValue: String(estimatedBenefit ?? 0),
   };
 }
 
@@ -4777,18 +4787,10 @@ export default function QrOrderingExperience({
     [applicableCartOffers, preDiscountTotal],
   );
   const bestCartOfferId = bestCartOffer?.offer.offerId ?? "";
-  const cartOfferDiscountAmount = roundCurrency(
-    Math.min(
-      preDiscountTotal,
-      Math.max(
-        0,
-        Number.isFinite(appliedCartOffer?.estimatedBenefit ?? Number.NaN)
-          ? (appliedCartOffer?.estimatedBenefit ?? 0)
-          : 0,
-      ),
-    ),
-  );
-  const cartFinalTotal = roundCurrency(Math.max(0, preDiscountTotal - cartOfferDiscountAmount));
+  const discountAmount = appliedCartOffer?.discountValue
+    ? parseFloat(appliedCartOffer.discountValue)
+    : 0;
+  const finalTotal = parseFloat(String(subtotal)) + parseFloat(String(taxAmount)) - discountAmount;
 
   useEffect(() => {
     const nextApplicableOffers = resolveApplicableOffersForSubtotal(
@@ -6183,7 +6185,7 @@ export default function QrOrderingExperience({
       ? buildUpiPaymentLink({
           upiId: configuredUpiId,
           upiName: configuredUpiName,
-          amount: cartFinalTotal,
+          amount: finalTotal,
         })
       : "";
   const currentBillUpiLink =
@@ -7153,7 +7155,7 @@ export default function QrOrderingExperience({
                 {"Cart"} {cartCount > 0 ? `(${cartCount})` : ""}
               </span>
               <span className="rounded-lg bg-black/10 px-2 py-1 text-xs font-semibold">
-                {formatMoney(cartFinalTotal)}
+                {formatMoney(finalTotal)}
               </span>
             </button>
           </div>
@@ -8268,7 +8270,7 @@ export default function QrOrderingExperience({
                                 <input
                                   type="radio"
                                   name="cart-applied-offer"
-                                  checked={appliedCartOffer?.offerId === offerPreview.offerId}
+                                  checked={appliedCartOffer?.$id === offerPreview.$id}
                                   onChange={() => setAppliedCartOffer(offerPreview)}
                                   className="h-4 w-4 accent-[#C6A57B]"
                                 />
@@ -8289,7 +8291,7 @@ export default function QrOrderingExperience({
                               <span className={clsx("rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]", mutedTextClass)}>
                                 {offerPreview.offerType}
                               </span>
-                              {appliedCartOffer?.offerId === offerPreview.offerId ? (
+                              {appliedCartOffer?.$id === offerPreview.$id ? (
                                 <span
                                   className={clsx(
                                     "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]",
@@ -8386,7 +8388,7 @@ export default function QrOrderingExperience({
                       )}
                     >
                       <span className="text-xs opacity-70">Payable Amount</span>
-                      <span className="text-sm font-semibold">{formatMoney(cartFinalTotal)}</span>
+                      <span className="text-sm font-semibold">{formatMoney(finalTotal)}</span>
                     </div>
                     {cartUpiLink ? (
                       <>
@@ -8409,7 +8411,7 @@ export default function QrOrderingExperience({
                               ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
                               : "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800",
                           )}
-                          onClick={() => handleShowUpiQr(cartUpiLink, cartFinalTotal)}
+                          onClick={() => handleShowUpiQr(cartUpiLink, finalTotal)}
                         >
                           {"Pay By QR (Recommended)"}
                         </button>
@@ -8434,7 +8436,7 @@ export default function QrOrderingExperience({
                                 ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
                                 : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                             )}
-                            onClick={() => copyTextWithNotice(Number(cartFinalTotal).toFixed(2), "Amount copied.")}
+                            onClick={() => copyTextWithNotice(Number(finalTotal).toFixed(2), "Amount copied.")}
                           >
                             {"Copy Amount"}
                           </button>
@@ -8498,7 +8500,7 @@ export default function QrOrderingExperience({
                             )}
                             onClick={() =>
                               copyTextWithNotice(
-                                Number(cartFinalTotal).toFixed(2),
+                                Number(finalTotal).toFixed(2),
                                 "Amount copied.",
                               )
                             }
@@ -8544,7 +8546,7 @@ export default function QrOrderingExperience({
                     <span
                       className={clsx(
                         "font-semibold",
-                        cartOfferDiscountAmount > 0
+                        discountAmount > 0
                           ? isLightTheme
                             ? "text-emerald-700"
                             : "text-emerald-300"
@@ -8553,7 +8555,7 @@ export default function QrOrderingExperience({
                             : "text-zinc-400",
                       )}
                     >
-                      -{formatMoney(cartOfferDiscountAmount)}
+                      -₹{discountAmount.toFixed(2)}
                     </span>
                   </div>
                   {appliedCartOffer ? (
@@ -8565,7 +8567,7 @@ export default function QrOrderingExperience({
                   <div className="flex items-center justify-between">
                     <span className="opacity-80">Final Payable</span>
                     <span className="font-semibold" style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE }}>
-                      {formatMoney(cartFinalTotal)}
+                      ₹{finalTotal.toFixed(2)}
                     </span>
                   </div>
                 </section>
