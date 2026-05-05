@@ -1119,6 +1119,7 @@ function lineMatchesOfferCriteria(
 
 function getOfferMinimumCartValue(source: Record<string, unknown>) {
   const value = getRecordNumber(source, [
+    "min_cart_amount",
     "minimum_cart_value",
     "minimum_order_amount",
     "minimum_amount",
@@ -8141,6 +8142,10 @@ export default function QrOrderingExperience({
                     rows={3}
                     maxLength={MAX_INSTRUCTION_LENGTH}
                     value={kitchenInstructions}
+                    placeholder="Example: make it spicy, less onion, no mayo"
+                    spellCheck={false}
+                    autoCorrect="off"
+                    onKeyDown={(event) => event.stopPropagation()}
                     onChange={(event) => setKitchenInstructions(sanitizeInstructionText(event.target.value))}
                   />
                 </section>
@@ -8312,21 +8317,6 @@ export default function QrOrderingExperience({
                             {"Copy Amount"}
                           </button>
                         </div>
-                        <button
-                          type="button"
-                          className="cafe-luxe-cta mt-3 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold text-zinc-950 transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-                          style={{
-                            borderColor: withAlpha(ROYAL_NAVY, 0.35),
-                            background: `linear-gradient(180deg, ${PALETTE_SURFACE} 0%, ${WARM_HIGHLIGHT} 100%)`,
-                          }}
-                          onClick={() => void handlePlaceOrder({ redirectToMenuAfterSuccess: true })}
-                          disabled={cartCount === 0 || placingOrder}
-                        >
-                          {placingOrder ? "Placing Order..." : "Payment Done"}
-                        </button>
-                        <p className="mt-2 text-[11px] opacity-70">
-                          After paying in your UPI app, tap Payment Done to send the order for manual verification.
-                        </p>
                       </>
                     ) : null}
                     {!canLaunchUpiDeepLink ? (
@@ -8404,36 +8394,6 @@ export default function QrOrderingExperience({
 
                 <section
                   className={clsx(
-                    "cafe-luxe-card rounded-2xl border p-3.5",
-                    isLightTheme
-                      ? "border-[#C6A57B] bg-[#E8D9C5]"
-                      : "border-zinc-800 bg-zinc-900/55",
-                  )}
-                >
-                  <label
-                    htmlFor="kitchen-instructions"
-                    className={clsx("mb-2 block text-sm font-medium", isLightTheme ? "text-brand-dark/80" : "text-zinc-300")}
-                  >
-                    {"Kitchen Instructions"}
-                  </label>
-                  <textarea
-                    id="kitchen-instructions"
-                    value={kitchenInstructions}
-                    onChange={(event) =>
-                      setKitchenInstructions(sanitizeInstructionText(event.target.value))
-                    }
-                    placeholder={"Example: make it spicy, less onion, no mayo"}
-                    className={clsx(
-                      "cafe-luxe-input-wrap min-h-[88px] w-full resize-none rounded-xl border px-3 py-2.5 text-sm leading-5 outline-none",
-                      isLightTheme
-                        ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark placeholder:text-brand-dark/45 focus:border-[#E8D9C5]"
-                        : "border-zinc-700 bg-zinc-950/70 text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500",
-                    )}
-                  />
-                </section>
-
-                <section
-                  className={clsx(
                     "cafe-luxe-card cafe-luxe-summary space-y-2 rounded-2xl border px-3.5 py-3.5 text-sm",
                     contentTextClass,
                     isLightTheme
@@ -8497,6 +8457,26 @@ export default function QrOrderingExperience({
                       "Place Order"
                     )}
                   </button>
+                ) : null}
+
+                {paymentMethod === "UPI" ? (
+                  <div className="space-y-2 pt-1">
+                    <button
+                      type="button"
+                      className="cafe-luxe-cta inline-flex h-12 w-full items-center justify-center rounded-xl border px-4 text-sm font-bold text-zinc-950 transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+                      style={{
+                        borderColor: withAlpha(ROYAL_NAVY, 0.35),
+                        background: `linear-gradient(180deg, ${PALETTE_SURFACE} 0%, ${WARM_HIGHLIGHT} 100%)`,
+                      }}
+                      onClick={() => void handlePlaceOrder({ redirectToMenuAfterSuccess: true })}
+                      disabled={cartCount === 0 || placingOrder}
+                    >
+                      {placingOrder ? "Placing Order..." : "Payment Done"}
+                    </button>
+                    <p className="px-1 text-[11px] opacity-70">
+                      After paying in your UPI app, tap Payment Done to place the order and keep it pending for staff verification.
+                    </p>
+                  </div>
                 ) : null}
               </div>
             </div>
