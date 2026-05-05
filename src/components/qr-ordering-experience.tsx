@@ -395,7 +395,11 @@ function sanitizeUserText(value: string, maxLength: number) {
 }
 
 function sanitizeInstructionText(value: string) {
-  return sanitizeUserText(value, MAX_INSTRUCTION_LENGTH);
+  // Preserve user spaces and most punctuation for free-form kitchen instructions.
+  return value
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/[<>]/g, "")
+    .slice(0, MAX_INSTRUCTION_LENGTH);
 }
 
 function sanitizeSearchInput(value: string) {
@@ -8112,6 +8116,34 @@ export default function QrOrderingExperience({
                     })}
                   </div>
                 )}
+              </div>
+
+              {/* Kitchen Instructions: placed below items list and above offers */}
+              <div className="pb-3">
+                <section
+                  className={clsx(
+                    "cafe-luxe-card space-y-2 rounded-2xl border p-3.5",
+                    isLightTheme ? "border-[#C6A57B] bg-[#E8D9C5]" : "border-zinc-800 bg-zinc-900/55",
+                  )}
+                >
+                  <p className={clsx("cafe-luxe-section-title text-sm font-medium", isLightTheme ? "text-brand-dark/80" : "text-zinc-200")}>
+                    Kitchen Instructions
+                  </p>
+                  <p className={clsx("text-[11px]", isLightTheme ? "text-brand-dark/75" : "text-zinc-400")}>
+                    Add any special cooking or serving instructions for the kitchen.
+                  </p>
+                  <textarea
+                    aria-label="Kitchen instructions"
+                    className={clsx(
+                      "mt-2 w-full resize-none rounded-lg border p-2 text-sm",
+                      isLightTheme ? "bg-white text-brand-dark" : "bg-zinc-900 text-zinc-200",
+                    )}
+                    rows={3}
+                    maxLength={MAX_INSTRUCTION_LENGTH}
+                    value={kitchenInstructions}
+                    onChange={(event) => setKitchenInstructions(sanitizeInstructionText(event.target.value))}
+                  />
+                </section>
               </div>
 
               <div
