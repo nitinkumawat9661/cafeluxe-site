@@ -1008,6 +1008,23 @@ function readOfferTargetIdTokens(source: Record<string, unknown>) {
   );
 }
 
+function resolveOfferApplicationLevel(source: Record<string, unknown>) {
+  const baseCriteria = readOfferCriteria(source, OFFER_ITEM_KEYS, OFFER_CATEGORY_KEYS);
+  const scope = resolveOfferTargetScope(source);
+  const targetIds = readOfferTargetIdTokens(source);
+
+  if (scope === "cart") {
+    return "cart" as const;
+  }
+  if (scope === "product" || scope === "category") {
+    return "item" as const;
+  }
+  if (hasCriteriaTokens(baseCriteria) || targetIds.size > 0) {
+    return "item" as const;
+  }
+  return "cart" as const;
+}
+
 function buildScopedOfferCriteria(
   source: Record<string, unknown>,
   baseCriteria: { itemTokens: Set<string>; categoryTokens: Set<string> },
@@ -1301,9 +1318,7 @@ function pickBestItemWiseOfferForLine(
   const eligibleOffers: ApplicableOfferPreview[] = [];
   for (const offer of offers) {
     const resolved = evaluateApplicableOffers([offer], [line], subtotalAmount);
-    const matched = resolved.length > 0;
-    console.log("Offer Match Check", { item: line, offer, matched });
-    if (matched) {
+    if (resolved.length > 0) {
       eligibleOffers.push(...resolved);
     }
   }
@@ -4992,15 +5007,40 @@ export default function QrOrderingExperience({
       } satisfies OfferEvaluationLine;
     });
   }, [cartItems, pricedCustomizationsByItem]);
-  const matchedItemOffers = useMemo(
-    () => {
-      console.log("Offer Match Input", { cartItems, activeOffers: offersToday });
-      return cartOfferEvaluationLines
-        .map((line) => pickBestItemWiseOfferForLine(line, offersToday, subtotal))
-        .filter((entry): entry is ItemWiseOfferMatch => !!entry);
-    },
-    [cartItems, cartOfferEvaluationLines, offersToday, subtotal],
+  const itemLevelOffers = useMemo(
+    () => offersToday.filter((offer) => resolveOfferApplicationLevel(offer.raw as Record<string, unknown>) === "item"),
+    [offersToday],
   );
+  const cartLevelOffers = useMemo(
+    () => offersToday.filter((offer) => resolveOfferApplicationLevel(offer.raw as Record<string, unknown>) === "cart"),
+    [offersToday],
+  );
+  const matchedItemOffers = useMemo(
+    () =>
+      cartOfferEvaluationLines
+        .map((line) => pickBestItemWiseOfferForLine(line, itemLevelOffers, subtotal))
+        .filter((entry): entry is ItemWiseOfferMatch => !!entry),
+    [cartOfferEvaluationLines, itemLevelOffers, subtotal],
+  );
+  const cartCouponCandidates = useMemo(
+    () => evaluateApplicableOffers(cartLevelOffers, cartOfferEvaluationLines, subtotal),
+    [cartLevelOffers, cartOfferEvaluationLines, subtotal],
+  );
+  const [selectedCartCouponId] = useState("");
+  const selectedCartCoupon = useMemo(
+    () => cartCouponCandidates.find((offer) => offer.offerId === selectedCartCouponId) ?? null,
+    [cartCouponCandidates, selectedCartCouponId],
+  );
+  const bestCartCoupon = useMemo(
+    () => pickBestApplicableOffer(cartCouponCandidates, preDiscountTotal),
+    [cartCouponCandidates, preDiscountTotal],
+  );
+  const resolvedCartCoupon = useMemo(() => {
+    if (!selectedCartCoupon) {
+      return bestCartCoupon;
+    }
+    return pickBestApplicableOffer([selectedCartCoupon], preDiscountTotal) ?? bestCartCoupon;
+  }, [bestCartCoupon, preDiscountTotal, selectedCartCoupon]);
   const applicableCartOffers = useMemo(
     () => summarizeItemWiseOfferMatches(matchedItemOffers),
     [matchedItemOffers],
@@ -5013,10 +5053,11 @@ export default function QrOrderingExperience({
       roundCurrency(
         Math.min(
           preDiscountTotal,
-          matchedItemOffers.reduce((sum, entry) => sum + entry.discountAmount, 0),
+          matchedItemOffers.reduce((sum, entry) => sum + entry.discountAmount, 0) +
+            (resolvedCartCoupon?.discountAmount ?? 0),
         ),
       ),
-    [matchedItemOffers, preDiscountTotal],
+    [matchedItemOffers, preDiscountTotal, resolvedCartCoupon],
   );
   const finalTotal = roundCurrency(Math.max(0, safeSubtotal + safeTaxes - totalDiscountAmount));
   console.log("Tax Settings Debug", {
@@ -5027,9 +5068,11 @@ export default function QrOrderingExperience({
     taxAmount: safeTaxes,
     finalTotal,
   });
-  console.log("Item Wise Offer Debug", {
+  console.log("Offer Engine Debug", {
     cartItems,
-    matchedItemOffers,
+    itemLevelDiscounts: matchedItemOffers,
+    selectedCartCoupon,
+    bestCartCoupon,
     totalDiscountAmount,
     finalTotal,
   });
@@ -8502,7 +8545,7 @@ export default function QrOrderingExperience({
                   isLightTheme ? "border-[#C6A57B]" : "border-zinc-800",
                 )}
               >
-                {applicableCartOffers.length > 0 ? (
+                {applicableCartOffers.length > 0 || cartCouponCandidates.length > 0 ? (
                   <section
                     className={clsx(
                       "cafe-luxe-card space-y-3 rounded-2xl border p-3.5",
@@ -8517,11 +8560,11 @@ export default function QrOrderingExperience({
                           Applicable Offers
                         </p>
                         <p className={clsx("mt-1 text-[11px]", secondaryTextClass)}>
-                          Matching offers are auto-applied item-wise. Each item gets only its best eligible offer.
+                          Matching item offers apply per item, and cart-wide coupons apply once on the full cart.
                         </p>
                       </div>
                       <span className={clsx("rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]", mutedTextClass)}>
-                        {applicableCartOffers.length} matched
+                        {applicableCartOffers.length + (resolvedCartCoupon ? 1 : 0)} matched
                       </span>
                     </div>
                     <div className="space-y-2">
@@ -8568,6 +8611,46 @@ export default function QrOrderingExperience({
                           </div>
                         </div>
                       ))}
+                      {resolvedCartCoupon ? (
+                        <div
+                          key={`cart_coupon_${resolvedCartCoupon.offer.offerId}`}
+                          className={clsx(
+                            "cafe-luxe-offer-card rounded-xl border px-3 py-2.5 transition",
+                            isLightTheme
+                              ? "border-[#C6A57B] bg-[#F8F5F0]"
+                              : "border-zinc-800/30 bg-[#F8F5F0]/10",
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className={clsx("truncate text-sm font-semibold", contentTextClass)}>
+                                {resolvedCartCoupon.offer.offerName}
+                              </p>
+                              <p className={clsx("mt-1 text-[11px]", secondaryTextClass)}>
+                                {resolvedCartCoupon.offer.matchedReason}
+                              </p>
+                              <p className={clsx("mt-1 text-[11px] font-medium", isLightTheme ? "text-brand-dark" : "text-zinc-200")}>
+                                {`Cart coupon saving ${formatMoney(resolvedCartCoupon.discountAmount)}`}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 flex-col items-end gap-2">
+                              <span className={clsx("rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]", mutedTextClass)}>
+                                {resolvedCartCoupon.offer.offerType}
+                              </span>
+                              <span
+                                className={clsx(
+                                  "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]",
+                                  isLightTheme
+                                    ? "border-[#C6A57B] bg-[#C6A57B]/20 text-brand-dark"
+                                    : "border-zinc-600 bg-zinc-800 text-zinc-100",
+                                )}
+                              >
+                                Cart Coupon
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   </section>
                 ) : null}
@@ -8801,10 +8884,10 @@ export default function QrOrderingExperience({
                     <span>Discount Applied</span>
                     <span className="text-green-600">-₹{totalDiscountAmount.toFixed(2)}</span>
                   </div>
-                  {applicableCartOffers.length > 0 ? (
+                  {applicableCartOffers.length > 0 || resolvedCartCoupon ? (
                     <div className="flex items-center justify-between">
                       <span className="opacity-80">Matched Offers</span>
-                      <span className="font-semibold">{applicableCartOffers.length}</span>
+                      <span className="font-semibold">{applicableCartOffers.length + (resolvedCartCoupon ? 1 : 0)}</span>
                     </div>
                   ) : null}
                   <div className="flex justify-between w-full font-bold text-lg">
