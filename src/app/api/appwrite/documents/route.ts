@@ -71,8 +71,6 @@ const ALLOWED_PENDING_PAYMENT_STATUSES = new Set([
   "PENDING_VERIFICATION",
 ]);
 const ALLOWED_SETTLED_PAYMENT_STATUSES = new Set(["PAID", "SETTLED", "COMPLETED"]);
-const ALLOWED_CLOSED_ORDER_STATUSES = new Set(["CLOSED", "COMPLETED", "BILLED", "SETTLED"]);
-const SETTLED_ORDER_DELETE_MIN_AGE_MS = 60 * 60 * 1000;
 
 const MAX_BODY_SIZE_BYTES = 48 * 1024;
 const MAX_QUERY_COUNT = 10;
@@ -1037,6 +1035,7 @@ function sanitizeOrderDeletePayload(source: Record<string, unknown>) {
   const documentId = normalizeDocumentId(source.documentId);
   const clientId = sanitizeIdentifier(source.clientId, 64);
   const tableId = sanitizeIdentifier(source.tableId, 64);
+  const manualDelete = sanitizeBoolean(source.manualDelete ?? source.manual_delete);
 
   if (!collectionId || !documentId || !clientId || !tableId) {
     return null;
@@ -1046,7 +1045,7 @@ function sanitizeOrderDeletePayload(source: Record<string, unknown>) {
     return null;
   }
 
-  return { collectionId, documentId, clientId, tableId };
+  return { collectionId, documentId, clientId, tableId, manualDelete: manualDelete === true };
 }
 
 export async function GET(request: NextRequest) {
@@ -1302,6 +1301,10 @@ export async function DELETE(request: NextRequest) {
     return jsonError("Document delete is not allowed.", 403);
   }
 
+  if (!payload.manualDelete) {
+    return jsonError("Automatic order deletion is disabled. Manual delete confirmation is required.", 403);
+  }
+
   const upstreamDocumentUrl = `${APPWRITE_ENDPOINT}/databases/${encodeURIComponent(
     APPWRITE_DATABASE_ID,
   )}/collections/${encodeURIComponent(payload.collectionId)}/documents/${encodeURIComponent(
@@ -1331,21 +1334,7 @@ export async function DELETE(request: NextRequest) {
     return jsonError("Document scope mismatch for delete request.", 403);
   }
 
-  const paymentStatus = sanitizeEnum(currentDoc.payment_status, ALLOWED_SETTLED_PAYMENT_STATUSES);
-  const orderStatus = sanitizeEnum(currentDoc.status, ALLOWED_CLOSED_ORDER_STATUSES);
-  if (!paymentStatus && !orderStatus) {
-    return jsonError("Only paid, settled, or closed bills are eligible for deletion.", 409);
-  }
-
-  const now = Date.now();
-  const anchor =
-    toTimestamp(currentDoc.$updatedAt) ||
-    toTimestamp(currentDoc.updated_at) ||
-    toTimestamp(currentDoc.created_at_custom) ||
-    toTimestamp(currentDoc.$createdAt);
-  if (!anchor || now - anchor < SETTLED_ORDER_DELETE_MIN_AGE_MS) {
-    return jsonError("Settled bill retention window has not elapsed yet.", 409);
-  }
+  console.log("OrderRetention: manual delete requested");
 
   const upstreamDeleteResponse = await fetch(upstreamDocumentUrl, {
     method: "DELETE",

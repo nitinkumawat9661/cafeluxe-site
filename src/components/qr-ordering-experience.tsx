@@ -306,7 +306,6 @@ const ACTIVE_TABLE_STORAGE_VERSION = 1;
 const REQUEST_TIMEOUT_MS = 12000;
 const BILL_SYNC_TIMEOUT_MS = 10000;
 const ORDER_STATUS_WATCH_INTERVAL_MS = 14000;
-const BILL_INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000;
 const MAX_TABLE_ORDER_RECORDS = 60;
 const MAX_ROUTE_CLIENT_LENGTH = 64;
 const MAX_ROUTE_TABLE_LENGTH = 32;
@@ -3752,7 +3751,6 @@ export default function QrOrderingExperience({
   const orderSyncSnapshotRef = useRef<Record<string, { status: string; paymentStatus: string }>>({});
   const shownKitchenStatusAlertKeysRef = useRef<Set<string>>(new Set());
   const ownedOrderIdsRef = useRef<Set<string>>(new Set());
-  const settledOrderCleanupInFlightRef = useRef<Set<string>>(new Set());
   const persistedCartStateRef = useRef<string | null>(null);
   const persistedBillStateRef = useRef<string | null>(null);
   const persistedSessionStateRef = useRef<string | null>(null);
@@ -4393,9 +4391,6 @@ export default function QrOrderingExperience({
         );
 
         const cleanupClientId = matchedTable.clientId || routeClient;
-
-        // One-time prune of old paid/settled/closed bills for this table scope.
-        void runSettledOrderCleanupForRoute(cleanupClientId, matchedTable.id);
 
         // Sync backend orders in background so first load does not wait on order-history calls.
         if (ENABLE_BACKEND_ORDER_SYNC && shouldResumeOrderSync) {
@@ -5615,119 +5610,6 @@ export default function QrOrderingExperience({
     }
   }
 
-  function getOrderRetentionAnchorTimestamp(order: TableOrderRecord) {
-    return toTimestamp(order.updatedAt) || toTimestamp(order.createdAt);
-  }
-
-  function isSettledOrderEligibleForDelete(order: TableOrderRecord, nowTimestamp: number) {
-    if (!isOrderClosed(order.status, order.paymentStatus)) {
-      return false;
-    }
-    const anchor = getOrderRetentionAnchorTimestamp(order);
-    if (!anchor) {
-      return false;
-    }
-    return nowTimestamp - anchor >= BILL_INACTIVITY_TIMEOUT_MS;
-  }
-
-  async function deleteSettledOrderFromBackend(
-    order: TableOrderRecord,
-    clientId: string,
-    tableId: string,
-  ) {
-    const response = await fetch("/api/appwrite/documents", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      cache: "no-store",
-      body: JSON.stringify({
-        collectionId: appwriteConfig.collections.orders,
-        documentId: order.orderId,
-        clientId,
-        tableId,
-      }),
-    });
-
-    if (response.ok) {
-      return true;
-    }
-
-    let message = `Cleanup request failed (${response.status}).`;
-    try {
-      const payload = (await response.json()) as { message?: string };
-      if (typeof payload?.message === "string" && payload.message.trim()) {
-        message = payload.message.trim();
-      }
-    } catch {
-      // Ignore parse issues and keep fallback message.
-    }
-
-    throw new Error(message);
-  }
-
-  async function cleanupSettledOrders(
-    records: TableOrderRecord[],
-    clientId: string,
-    tableId: string,
-  ) {
-    if (!clientId || !tableId || records.length === 0) {
-      return;
-    }
-
-    const nowTimestamp = Date.now();
-    const eligibleOrders = records.filter(
-      (order) =>
-        order.source === "backend" && isSettledOrderEligibleForDelete(order, nowTimestamp),
-    );
-
-    if (eligibleOrders.length === 0) {
-      return;
-    }
-
-    for (const order of eligibleOrders) {
-      const inFlight = settledOrderCleanupInFlightRef.current;
-      if (inFlight.has(order.orderId)) {
-        continue;
-      }
-
-      inFlight.add(order.orderId);
-      try {
-        await deleteSettledOrderFromBackend(order, clientId, tableId);
-      } catch (error) {
-        const message = getErrorMessage(error).toLowerCase();
-        const isExpectedSafetyStop =
-          message.includes("retention window") ||
-          message.includes("eligible for deletion") ||
-          message.includes("not found");
-        if (!isExpectedSafetyStop) {
-          devWarn("Settled order cleanup failed:", error);
-        }
-      } finally {
-        inFlight.delete(order.orderId);
-      }
-    }
-  }
-
-  async function runSettledOrderCleanupForRoute(clientId: string, tableId: string) {
-    if (!clientId || !tableId) {
-      return;
-    }
-
-    try {
-      const backendRecords = await withTimeout(
-        fetchTableOrderRecords(clientId, tableId),
-        BILL_SYNC_TIMEOUT_MS,
-        "Settled bill cleanup",
-      );
-      if (backendRecords.length === 0) {
-        return;
-      }
-      await cleanupSettledOrders(backendRecords, clientId, tableId);
-    } catch {
-      // Keep cleanup silent to avoid interrupting customer flow.
-    }
-  }
-
   function applyBackendOrders(backendRecords: TableOrderRecord[]) {
     if (backendRecords.length === 0) {
       return "none" as const;
@@ -5740,10 +5622,6 @@ export default function QrOrderingExperience({
         : [];
 
     const mergedRecords = mergeTableOrderRecords(tableOrdersRef.current, scopedBackendRecords);
-    if (tableInfo?.id) {
-      const cleanupClientId = tableInfo.clientId || routeClient;
-      void cleanupSettledOrders(mergedRecords, cleanupClientId, tableInfo.id);
-    }
     checkBackendTransitions(mergedRecords);
     const activityMarker = billLastActivityRef.current;
     const previousVisibleRecords = applyBillInactivityPolicy(
