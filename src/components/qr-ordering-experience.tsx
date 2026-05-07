@@ -1008,20 +1008,30 @@ function readOfferTargetIdTokens(source: Record<string, unknown>) {
   );
 }
 
-function resolveOfferApplicationLevel(source: Record<string, unknown>) {
+function resolveOfferApplicationLevel(offer: Offer) {
+  const source = offer.raw as Record<string, unknown>;
+  const offerType = resolveOfferTypeToken(offer);
   const baseCriteria = readOfferCriteria(source, OFFER_ITEM_KEYS, OFFER_CATEGORY_KEYS);
   const scope = resolveOfferTargetScope(source);
   const targetIds = readOfferTargetIdTokens(source);
+  const hasScopedItemTargets = hasCriteriaTokens(baseCriteria) || targetIds.size > 0;
 
-  if (scope === "cart") {
+  // Swiggy/Zomato-style split:
+  // 1. BXGY is always an auto promotion, never a cart coupon.
+  // 2. Item/category targeted discounts are promotions.
+  // 3. True cart/order/bill-wide discounts stay in the coupon bucket.
+  if (offerType === "bxgy") {
+    return "promotion" as const;
+  }
+
+  if (scope === "product" || scope === "category" || hasScopedItemTargets) {
+    return "promotion" as const;
+  }
+
+  if (scope === "cart" || scope === "all") {
     return "cart" as const;
   }
-  if (scope === "product" || scope === "category") {
-    return "item" as const;
-  }
-  if (hasCriteriaTokens(baseCriteria) || targetIds.size > 0) {
-    return "item" as const;
-  }
+
   return "cart" as const;
 }
 
@@ -5007,20 +5017,24 @@ export default function QrOrderingExperience({
       } satisfies OfferEvaluationLine;
     });
   }, [cartItems, pricedCustomizationsByItem]);
-  const itemLevelOffers = useMemo(
-    () => offersToday.filter((offer) => resolveOfferApplicationLevel(offer.raw as Record<string, unknown>) === "item"),
+  const autoPromotions = useMemo(
+    () => offersToday.filter((offer) => resolveOfferApplicationLevel(offer) === "promotion"),
     [offersToday],
   );
+  const bxgyOffers = useMemo(
+    () => autoPromotions.filter((offer) => resolveOfferTypeToken(offer) === "bxgy"),
+    [autoPromotions],
+  );
   const cartLevelOffers = useMemo(
-    () => offersToday.filter((offer) => resolveOfferApplicationLevel(offer.raw as Record<string, unknown>) === "cart"),
+    () => offersToday.filter((offer) => resolveOfferApplicationLevel(offer) === "cart"),
     [offersToday],
   );
   const matchedItemOffers = useMemo(
     () =>
       cartOfferEvaluationLines
-        .map((line) => pickBestItemWiseOfferForLine(line, itemLevelOffers, subtotal))
+        .map((line) => pickBestItemWiseOfferForLine(line, autoPromotions, subtotal))
         .filter((entry): entry is ItemWiseOfferMatch => !!entry),
-    [cartOfferEvaluationLines, itemLevelOffers, subtotal],
+    [autoPromotions, cartOfferEvaluationLines, subtotal],
   );
   const cartCouponCandidates = useMemo(
     () => evaluateApplicableOffers(cartLevelOffers, cartOfferEvaluationLines, subtotal),
@@ -5059,6 +5073,11 @@ export default function QrOrderingExperience({
       ),
     [matchedItemOffers, preDiscountTotal, resolvedCartCoupon],
   );
+  const itemPromotionDiscountTotal = useMemo(
+    () => roundCurrency(matchedItemOffers.reduce((sum, entry) => sum + entry.discountAmount, 0)),
+    [matchedItemOffers],
+  );
+  const cartCouponDiscount = roundCurrency(resolvedCartCoupon?.discountAmount ?? 0);
   const finalTotal = roundCurrency(Math.max(0, safeSubtotal + safeTaxes - totalDiscountAmount));
   console.log("Tax Settings Debug", {
     gstEnabled,
@@ -5068,11 +5087,16 @@ export default function QrOrderingExperience({
     taxAmount: safeTaxes,
     finalTotal,
   });
-  console.log("Offer Engine Debug", {
+  console.log("Offer Bucket Debug", {
     cartItems,
+    autoPromotions,
+    cartCouponCandidates,
+    bxgyOffers,
     itemLevelDiscounts: matchedItemOffers,
     selectedCartCoupon,
     bestCartCoupon,
+    itemPromotionDiscountTotal,
+    cartCouponDiscount,
     totalDiscountAmount,
     finalTotal,
   });
