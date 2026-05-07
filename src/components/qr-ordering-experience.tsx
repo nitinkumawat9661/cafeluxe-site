@@ -901,15 +901,29 @@ const OFFER_TARGET_ID_KEYS = [
   "targetValues",
 ];
 
-const OFFER_SCOPE_KEYS = ["target_scope", "targetScope", "scope", "applies_to", "appliesTo"];
+const OFFER_SCOPE_KEYS = [
+  "target_scope",
+  "targetScope",
+  "offer_scope",
+  "offerScope",
+  "target_type",
+  "targetType",
+  "scope",
+  "applies_to",
+  "appliesTo",
+];
 
 const OFFER_ITEM_KEYS = [
   "item_id",
+  "itemId",
   "item_ids",
   "menu_item_id",
+  "menuItemId",
   "menu_item_ids",
   "product_id",
+  "productId",
   "product_ids",
+  "applicable_item_id",
   "applicable_items",
   "applicable_item_ids",
 ];
@@ -918,9 +932,11 @@ const OFFER_CATEGORY_KEYS = [
   "category",
   "categories",
   "category_id",
+  "categoryId",
   "catogry_id",
   "category_ids",
   "catogry_ids",
+  "applicable_category_id",
   "applicable_categories",
   "applicable_category_ids",
 ];
@@ -1280,8 +1296,17 @@ function sumTableOrderTaxBreakdown(orders: TableOrderRecord[]) {
 function pickBestItemWiseOfferForLine(
   line: OfferEvaluationLine,
   offers: Offer[],
+  subtotalAmount: number,
 ) {
-  const eligibleOffers = resolveApplicableOffersForSubtotal(line.lineTotal, [line], offers);
+  const eligibleOffers: ApplicableOfferPreview[] = [];
+  for (const offer of offers) {
+    const resolved = evaluateApplicableOffers([offer], [line], subtotalAmount);
+    const matched = resolved.length > 0;
+    console.log("Offer Match Check", { item: line, offer, matched });
+    if (matched) {
+      eligibleOffers.push(...resolved);
+    }
+  }
   const bestOffer = pickBestApplicableOffer(eligibleOffers, line.lineTotal);
   if (!bestOffer || bestOffer.discountAmount <= 0) {
     return null;
@@ -4968,11 +4993,13 @@ export default function QrOrderingExperience({
     });
   }, [cartItems, pricedCustomizationsByItem]);
   const matchedItemOffers = useMemo(
-    () =>
-      cartOfferEvaluationLines
-        .map((line) => pickBestItemWiseOfferForLine(line, offersToday))
-        .filter((entry): entry is ItemWiseOfferMatch => !!entry),
-    [cartOfferEvaluationLines, offersToday],
+    () => {
+      console.log("Offer Match Input", { cartItems, activeOffers: offersToday });
+      return cartOfferEvaluationLines
+        .map((line) => pickBestItemWiseOfferForLine(line, offersToday, subtotal))
+        .filter((entry): entry is ItemWiseOfferMatch => !!entry);
+    },
+    [cartItems, cartOfferEvaluationLines, offersToday, subtotal],
   );
   const applicableCartOffers = useMemo(
     () => summarizeItemWiseOfferMatches(matchedItemOffers),
