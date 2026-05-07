@@ -126,6 +126,9 @@ type TableOrderRecord = {
   paymentMethod: PaymentMethod;
   utrNumber: string;
   subtotal: number;
+  taxAmount: number;
+  cgstAmount: number;
+  sgstAmount: number;
   totalAmount: number;
   createdAt: string;
   updatedAt: string;
@@ -154,6 +157,24 @@ type ApplicableOfferPreview = {
   matchedReason: string;
   estimatedBenefit: number | null;
   discountValue: string;
+};
+
+type ItemWiseOfferMatch = {
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  offer: ApplicableOfferPreview;
+  discountAmount: number;
+};
+
+type ItemWiseOfferSummary = {
+  offerId: string;
+  offerName: string;
+  offerType: OfferEvaluationType;
+  matchedReason: string;
+  matchedItemCount: number;
+  matchedItemNames: string[];
+  totalDiscountAmount: number;
 };
 
 type StatusPopupState = {
@@ -889,6 +910,8 @@ const OFFER_ITEM_KEYS = [
   "menu_item_ids",
   "product_id",
   "product_ids",
+  "applicable_items",
+  "applicable_item_ids",
 ];
 
 const OFFER_CATEGORY_KEYS = [
@@ -898,6 +921,8 @@ const OFFER_CATEGORY_KEYS = [
   "catogry_id",
   "category_ids",
   "catogry_ids",
+  "applicable_categories",
+  "applicable_category_ids",
 ];
 
 function hasCriteriaTokens(criteria: { itemTokens: Set<string>; categoryTokens: Set<string> }) {
@@ -1129,6 +1154,7 @@ function getOfferMinimumCartValue(source: Record<string, unknown>) {
     "min_order_amount",
     "min_amount",
     "threshold_amount",
+    "minimum_order_value",
   ]);
   return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
@@ -1222,27 +1248,6 @@ function estimateOfferDiscount(
   return null;
 }
 
-function resolveAppliedOfferDiscountAmount(
-  appliedOffer: ApplicableOfferPreview | null,
-  subtotalAmount: number,
-  taxesAmount: number,
-) {
-  const safeSubtotal = roundCurrency(Math.max(0, Number(subtotalAmount) || 0));
-  const safeTaxes = roundCurrency(Math.max(0, Number(taxesAmount) || 0));
-  const safePreDiscountTotal = roundCurrency(safeSubtotal + safeTaxes);
-  if (!appliedOffer || safePreDiscountTotal <= 0) {
-    return 0;
-  }
-
-  const rawDiscount =
-    Number.isFinite(appliedOffer.estimatedBenefit ?? Number.NaN)
-      ? Number(appliedOffer.estimatedBenefit ?? 0)
-      : Number(appliedOffer.discountValue ?? 0);
-  const safeDiscount = roundCurrency(Math.max(0, Number.isFinite(rawDiscount) ? rawDiscount : 0));
-
-  return roundCurrency(Math.min(safePreDiscountTotal, safeDiscount));
-}
-
 function sumTableOrderPayableAmount(orders: TableOrderRecord[]) {
   return roundCurrency(
     orders.reduce((sum, order) => {
@@ -1257,6 +1262,69 @@ function sumTableOrderPayableAmount(orders: TableOrderRecord[]) {
         order.items.reduce((itemSum, item) => itemSum + toAmount(item.lineTotal), 0)
       );
     }, 0),
+  );
+}
+
+function sumTableOrderTaxBreakdown(orders: TableOrderRecord[]) {
+  return orders.reduce(
+    (sum, order) => {
+      sum.taxAmount += toAmount(order.taxAmount);
+      sum.cgstAmount += toAmount(order.cgstAmount);
+      sum.sgstAmount += toAmount(order.sgstAmount);
+      return sum;
+    },
+    { taxAmount: 0, cgstAmount: 0, sgstAmount: 0 },
+  );
+}
+
+function pickBestItemWiseOfferForLine(
+  line: OfferEvaluationLine,
+  offers: Offer[],
+) {
+  const eligibleOffers = resolveApplicableOffersForSubtotal(line.lineTotal, [line], offers);
+  const bestOffer = pickBestApplicableOffer(eligibleOffers, line.lineTotal);
+  if (!bestOffer || bestOffer.discountAmount <= 0) {
+    return null;
+  }
+
+  return {
+    itemId: line.itemId,
+    itemName: line.name,
+    quantity: line.quantity,
+    offer: bestOffer.offer,
+    discountAmount: roundCurrency(bestOffer.discountAmount),
+  } satisfies ItemWiseOfferMatch;
+}
+
+function summarizeItemWiseOfferMatches(matches: ItemWiseOfferMatch[]) {
+  const grouped = new Map<string, ItemWiseOfferSummary>();
+
+  for (const match of matches) {
+    const existing = grouped.get(match.offer.offerId);
+    if (!existing) {
+      grouped.set(match.offer.offerId, {
+        offerId: match.offer.offerId,
+        offerName: match.offer.offerName,
+        offerType: match.offer.offerType,
+        matchedReason: match.offer.matchedReason,
+        matchedItemCount: 1,
+        matchedItemNames: [match.itemName],
+        totalDiscountAmount: roundCurrency(match.discountAmount),
+      });
+      continue;
+    }
+
+    existing.matchedItemCount += 1;
+    if (!existing.matchedItemNames.includes(match.itemName)) {
+      existing.matchedItemNames.push(match.itemName);
+    }
+    existing.totalDiscountAmount = roundCurrency(
+      existing.totalDiscountAmount + match.discountAmount,
+    );
+  }
+
+  return [...grouped.values()].sort(
+    (left, right) => right.totalDiscountAmount - left.totalDiscountAmount,
   );
 }
 
@@ -2855,6 +2923,9 @@ function parseTableOrderRecord(value: unknown) {
     paymentMethod,
     utrNumber: toSafeString(source.utrNumber ?? source.utr_number),
     subtotal: fallbackSubtotal,
+    taxAmount: toAmount(source.taxAmount ?? source.tax_amount),
+    cgstAmount: toAmount(source.cgstAmount ?? source.cgst_amount),
+    sgstAmount: toAmount(source.sgstAmount ?? source.sgst_amount),
     totalAmount: resolvedTotal,
     createdAt,
     updatedAt,
@@ -3323,6 +3394,9 @@ function parseOrderRecordFromDocument(doc: Record<string, unknown>): TableOrderR
     paymentMethod,
     utrNumber: toSafeString(doc.utr_number ?? doc.utrNumber),
     subtotal,
+    taxAmount: toAmount(doc.tax_amount ?? doc.taxAmount),
+    cgstAmount: toAmount(doc.cgst_amount ?? doc.cgstAmount),
+    sgstAmount: toAmount(doc.sgst_amount ?? doc.sgstAmount),
     totalAmount,
     createdAt,
     updatedAt,
@@ -3460,6 +3534,9 @@ function buildTableOrderRecordFromCart(
   tableNo: string,
   paymentMethod: PaymentMethod,
   subtotal: number,
+  taxAmount: number,
+  cgstAmount: number,
+  sgstAmount: number,
   totalAmount: number,
   createdAt: string,
   cartItems: CartItem[],
@@ -3476,6 +3553,9 @@ function buildTableOrderRecordFromCart(
     paymentMethod,
     utrNumber: "",
     subtotal,
+    taxAmount,
+    cgstAmount,
+    sgstAmount,
     totalAmount,
     createdAt,
     updatedAt: createdAt,
@@ -3561,7 +3641,10 @@ export default function QrOrderingExperience({
   const [clientSettings, setClientSettings] = useState<RestaurantSettings>({
     restaurantName: "Cafe",
     currency: "INR",
+    gstEnabled: false,
     taxPercentage: 0,
+    cgstPercentage: 0,
+    sgstPercentage: 0,
     supportPhone: "",
     upiId: "",
     upiName: "",
@@ -3595,8 +3678,6 @@ export default function QrOrderingExperience({
   const [cartOpen, setCartOpen] = useState(false);
   const [billOpen, setBillOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("COUNTER");
-  const [applicableCartOffers, setApplicableCartOffers] = useState<ApplicableOfferPreview[]>([]);
-  const [appliedCartOffer, setAppliedCartOffer] = useState<ApplicableOfferPreview | null>(null);
   const [canLaunchUpiDeepLink, setCanLaunchUpiDeepLink] = useState(false);
   const [upiQrUri, setUpiQrUri] = useState("");
   const [upiQrAmount, setUpiQrAmount] = useState("");
@@ -4844,13 +4925,30 @@ export default function QrOrderingExperience({
     const code = clientSettings.currency.trim().toUpperCase();
     return code || "INR";
   }, [clientSettings.currency]);
+  const gstEnabled = useMemo(() => !!clientSettings.gstEnabled, [clientSettings.gstEnabled]);
   const taxPercentage = useMemo(
-    () => Math.min(100, Math.max(0, clientSettings.taxPercentage || 0)),
-    [clientSettings.taxPercentage],
+    () => (gstEnabled ? Math.min(100, Math.max(0, clientSettings.taxPercentage || 0)) : 0),
+    [clientSettings.taxPercentage, gstEnabled],
+  );
+  const cgstPercentage = useMemo(
+    () => (gstEnabled ? Math.min(100, Math.max(0, clientSettings.cgstPercentage || 0)) : 0),
+    [clientSettings.cgstPercentage, gstEnabled],
+  );
+  const sgstPercentage = useMemo(
+    () => (gstEnabled ? Math.min(100, Math.max(0, clientSettings.sgstPercentage || 0)) : 0),
+    [clientSettings.sgstPercentage, gstEnabled],
   );
   const taxAmount = useMemo(
-    () => Number(((subtotal * taxPercentage) / 100).toFixed(2)),
-    [subtotal, taxPercentage],
+    () => (gstEnabled ? Number(((subtotal * taxPercentage) / 100).toFixed(2)) : 0),
+    [subtotal, taxPercentage, gstEnabled],
+  );
+  const cgstAmount = useMemo(
+    () => (gstEnabled ? Number(((subtotal * cgstPercentage) / 100).toFixed(2)) : 0),
+    [subtotal, cgstPercentage, gstEnabled],
+  );
+  const sgstAmount = useMemo(
+    () => (gstEnabled ? Number(((subtotal * sgstPercentage) / 100).toFixed(2)) : 0),
+    [subtotal, sgstPercentage, gstEnabled],
   );
   const preDiscountTotal = roundCurrency(subtotal + taxAmount);
   const formatMoney = (value: number) => formatInr(value, normalizedCurrency);
@@ -4869,48 +4967,45 @@ export default function QrOrderingExperience({
       } satisfies OfferEvaluationLine;
     });
   }, [cartItems, pricedCustomizationsByItem]);
-  const bestCartOffer = useMemo(
-    () => pickBestApplicableOffer(applicableCartOffers, preDiscountTotal),
-    [applicableCartOffers, preDiscountTotal],
+  const matchedItemOffers = useMemo(
+    () =>
+      cartOfferEvaluationLines
+        .map((line) => pickBestItemWiseOfferForLine(line, offersToday))
+        .filter((entry): entry is ItemWiseOfferMatch => !!entry),
+    [cartOfferEvaluationLines, offersToday],
   );
-  const bestCartOfferId = bestCartOffer?.offer.offerId ?? "";
-  const appliedOffer = appliedCartOffer;
+  const applicableCartOffers = useMemo(
+    () => summarizeItemWiseOfferMatches(matchedItemOffers),
+    [matchedItemOffers],
+  );
   const taxes = taxAmount;
   const safeSubtotal = roundCurrency(Math.max(0, Number(subtotal) || 0));
   const safeTaxes = roundCurrency(Math.max(0, Number(taxes) || 0));
-  const discountAmount = resolveAppliedOfferDiscountAmount(appliedOffer, safeSubtotal, safeTaxes);
-  const finalTotal = roundCurrency(Math.max(0, safeSubtotal + safeTaxes - discountAmount));
-  console.log("Offer Debug", {
+  const totalDiscountAmount = useMemo(
+    () =>
+      roundCurrency(
+        Math.min(
+          preDiscountTotal,
+          matchedItemOffers.reduce((sum, entry) => sum + entry.discountAmount, 0),
+        ),
+      ),
+    [matchedItemOffers, preDiscountTotal],
+  );
+  const finalTotal = roundCurrency(Math.max(0, safeSubtotal + safeTaxes - totalDiscountAmount));
+  console.log("Tax Settings Debug", {
+    gstEnabled,
+    taxPercentage,
     subtotal: safeSubtotal,
-    taxes: safeTaxes,
-    appliedOffer,
-    discountAmount,
+    discountAmount: totalDiscountAmount,
+    taxAmount: safeTaxes,
     finalTotal,
   });
-
-  useEffect(() => {
-    const nextApplicableOffers = resolveApplicableOffersForSubtotal(
-      subtotal,
-      cartOfferEvaluationLines,
-      offersToday,
-    );
-    setApplicableCartOffers(nextApplicableOffers);
-  }, [subtotal, offersToday, cartOfferEvaluationLines]);
-
-  useEffect(() => {
-    if (appliedCartOffer && !applicableCartOffers.some((offer) => offer.offerId === appliedCartOffer.offerId)) {
-      setAppliedCartOffer(applicableCartOffers[0] ?? null);
-      if (applicableCartOffers[0]) {
-        console.log("Auto-applied offer:", applicableCartOffers[0]);
-      }
-      return;
-    }
-
-    if (applicableCartOffers?.length > 0 && !appliedCartOffer) {
-      setAppliedCartOffer(applicableCartOffers[0]);
-      console.log("Auto-applied offer:", applicableCartOffers[0]);
-    }
-  }, [applicableCartOffers, appliedCartOffer]);
+  console.log("Item Wise Offer Debug", {
+    cartItems,
+    matchedItemOffers,
+    totalDiscountAmount,
+    finalTotal,
+  });
 
   const mergedBillItems = useMemo(
     () => mergeBillItemsFromOrders(tableOrders, menuItems),
@@ -4921,26 +5016,37 @@ export default function QrOrderingExperience({
     () => mergedBillItems.reduce((sum, item) => sum + item.lineTotal, 0),
     [mergedBillItems],
   );
-  const billGrandTotal = useMemo(() => {
-    return tableOrders.reduce((sum, order) => {
-      if (order.totalAmount > 0) {
-        return sum + order.totalAmount;
-      }
-      if (order.subtotal > 0) {
-        return sum + order.subtotal;
-      }
-      return sum + order.items.reduce((innerSum, item) => innerSum + item.lineTotal, 0);
-    }, 0);
-  }, [tableOrders]);
+  const billStoredTaxBreakdown = useMemo(() => sumTableOrderTaxBreakdown(tableOrders), [tableOrders]);
   const billTaxAmount = useMemo(() => {
-    if (billGrandTotal > billSubtotal) {
-      return billGrandTotal - billSubtotal;
+    if (!gstEnabled) {
+      return 0;
+    }
+    if (billStoredTaxBreakdown.taxAmount > 0) {
+      return roundCurrency(billStoredTaxBreakdown.taxAmount);
     }
     if (taxPercentage > 0 && billSubtotal > 0) {
       return Number(((billSubtotal * taxPercentage) / 100).toFixed(2));
     }
     return 0;
-  }, [billGrandTotal, billSubtotal, taxPercentage]);
+  }, [billStoredTaxBreakdown.taxAmount, billSubtotal, gstEnabled, taxPercentage]);
+  const billCgstAmount = useMemo(() => {
+    if (!gstEnabled) {
+      return 0;
+    }
+    if (billStoredTaxBreakdown.cgstAmount > 0) {
+      return roundCurrency(billStoredTaxBreakdown.cgstAmount);
+    }
+    return Number(((billSubtotal * cgstPercentage) / 100).toFixed(2));
+  }, [billStoredTaxBreakdown.cgstAmount, billSubtotal, cgstPercentage, gstEnabled]);
+  const billSgstAmount = useMemo(() => {
+    if (!gstEnabled) {
+      return 0;
+    }
+    if (billStoredTaxBreakdown.sgstAmount > 0) {
+      return roundCurrency(billStoredTaxBreakdown.sgstAmount);
+    }
+    return Number(((billSubtotal * sgstPercentage) / 100).toFixed(2));
+  }, [billStoredTaxBreakdown.sgstAmount, billSubtotal, sgstPercentage, gstEnabled]);
   const billFinalTotal = billSubtotal + billTaxAmount;
   const latestBillOrder = getPreferredBillOrder(tableOrders);
   const latestBillPaymentMethod = latestBillOrder?.paymentMethod ?? paymentMethod;
@@ -4972,26 +5078,40 @@ export default function QrOrderingExperience({
     () => unpaidMergedItems.reduce((sum, item) => sum + item.lineTotal, 0),
     [unpaidMergedItems],
   );
-  const unpaidGrandTotal = useMemo(() => {
-    return unpaidOrders.reduce((sum, order) => {
-      if (order.totalAmount > 0) {
-        return sum + order.totalAmount;
-      }
-      if (order.subtotal > 0) {
-        return sum + order.subtotal;
-      }
-      return sum + order.items.reduce((innerSum, item) => innerSum + item.lineTotal, 0);
-    }, 0);
-  }, [unpaidOrders]);
+  const unpaidStoredTaxBreakdown = useMemo(
+    () => sumTableOrderTaxBreakdown(unpaidOrders),
+    [unpaidOrders],
+  );
   const unpaidTaxAmount = useMemo(() => {
-    if (unpaidGrandTotal > unpaidSubtotal) {
-      return unpaidGrandTotal - unpaidSubtotal;
+    if (!gstEnabled) {
+      return 0;
+    }
+    if (unpaidStoredTaxBreakdown.taxAmount > 0) {
+      return roundCurrency(unpaidStoredTaxBreakdown.taxAmount);
     }
     if (taxPercentage > 0 && unpaidSubtotal > 0) {
       return Number(((unpaidSubtotal * taxPercentage) / 100).toFixed(2));
     }
     return 0;
-  }, [taxPercentage, unpaidGrandTotal, unpaidSubtotal]);
+  }, [gstEnabled, taxPercentage, unpaidStoredTaxBreakdown.taxAmount, unpaidSubtotal]);
+  const unpaidCgstAmount = useMemo(() => {
+    if (!gstEnabled) {
+      return 0;
+    }
+    if (unpaidStoredTaxBreakdown.cgstAmount > 0) {
+      return roundCurrency(unpaidStoredTaxBreakdown.cgstAmount);
+    }
+    return Number(((unpaidSubtotal * cgstPercentage) / 100).toFixed(2));
+  }, [cgstPercentage, gstEnabled, unpaidStoredTaxBreakdown.cgstAmount, unpaidSubtotal]);
+  const unpaidSgstAmount = useMemo(() => {
+    if (!gstEnabled) {
+      return 0;
+    }
+    if (unpaidStoredTaxBreakdown.sgstAmount > 0) {
+      return roundCurrency(unpaidStoredTaxBreakdown.sgstAmount);
+    }
+    return Number(((unpaidSubtotal * sgstPercentage) / 100).toFixed(2));
+  }, [gstEnabled, sgstPercentage, unpaidStoredTaxBreakdown.sgstAmount, unpaidSubtotal]);
   const unpaidFinalTotal = unpaidSubtotal + unpaidTaxAmount;
   const hasAggregatedUnpaidBill = unpaidOrders.length > 0;
   const aggregatedUnpaidOrder = useMemo(
@@ -5023,7 +5143,8 @@ export default function QrOrderingExperience({
     ? unpaidMergedItems
     : mergedBillItems;
   const currentBillSubtotal = hasAggregatedUnpaidBill ? unpaidSubtotal : billSubtotal;
-  const currentBillTaxAmount = hasAggregatedUnpaidBill ? unpaidTaxAmount : billTaxAmount;
+  const currentBillCgstAmount = hasAggregatedUnpaidBill ? unpaidCgstAmount : billCgstAmount;
+  const currentBillSgstAmount = hasAggregatedUnpaidBill ? unpaidSgstAmount : billSgstAmount;
   const currentBillFinalTotal = hasAggregatedUnpaidBill ? unpaidFinalTotal : billFinalTotal;
   const menuItemLookup = useMemo(
     () => new Map(menuItems.map((item) => [item.id, item])),
@@ -5046,16 +5167,9 @@ export default function QrOrderingExperience({
     () => evaluateApplicableOffers(offersToday, unpaidOfferEvaluationLines, unpaidSubtotal),
     [offersToday, unpaidOfferEvaluationLines, unpaidSubtotal],
   );
-  const bestUnpaidOffer = useMemo(
-    () => pickBestApplicableOffer(applicableUnpaidOffers, unpaidFinalTotal),
-    [applicableUnpaidOffers, unpaidFinalTotal],
-  );
   const unpaidStoredPayableTotal = useMemo(
     () => sumTableOrderPayableAmount(unpaidOrders),
     [unpaidOrders],
-  );
-  const unpaidOfferDiscountAmount = roundCurrency(
-    Math.max(0, unpaidFinalTotal - unpaidStoredPayableTotal),
   );
   const unpaidOnlyPayableTotal = useMemo(() => {
     if (!hasAggregatedUnpaidBill) {
@@ -5079,10 +5193,6 @@ export default function QrOrderingExperience({
   const applicableBillOffers = useMemo(
     () => evaluateApplicableOffers(offersToday, billOfferEvaluationLines, currentBillSubtotal),
     [billOfferEvaluationLines, currentBillSubtotal, offersToday],
-  );
-  const bestBillOffer = useMemo(
-    () => pickBestApplicableOffer(applicableBillOffers, currentBillFinalTotal),
-    [applicableBillOffers, currentBillFinalTotal],
   );
   const currentBillOrders = hasAggregatedUnpaidBill ? unpaidOrders : tableOrders;
   const billPayableTotal = useMemo(
@@ -5957,12 +6067,18 @@ export default function QrOrderingExperience({
     const computedSubtotal = Math.round(
       compactItems.reduce((sum, entry) => sum + toAmount(entry.line_total), 0) * 100,
     ) / 100;
-    const computedTaxAmount = Math.round((computedSubtotal * taxPercentage) / 100 * 100) / 100;
+    const computedTaxAmount = gstEnabled
+      ? Math.round((computedSubtotal * taxPercentage) / 100 * 100) / 100
+      : 0;
+    const computedCgstAmount = gstEnabled
+      ? Math.round((computedSubtotal * cgstPercentage) / 100 * 100) / 100
+      : 0;
+    const computedSgstAmount = gstEnabled
+      ? Math.round((computedSubtotal * sgstPercentage) / 100 * 100) / 100
+      : 0;
     const computedTotal = roundCurrency(computedSubtotal + computedTaxAmount);
-    const computedOfferDiscount = resolveAppliedOfferDiscountAmount(
-      appliedCartOffer,
-      computedSubtotal,
-      computedTaxAmount,
+    const computedOfferDiscount = roundCurrency(
+      Math.min(computedTotal, Math.max(0, totalDiscountAmount)),
     );
     const computedPayableTotal = roundCurrency(
       Math.max(0, computedTotal - computedOfferDiscount),
@@ -5982,11 +6098,17 @@ export default function QrOrderingExperience({
       status: "PLACED",
       payment_status: "UNPAID",
       subtotal: computedSubtotal,
+      tax_amount: computedTaxAmount,
+      cgst_amount: computedCgstAmount,
+      sgst_amount: computedSgstAmount,
       total_amount: computedPayableTotal,
     };
+    const orderDiscountPayload =
+      computedOfferDiscount > 0 ? { discount_amount: computedOfferDiscount } : {};
     const orderPayloadCandidates: Record<string, unknown>[] = [
       {
         ...orderBasePayload,
+        ...orderDiscountPayload,
         payment_method: paymentMethod,
         created_at_custom: nowIso,
         items_json: orderItemsSnapshot,
@@ -5994,6 +6116,7 @@ export default function QrOrderingExperience({
       },
       {
         ...orderBasePayload,
+        ...orderDiscountPayload,
         payment_method: paymentMethod,
         created_at_custom: nowIso,
         order_items: orderItemsSnapshot,
@@ -6001,6 +6124,7 @@ export default function QrOrderingExperience({
       },
       {
         ...orderBasePayload,
+        ...orderDiscountPayload,
         payment_method: paymentMethod,
         created_at_custom: nowIso,
         items_json: orderItemsSnapshot,
@@ -6008,6 +6132,7 @@ export default function QrOrderingExperience({
       },
       {
         ...orderBasePayload,
+        ...orderDiscountPayload,
         payment_method: paymentMethod,
         created_at_custom: nowIso,
         order_items: orderItemsSnapshot,
@@ -6015,6 +6140,7 @@ export default function QrOrderingExperience({
       },
       {
         ...orderBasePayload,
+        ...orderDiscountPayload,
         payment_method: paymentMethod,
         created_at_custom: nowIso,
         items: compactItems,
@@ -6075,6 +6201,9 @@ export default function QrOrderingExperience({
         tableInfo.tableNo,
         paymentMethod,
         computedSubtotal,
+        computedTaxAmount,
+        computedCgstAmount,
+        computedSgstAmount,
         computedPayableTotal,
         nowIso,
         cartItems,
@@ -6714,7 +6843,7 @@ export default function QrOrderingExperience({
                 {normalizedCurrency}
               </p>
               <p className={clsx("text-xs", isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>
-                Tax: {taxPercentage > 0 ? `${taxPercentage}%` : "Included"}
+                GST: {gstEnabled ? `${taxPercentage}%` : "Off"}
               </p>
             </div>
           </div>
@@ -7402,22 +7531,28 @@ export default function QrOrderingExperience({
                             {formatMoney(currentBillSubtotal)}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className={clsx(isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>
-                            Tax / Charges {taxPercentage > 0 ? `(${taxPercentage}%)` : ""}
-                          </span>
-                          <span className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
-                            {formatMoney(currentBillTaxAmount)}
-                          </span>
-                        </div>
-                        {bestBillOffer ? (
+                        {gstEnabled ? (
                           <>
-                            <div className="flex items-center justify-between text-xs">
-                              <span className={clsx(isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>Applied Offer</span>
+                            <div className="flex items-center justify-between">
+                              <span className={clsx(isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>
+                                CGST ({cgstPercentage}%)
+                              </span>
                               <span className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
-                                {bestBillOffer.offer.offerName}
+                                {formatMoney(currentBillCgstAmount)}
                               </span>
                             </div>
+                            <div className="flex items-center justify-between">
+                              <span className={clsx(isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>
+                                SGST ({sgstPercentage}%)
+                              </span>
+                              <span className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
+                                {formatMoney(currentBillSgstAmount)}
+                              </span>
+                            </div>
+                          </>
+                        ) : null}
+                        {billOfferDiscountAmount > 0 ? (
+                          <>
                             <div className="flex items-center justify-between text-xs">
                               <span className={clsx(isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>Offer Discount</span>
                               <span className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
@@ -8038,6 +8173,7 @@ export default function QrOrderingExperience({
                 ) : (
                   <div className="space-y-3">
                     {cartItems.map(({ item, quantity }) => {
+                      const matchedCartOffer = matchedItemOffers.find((entry) => entry.itemId === item.id) ?? null;
                       const selected = resolvedSelectedModifiersByItem[item.id] ?? [];
                       const selectedAddons = resolvedSelectedAddonsByItem[item.id] ?? [];
                       const visibleBaseModifiers = selected.filter(
@@ -8169,6 +8305,29 @@ export default function QrOrderingExperience({
                                   </div>
                                 ))}
                               </div>
+                            </div>
+                          ) : null}
+
+                          {matchedCartOffer ? (
+                            <div
+                              className={clsx(
+                                "mt-3 rounded-xl border px-2.5 py-2",
+                                isLightTheme
+                                  ? "border-[#C6A57B] bg-[#F8F5F0]/80"
+                                  : "border-zinc-800/30 bg-zinc-900/55",
+                              )}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <p className={clsx("text-[11px] font-semibold", contentTextClass)}>
+                                  {matchedCartOffer.offer.offerName}
+                                </p>
+                                <span className={clsx("text-[11px] font-semibold text-green-700", isLightTheme ? "" : "text-green-300")}>
+                                  -{formatMoney(matchedCartOffer.discountAmount)}
+                                </span>
+                              </div>
+                              <p className={clsx("mt-1 text-[11px]", secondaryTextClass)}>
+                                Applied to this item automatically.
+                              </p>
                             </div>
                           ) : null}
 
@@ -8331,25 +8490,12 @@ export default function QrOrderingExperience({
                           Applicable Offers
                         </p>
                         <p className={clsx("mt-1 text-[11px]", secondaryTextClass)}>
-                          Best offer is auto-applied. You can switch to another eligible offer anytime.
+                          Matching offers are auto-applied item-wise. Each item gets only its best eligible offer.
                         </p>
                       </div>
-                      {appliedCartOffer && appliedCartOffer.offerId !== bestCartOfferId ? (
-                        <button
-                          type="button"
-                          className={clsx(
-                            "rounded-lg border px-2.5 py-1 text-[11px] font-medium transition",
-                            isLightTheme
-                              ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
-                              : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                          )}
-                          onClick={() => {
-                            setAppliedCartOffer(applicableCartOffers[0] ?? null);
-                          }}
-                        >
-                          Use Best Offer
-                        </button>
-                      ) : null}
+                      <span className={clsx("rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]", mutedTextClass)}>
+                        {applicableCartOffers.length} matched
+                      </span>
                     </div>
                     <div className="space-y-2">
                       {applicableCartOffers.map((offer) => (
@@ -8357,70 +8503,40 @@ export default function QrOrderingExperience({
                           key={`cart_offer_${offer.offerId}`}
                           className={clsx(
                             "cafe-luxe-offer-card rounded-xl border px-3 py-2.5 transition",
-                            appliedOffer?.$id === offer.$id
-                              ? isLightTheme
-                                ? "border-[#C6A57B] bg-[#F8F5F0]"
-                                : "border-zinc-600 bg-zinc-900/80"
-                              : isLightTheme
-                                ? "border-[#C6A57B] bg-[#E8D9C5]"
-                                : "border-zinc-800/30 bg-[#F8F5F0]/10",
+                            isLightTheme
+                              ? "border-[#C6A57B] bg-[#F8F5F0]"
+                              : "border-zinc-800/30 bg-[#F8F5F0]/10",
                           )}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <input 
-                                  type="radio" 
-                                  name="offer_radio_group"
-                                  checked={appliedOffer?.$id === offer.$id} 
-                                  onChange={() => {
-                                    console.log("Offer Manually Selected:", offer); // FOR DEBUGGING
-                                    setAppliedCartOffer(offer);
-                                  }} 
-                                  className="cursor-pointer w-4 h-4"
-                                />
-                                <p className={clsx("truncate text-sm font-semibold", contentTextClass)}>
-                                  {offer.offerName}
-                                </p>
-                              </div>
+                              <p className={clsx("truncate text-sm font-semibold", contentTextClass)}>
+                                {offer.offerName}
+                              </p>
                               <p className={clsx("mt-1 text-[11px]", secondaryTextClass)}>
                                 {offer.matchedReason}
                               </p>
                               <p className={clsx("mt-1 text-[11px] font-medium", isLightTheme ? "text-brand-dark" : "text-zinc-200")}>
-                                {offer.estimatedBenefit !== null
-                                  ? `Save ${formatMoney(offer.estimatedBenefit)}`
-                                  : "Discount based on offer terms"}
+                                {`Applied on ${offer.matchedItemCount} item${offer.matchedItemCount === 1 ? "" : "s"}: ${offer.matchedItemNames.join(", ")}`}
+                              </p>
+                              <p className={clsx("mt-1 text-[11px] font-medium", isLightTheme ? "text-brand-dark" : "text-zinc-200")}>
+                                {`Combined saving ${formatMoney(offer.totalDiscountAmount)}`}
                               </p>
                             </div>
                             <div className="flex shrink-0 flex-col items-end gap-2">
                               <span className={clsx("rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]", mutedTextClass)}>
                                 {offer.offerType}
                               </span>
-                              {appliedOffer?.$id === offer.$id ? (
-                                <span
-                                  className={clsx(
-                                    "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]",
-                                    isLightTheme
-                                      ? "border-[#C6A57B] bg-[#C6A57B]/20 text-brand-dark"
-                                      : "border-zinc-600 bg-zinc-800 text-zinc-100",
-                                  )}
-                                >
-                                  {appliedOffer?.offerId === bestCartOfferId ? "Best Applied" : "Selected"}
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  className={clsx(
-                                    "rounded-lg border px-2.5 py-1 text-[11px] font-medium transition",
-                                    isLightTheme
-                                      ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
-                                      : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                                  )}
-                                  onClick={() => setAppliedCartOffer(offer)}
-                                >
-                                  Apply
-                                </button>
-                              )}
+                              <span
+                                className={clsx(
+                                  "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]",
+                                  isLightTheme
+                                    ? "border-[#C6A57B] bg-[#C6A57B]/20 text-brand-dark"
+                                    : "border-zinc-600 bg-zinc-800 text-zinc-100",
+                                )}
+                              >
+                                Auto Applied
+                              </span>
                             </div>
                           </div>
                         </div>
@@ -8642,18 +8758,26 @@ export default function QrOrderingExperience({
                       </span>
                     </div>
                   ) : null}
-                  <div className="flex items-center justify-between">
-                    <span className="opacity-80">Taxes</span>
-                    <span className="font-semibold">{formatMoney(taxAmount)}</span>
-                  </div>
+                  {gstEnabled ? (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="opacity-80">CGST ({cgstPercentage}%)</span>
+                        <span className="font-semibold">{formatMoney(cgstAmount)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="opacity-80">SGST ({sgstPercentage}%)</span>
+                        <span className="font-semibold">{formatMoney(sgstAmount)}</span>
+                      </div>
+                    </>
+                  ) : null}
                   <div className="flex justify-between w-full">
                     <span>Discount Applied</span>
-                    <span className="text-green-600">-₹{discountAmount.toFixed(2)}</span>
+                    <span className="text-green-600">-₹{totalDiscountAmount.toFixed(2)}</span>
                   </div>
-                  {appliedCartOffer ? (
+                  {applicableCartOffers.length > 0 ? (
                     <div className="flex items-center justify-between">
-                      <span className="opacity-80">Applied Offer</span>
-                      <span className="font-semibold">{appliedCartOffer.offerName}</span>
+                      <span className="opacity-80">Matched Offers</span>
+                      <span className="font-semibold">{applicableCartOffers.length}</span>
                     </div>
                   ) : null}
                   <div className="flex justify-between w-full font-bold text-lg">

@@ -28,7 +28,10 @@ export type RestaurantBranding = {
 export type RestaurantSettings = {
   restaurantName: string;
   currency: string;
+  gstEnabled: boolean;
   taxPercentage: number;
+  cgstPercentage: number;
+  sgstPercentage: number;
   supportPhone: string;
   upiId: string;
   upiName: string;
@@ -684,6 +687,66 @@ function clampTaxPercent(value: number) {
   return Math.min(100, Math.max(0, value));
 }
 
+function parseBooleanLike(value: unknown) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "y", "active", "enabled", "on"].includes(normalized)) {
+      return true;
+    }
+    if (["false", "0", "no", "n", "inactive", "disabled", "off"].includes(normalized)) {
+      return false;
+    }
+  }
+  return null;
+}
+
+function resolveTaxSettings(source: {
+  gstEnabled?: unknown;
+  taxEnabled?: unknown;
+  enableGst?: unknown;
+  taxPercentage?: unknown;
+  cgstPercentage?: unknown;
+  sgstPercentage?: unknown;
+}) {
+  const explicitGstEnabled =
+    parseBooleanLike(source.gstEnabled) ??
+    parseBooleanLike(source.taxEnabled) ??
+    parseBooleanLike(source.enableGst);
+
+  const directTaxPercentage = clampTaxPercent(toSafeNumber(source.taxPercentage, 0));
+  const cgstPercentage = clampTaxPercent(toSafeNumber(source.cgstPercentage, 0));
+  const sgstPercentage = clampTaxPercent(toSafeNumber(source.sgstPercentage, 0));
+  const combinedSplitPercentage = clampTaxPercent(cgstPercentage + sgstPercentage);
+  const resolvedTaxPercentage =
+    directTaxPercentage > 0 ? directTaxPercentage : combinedSplitPercentage;
+  const gstEnabled =
+    explicitGstEnabled !== null ? explicitGstEnabled : resolvedTaxPercentage > 0;
+  const effectiveTaxPercentage = gstEnabled ? resolvedTaxPercentage : 0;
+  const effectiveCgstPercentage = gstEnabled
+    ? (cgstPercentage > 0 ? cgstPercentage : effectiveTaxPercentage / 2)
+    : 0;
+  const effectiveSgstPercentage = gstEnabled
+    ? (sgstPercentage > 0 ? sgstPercentage : effectiveTaxPercentage / 2)
+    : 0;
+
+  return {
+    gstEnabled,
+    taxPercentage: effectiveTaxPercentage,
+    cgstPercentage: roundToTwoDecimals(effectiveCgstPercentage),
+    sgstPercentage: roundToTwoDecimals(effectiveSgstPercentage),
+  };
+}
+
+function roundToTwoDecimals(value: number) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
 export function parseClientSettings(docs: AppwriteDocument[], client: string): RestaurantSettings {
   const clientDocs = docs
     .filter((doc) => isClientMatch(doc, client))
@@ -693,7 +756,10 @@ export function parseClientSettings(docs: AppwriteDocument[], client: string): R
   const defaults: RestaurantSettings = {
     restaurantName: fallbackName,
     currency: "INR",
+    gstEnabled: false,
     taxPercentage: 0,
+    cgstPercentage: 0,
+    sgstPercentage: 0,
     supportPhone: "",
     upiId: "",
     upiName: "",
@@ -727,7 +793,17 @@ export function parseClientSettings(docs: AppwriteDocument[], client: string): R
       keyValueMap.get("name") ||
       fallbackName;
     const currency = (keyValueMap.get("currency") || "INR").toUpperCase();
-    const taxPercentage = clampTaxPercent(toSafeNumber(keyValueMap.get("taxpercentage"), 0));
+    const taxSettings = resolveTaxSettings({
+      gstEnabled: keyValueMap.get("gstenabled") ?? keyValueMap.get("gststatus"),
+      taxEnabled: keyValueMap.get("taxenabled") ?? keyValueMap.get("taxstatus"),
+      enableGst: keyValueMap.get("enablegst"),
+      taxPercentage:
+        keyValueMap.get("taxpercentage") ??
+        keyValueMap.get("taxpercent") ??
+        keyValueMap.get("gstpercentage"),
+      cgstPercentage: keyValueMap.get("cgst"),
+      sgstPercentage: keyValueMap.get("sgst"),
+    });
     const supportPhone = keyValueMap.get("supportphone") || "";
     const upiId = keyValueMap.get("upiid") || "";
     const upiName = keyValueMap.get("upiname") || "";
@@ -746,7 +822,10 @@ export function parseClientSettings(docs: AppwriteDocument[], client: string): R
     return {
       restaurantName,
       currency: currency || "INR",
-      taxPercentage,
+      gstEnabled: taxSettings.gstEnabled,
+      taxPercentage: taxSettings.taxPercentage,
+      cgstPercentage: taxSettings.cgstPercentage,
+      sgstPercentage: taxSettings.sgstPercentage,
       supportPhone,
       upiId,
       upiName,
@@ -765,6 +844,23 @@ export function parseClientSettings(docs: AppwriteDocument[], client: string): R
       ),
     ) ?? clientDocs[0];
 
+  const taxSettings = resolveTaxSettings({
+    gstEnabled:
+      preferredDoc.gst_enabled ??
+      preferredDoc.gstEnabled ??
+      preferredDoc.tax_enabled ??
+      preferredDoc.taxEnabled ??
+      preferredDoc.enable_gst ??
+      preferredDoc.enableGst,
+    taxPercentage:
+      preferredDoc.tax_percentage ??
+      preferredDoc.taxPercentage ??
+      preferredDoc.gst_percentage ??
+      preferredDoc.gstPercentage,
+    cgstPercentage: preferredDoc.cgst ?? preferredDoc.cgst_percentage ?? preferredDoc.cgstPercentage,
+    sgstPercentage: preferredDoc.sgst ?? preferredDoc.sgst_percentage ?? preferredDoc.sgstPercentage,
+  });
+
   return {
     restaurantName:
       getFieldString(preferredDoc, [
@@ -777,9 +873,10 @@ export function parseClientSettings(docs: AppwriteDocument[], client: string): R
     currency:
       getFieldString(preferredDoc, ["currency", "currencyCode", "currency_code"]).toUpperCase() ||
       "INR",
-    taxPercentage: clampTaxPercent(
-      toSafeNumber(preferredDoc.tax_percentage ?? preferredDoc.taxPercentage, 0),
-    ),
+    gstEnabled: taxSettings.gstEnabled,
+    taxPercentage: taxSettings.taxPercentage,
+    cgstPercentage: taxSettings.cgstPercentage,
+    sgstPercentage: taxSettings.sgstPercentage,
     supportPhone: getFieldString(preferredDoc, ["support_phone", "supportPhone", "phone"]),
     upiId: getFieldString(preferredDoc, ["upi_id", "upiId", "upi"]),
     upiName: getFieldString(preferredDoc, ["upi_name", "upiName", "merchantName"]),
