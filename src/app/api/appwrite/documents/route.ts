@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { AppwriteException, Client, Databases } from "node-appwrite";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,23 @@ function normalizeEnvValue(value: string | undefined) {
   return unwrapped;
 }
 
+function firstConfiguredEnvValue(...names: string[]) {
+  for (const name of names) {
+    const value = normalizeEnvValue(process.env[name]);
+    if (value) {
+      return value;
+    }
+  }
+  return "";
+}
+
+function normalizeConfiguredCollectionId(value: string, fallback: string) {
+  if (!value) {
+    return fallback;
+  }
+  return /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(value) ? value : fallback;
+}
+
 const RAW_APPWRITE_ENDPOINT = process.env.APPWRITE_ENDPOINT ?? "";
 const RAW_APPWRITE_PROJECT_ID = process.env.APPWRITE_PROJECT_ID ?? "";
 const RAW_APPWRITE_DATABASE_ID = process.env.APPWRITE_DATABASE_ID ?? "";
@@ -28,16 +46,65 @@ const APPWRITE_DATABASE_ID = normalizeEnvValue(RAW_APPWRITE_DATABASE_ID);
 const APPWRITE_API_KEY = normalizeEnvValue(process.env.APPWRITE_API_KEY);
 const WEB_ADMIN_APPROVAL_PIN = normalizeEnvValue(RAW_WEB_ADMIN_APPROVAL_PIN);
 
-const TABLES_COLLECTION_ID = "tables";
-const CATEGORIES_COLLECTION_ID = "categories";
-const MENU_ITEMS_COLLECTION_ID = "menu_items";
+const TABLES_COLLECTION_ALIAS = "tables";
+const CATEGORIES_COLLECTION_ALIAS = "categories";
+const MENU_ITEMS_COLLECTION_ALIAS = "menu_items";
+const TABLES_COLLECTION_ID = normalizeConfiguredCollectionId(
+  firstConfiguredEnvValue(
+    "APPWRITE_TABLES_COLLECTION_ID",
+    "NEXT_PUBLIC_APPWRITE_TABLES_COLLECTION_ID",
+  ),
+  TABLES_COLLECTION_ALIAS,
+);
+const CATEGORIES_COLLECTION_ID = normalizeConfiguredCollectionId(
+  firstConfiguredEnvValue(
+    "APPWRITE_CATEGORIES_COLLECTION_ID",
+    "NEXT_PUBLIC_APPWRITE_CATEGORIES_COLLECTION_ID",
+  ),
+  CATEGORIES_COLLECTION_ALIAS,
+);
+const MENU_ITEMS_COLLECTION_ID = normalizeConfiguredCollectionId(
+  firstConfiguredEnvValue(
+    "APPWRITE_MENU_COLLECTION_ID",
+    "APPWRITE_MENU_ITEMS_COLLECTION_ID",
+    "NEXT_PUBLIC_APPWRITE_MENU_COLLECTION_ID",
+    "NEXT_PUBLIC_APPWRITE_MENU_ITEMS_COLLECTION_ID",
+  ),
+  MENU_ITEMS_COLLECTION_ALIAS,
+);
 const ADDON_GROUPS_COLLECTION_ID = "addon_groups";
 const ADDON_OPTIONS_COLLECTION_ID = "addon_options";
 const ITEM_ADDON_MAP_COLLECTION_ID = "item_addon_map";
-const OFFERS_COLLECTION_ID = "offers";
-const SETTINGS_COLLECTION_ID = "settings";
+const OFFERS_COLLECTION_ALIAS = "offers";
+const SETTINGS_COLLECTION_ALIAS = "settings";
+const OFFERS_COLLECTION_ID = normalizeConfiguredCollectionId(
+  firstConfiguredEnvValue(
+    "APPWRITE_OFFERS_COLLECTION_ID",
+    "NEXT_PUBLIC_APPWRITE_OFFERS_COLLECTION_ID",
+  ),
+  OFFERS_COLLECTION_ALIAS,
+);
+const SETTINGS_COLLECTION_ID = normalizeConfiguredCollectionId(
+  firstConfiguredEnvValue(
+    "APPWRITE_SETTINGS_COLLECTION_ID",
+    "NEXT_PUBLIC_APPWRITE_SETTINGS_COLLECTION_ID",
+  ),
+  SETTINGS_COLLECTION_ALIAS,
+);
 const ORDERS_COLLECTION_ID = "orders";
 const PAYMENTS_COLLECTION_ID = "payments";
+const READ_COLLECTION_ALIASES = new Map([
+  [TABLES_COLLECTION_ALIAS, TABLES_COLLECTION_ID],
+  [TABLES_COLLECTION_ID, TABLES_COLLECTION_ID],
+  [CATEGORIES_COLLECTION_ALIAS, CATEGORIES_COLLECTION_ID],
+  [CATEGORIES_COLLECTION_ID, CATEGORIES_COLLECTION_ID],
+  [MENU_ITEMS_COLLECTION_ALIAS, MENU_ITEMS_COLLECTION_ID],
+  [MENU_ITEMS_COLLECTION_ID, MENU_ITEMS_COLLECTION_ID],
+  [OFFERS_COLLECTION_ALIAS, OFFERS_COLLECTION_ID],
+  [OFFERS_COLLECTION_ID, OFFERS_COLLECTION_ID],
+  [SETTINGS_COLLECTION_ALIAS, SETTINGS_COLLECTION_ID],
+  [SETTINGS_COLLECTION_ID, SETTINGS_COLLECTION_ID],
+]);
 
 const READ_ALLOWED_COLLECTIONS = new Set([
   TABLES_COLLECTION_ID,
@@ -112,6 +179,32 @@ const ALLOWED_QUERY_METHODS = new Set([
   "select",
 ]);
 
+function createServerAppwriteClient(useApiKey: boolean) {
+  const client = new Client()
+    .setEndpoint(APPWRITE_ENDPOINT)
+    .setProject(APPWRITE_PROJECT_ID);
+
+  if (useApiKey && APPWRITE_API_KEY) {
+    client.setKey(APPWRITE_API_KEY);
+  }
+
+  return client;
+}
+
+function createServerDatabases(useApiKey: boolean) {
+  return new Databases(createServerAppwriteClient(useApiKey));
+}
+
+function logServerAppwriteAuthCheck(collectionId: string) {
+  console.log("Server Appwrite Auth Check", {
+    hasEndpoint: !!APPWRITE_ENDPOINT,
+    hasProject: !!APPWRITE_PROJECT_ID,
+    hasDatabase: !!APPWRITE_DATABASE_ID,
+    hasApiKey: !!APPWRITE_API_KEY,
+    collectionId,
+  });
+}
+
 function buildAppwriteHeaders(useApiKey = false) {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -136,14 +229,14 @@ function jsonError(message: string, status: number) {
   return noStoreJson({ message }, status);
 }
 
-function ensureServerConfig() {
+function ensureServerConfig(requireApiKey = true) {
   if (!APPWRITE_ENDPOINT || !APPWRITE_PROJECT_ID || !APPWRITE_DATABASE_ID) {
     return jsonError(
       "Server Appwrite configuration is missing (APPWRITE_ENDPOINT / APPWRITE_PROJECT_ID / APPWRITE_DATABASE_ID).",
       500,
     );
   }
-  if (!APPWRITE_API_KEY) {
+  if (requireApiKey && !APPWRITE_API_KEY) {
     return jsonError("Server Appwrite API key is missing (APPWRITE_API_KEY).", 500);
   }
   return null;
@@ -158,6 +251,13 @@ function normalizeCollectionId(value: unknown) {
     return "";
   }
   return trimmed;
+}
+
+function resolveReadCollectionId(value: string) {
+  if (!value) {
+    return "";
+  }
+  return READ_COLLECTION_ALIASES.get(value) ?? (READ_ALLOWED_COLLECTIONS.has(value) ? value : "");
 }
 
 function normalizeDocumentId(value: unknown) {
@@ -576,6 +676,112 @@ function sanitizeUpstreamErrorMessage(status: number, payload: Record<string, un
     return rawMessage || "Upstream service unavailable.";
   }
   return rawMessage || `Request failed (${status}).`;
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "object" && error && "message" in error) {
+    return String(error.message);
+  }
+  return "Unknown error";
+}
+
+function getAppwriteErrorCode(error: unknown) {
+  if (error instanceof AppwriteException) {
+    return error.code;
+  }
+  if (typeof error === "object" && error && "code" in error) {
+    const code = Number((error as Record<string, unknown>).code);
+    return Number.isFinite(code) ? code : 0;
+  }
+  return 0;
+}
+
+function getAppwriteErrorType(error: unknown) {
+  if (error instanceof AppwriteException) {
+    return error.type;
+  }
+  if (typeof error === "object" && error && "type" in error) {
+    return String((error as Record<string, unknown>).type ?? "");
+  }
+  return "";
+}
+
+function getAppwriteErrorResponse(error: unknown) {
+  if (error instanceof AppwriteException) {
+    return error.response;
+  }
+  if (typeof error === "object" && error && "response" in error) {
+    return (error as Record<string, unknown>).response;
+  }
+  return "";
+}
+
+function isUnauthorizedAppwriteError(error: unknown) {
+  const code = getAppwriteErrorCode(error);
+  const message = getErrorMessage(error).toLowerCase();
+  const type = getAppwriteErrorType(error).toLowerCase();
+  return (
+    code === 401 ||
+    code === 403 ||
+    message.includes("not authorized") ||
+    message.includes("unauthorized") ||
+    type.includes("unauthorized")
+  );
+}
+
+function getAppwriteExceptionPayload(error: unknown) {
+  const response = getAppwriteErrorResponse(error);
+  if (typeof response === "string" && response.trim()) {
+    try {
+      const parsed = JSON.parse(response) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return { message: response };
+    }
+  }
+
+  return {
+    message: getErrorMessage(error),
+    type: getAppwriteErrorType(error),
+  };
+}
+
+async function listDocumentsWithServerClient(
+  collectionId: string,
+  queries: string[],
+  useApiKey: boolean,
+) {
+  const databases = createServerDatabases(useApiKey);
+  return databases.listDocuments({
+    databaseId: APPWRITE_DATABASE_ID,
+    collectionId,
+    queries,
+  });
+}
+
+async function listReadableDocuments(collectionId: string, queries: string[]) {
+  if (APPWRITE_API_KEY) {
+    try {
+      return await listDocumentsWithServerClient(collectionId, queries, true);
+    } catch (error) {
+      if (!isUnauthorizedAppwriteError(error)) {
+        throw error;
+      }
+
+      console.warn("Server Appwrite keyed read unauthorized, retrying public read.", {
+        collectionId,
+        code: getAppwriteErrorCode(error),
+        type: getAppwriteErrorType(error),
+      });
+    }
+  }
+
+  return listDocumentsWithServerClient(collectionId, queries, false);
 }
 
 function sanitizeUpstreamMessage(value: string) {
@@ -1049,15 +1255,17 @@ function sanitizeOrderDeletePayload(source: Record<string, unknown>) {
 }
 
 export async function GET(request: NextRequest) {
-  const configError = ensureServerConfig();
+  const configError = ensureServerConfig(false);
   if (configError) {
     return configError;
   }
 
-  const collectionId = normalizeCollectionId(request.nextUrl.searchParams.get("collectionId"));
-  if (!collectionId || !READ_ALLOWED_COLLECTIONS.has(collectionId)) {
+  const requestedCollectionId = normalizeCollectionId(request.nextUrl.searchParams.get("collectionId"));
+  const collectionId = resolveReadCollectionId(requestedCollectionId);
+  if (!collectionId) {
     return jsonError("Collection is not allowed.", 403);
   }
+  logServerAppwriteAuthCheck(collectionId);
 
   const rawQueries = [
     ...request.nextUrl.searchParams.getAll("queries"),
@@ -1072,32 +1280,19 @@ export async function GET(request: NextRequest) {
     return jsonError("Order read requires client and table filters.", 400);
   }
 
-  const params = new URLSearchParams();
-  for (const query of queries) {
-    params.append("queries[]", query);
-  }
-
-  const upstreamUrl = `${APPWRITE_ENDPOINT}/databases/${encodeURIComponent(
-    APPWRITE_DATABASE_ID,
-  )}/collections/${encodeURIComponent(collectionId)}/documents${
-    params.toString() ? `?${params.toString()}` : ""
-  }`;
-
-  const upstreamResponse = await fetch(upstreamUrl, {
-    method: "GET",
-    headers: buildAppwriteHeaders(true),
-    cache: "no-store",
-  });
-
-  const payload = await parseResponse(upstreamResponse);
-  if (!upstreamResponse.ok) {
+  try {
+    const payload = (await listReadableDocuments(collectionId, queries)) as unknown as Record<
+      string,
+      unknown
+    >;
+    return noStoreJson(payload, 200);
+  } catch (error) {
+    const status = getAppwriteErrorCode(error) || 500;
     return jsonError(
-      sanitizeUpstreamErrorMessage(upstreamResponse.status, payload),
-      upstreamResponse.status,
+      sanitizeUpstreamErrorMessage(status, getAppwriteExceptionPayload(error)),
+      status,
     );
   }
-
-  return noStoreJson(payload, upstreamResponse.status);
 }
 
 export async function POST(request: NextRequest) {

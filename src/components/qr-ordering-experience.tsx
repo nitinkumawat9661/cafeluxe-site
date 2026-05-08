@@ -3,6 +3,8 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { useRouter } from "next/navigation";
+import { Swiper, SwiperSlide } from "swiper/react";
+import { A11y, EffectCoverflow } from "swiper/modules";
 import {
   AlertCircle,
   CheckCircle2,
@@ -54,6 +56,11 @@ import {
 type PaymentMethod = "UPI" | "COUNTER";
 type LoadState = "loading" | "ready" | "invalid-table" | "error";
 type ExperienceViewMode = "menu" | "cart";
+
+type MenuCategorySection = {
+  category: Category;
+  items: MenuItem[];
+};
 
 type ModifierOption = {
   id: string;
@@ -3677,7 +3684,6 @@ export default function QrOrderingExperience({
   const routeClientForPath = routeClient || client.trim();
   const routeTableForPath = routeTable || table.trim();
   const tableRoutePath = `/c/${encodeURIComponent(routeClientForPath)}/t/${encodeURIComponent(routeTableForPath)}`;
-  const cartRoutePath = `${tableRoutePath}/cart`;
   const isStandaloneCartRoute = initialView === "cart";
 
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -4761,28 +4767,56 @@ export default function QrOrderingExperience({
   }, []);
 
   const deferredSearchText = useDeferredValue(searchText);
-  const visibleItems = useMemo(() => {
+  const menuSections = useMemo<MenuCategorySection[]>(() => {
     const normalizedSearch = deferredSearchText.trim().toLowerCase();
-    const selectedCategory =
-      activeCategory === "all"
-        ? null
-        : categories.find((category) => category.id === activeCategory) ?? null;
-
-    return menuItems.filter((item) => {
-      const inCategory = !selectedCategory || matchesCategory(item, selectedCategory);
-
-      if (!inCategory) {
-        return false;
-      }
-
+    const matchesSearch = (item: MenuItem) => {
       if (!normalizedSearch) {
         return true;
       }
 
       const haystack = `${item.name} ${item.nameHi} ${item.description}`.toLowerCase();
       return haystack.includes(normalizedSearch);
-    });
+    };
+    const scopedCategories =
+      activeCategory === "all"
+        ? categories
+        : categories.filter((category) => category.id === activeCategory);
+    const sections = scopedCategories
+      .map((category) => ({
+        category,
+        items: menuItems.filter((item) => matchesCategory(item, category) && matchesSearch(item)),
+      }))
+      .filter((section) => section.items.length > 0);
+
+    if (activeCategory === "all") {
+      const uncategorizedItems = menuItems.filter(
+        (item) => !categories.some((category) => matchesCategory(item, category)) && matchesSearch(item),
+      );
+
+      if (uncategorizedItems.length > 0) {
+        sections.push({
+          category: {
+            id: "uncategorized",
+            name: "Chef Specials",
+            nameHi: "",
+            description: "",
+            image: "",
+            slug: "chef-specials",
+            sortOrder: Number.MAX_SAFE_INTEGER,
+            raw: { $id: "uncategorized" },
+          },
+          items: uncategorizedItems,
+        });
+      }
+    }
+
+    return sections;
   }, [activeCategory, categories, deferredSearchText, menuItems]);
+
+  const visibleItems = useMemo(
+    () => menuSections.flatMap((section) => section.items),
+    [menuSections],
+  );
 
   const cartItems = useMemo(() => {
     const items: CartItem[] = [];
@@ -5929,7 +5963,7 @@ export default function QrOrderingExperience({
       setCartOpen(true);
       return;
     }
-    router.push(cartRoutePath);
+    setCartOpen(true);
   }
 
   function closeCartView() {
@@ -6413,9 +6447,6 @@ export default function QrOrderingExperience({
   const sectionGradient = isLightTheme
     ? `linear-gradient(160deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
     : `linear-gradient(160deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
-  const cardGradient = isLightTheme
-    ? `linear-gradient(168deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 72%, rgba(232,217,197,0.16) 100%)`
-    : `linear-gradient(168deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
   const sheetGradient = isLightTheme
     ? `linear-gradient(176deg, rgba(232,217,197,0.99) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
     : `linear-gradient(176deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
@@ -6428,6 +6459,59 @@ export default function QrOrderingExperience({
   const mutedTextClass = isLightTheme ? "text-zinc-500" : "text-zinc-400";
   const themeScopeClass = isLightTheme ? "cafe-theme-light" : "";
   const shouldShowCartPanel = cartOpen || isStandaloneCartRoute;
+
+  useEffect(() => {
+    if (!shouldShowCartPanel || isStandaloneCartRoute || typeof document === "undefined") {
+      return;
+    }
+
+    const body = document.body;
+    const documentElement = document.documentElement;
+    const scrollY = window.scrollY;
+    const previousBodyOverflow = body.style.overflow;
+    const previousBodyPosition = body.style.position;
+    const previousBodyTop = body.style.top;
+    const previousBodyWidth = body.style.width;
+    const previousBodyPaddingRight = body.style.paddingRight;
+    const previousOverscrollBehavior = documentElement.style.overscrollBehavior;
+    const scrollbarCompensation = window.innerWidth - documentElement.clientWidth;
+
+    body.style.overflow = "hidden";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+    if (scrollbarCompensation > 0) {
+      body.style.paddingRight = `${scrollbarCompensation}px`;
+    }
+    documentElement.style.overscrollBehavior = "contain";
+
+    return () => {
+      body.style.overflow = previousBodyOverflow;
+      body.style.position = previousBodyPosition;
+      body.style.top = previousBodyTop;
+      body.style.width = previousBodyWidth;
+      body.style.paddingRight = previousBodyPaddingRight;
+      documentElement.style.overscrollBehavior = previousOverscrollBehavior;
+      window.scrollTo(0, scrollY);
+    };
+  }, [isStandaloneCartRoute, shouldShowCartPanel]);
+
+  useEffect(() => {
+    if (!cartOpen || isStandaloneCartRoute || typeof window === "undefined") {
+      return;
+    }
+
+    function handleCartEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape" || addonPickerOpen || upiQrOpen) {
+        return;
+      }
+      event.preventDefault();
+      setCartOpen(false);
+    }
+
+    window.addEventListener("keydown", handleCartEscape);
+    return () => window.removeEventListener("keydown", handleCartEscape);
+  }, [addonPickerOpen, cartOpen, isStandaloneCartRoute, upiQrOpen]);
 
   if (loadState === "loading") {
     return (
@@ -6533,7 +6617,7 @@ export default function QrOrderingExperience({
 
   return (
     <div
-      className={clsx("relative min-h-screen overflow-x-hidden", contentTextClass, themeScopeClass)}
+      className={clsx("cafeluxe-page-enter relative min-h-screen overflow-x-hidden", contentTextClass, themeScopeClass)}
       style={{ background: appBackground }}
     >
       {heroImageUrl ? (
@@ -6566,9 +6650,9 @@ export default function QrOrderingExperience({
       />
 
       {!isStandaloneCartRoute ? (
-      <div className="relative mx-auto flex w-full max-w-5xl flex-col px-4 pb-44 pt-5 sm:px-6 sm:pb-36">
+      <div className="cafeluxe-menu-stage relative mx-auto flex w-full max-w-5xl flex-col px-4 pb-44 pt-5 sm:px-6 sm:pb-36">
         <header
-          className="cafe-luxe-header sticky top-3 z-20 mb-5 rounded-3xl border px-4 py-4 shadow-[0_32px_74px_-42px_rgba(0,0,0,0.98)] backdrop-blur-xl sm:px-5 sm:py-4.5"
+          className="cafeluxe-hero-enter cafe-luxe-header sticky top-3 z-20 mb-5 rounded-3xl border px-4 py-4 shadow-[0_32px_74px_-42px_rgba(0,0,0,0.98)] backdrop-blur-xl sm:px-5 sm:py-4.5"
           style={{
             background: panelGradient,
             borderColor: withAlpha(WARM_HIGHLIGHT, 0.22),
@@ -6788,7 +6872,7 @@ export default function QrOrderingExperience({
         ) : null}
 
         <section
-          className="cafe-luxe-card mb-4 rounded-2xl border p-4 shadow-[0_24px_64px_-38px_rgba(0,0,0,0.98)]"
+          className="cafeluxe-section-reveal cafe-luxe-card mb-4 rounded-2xl border p-4 shadow-[0_24px_64px_-38px_rgba(0,0,0,0.98)]"
           style={{
             borderColor: accentSubtle,
             background: sectionGradient,
@@ -7012,35 +7096,148 @@ export default function QrOrderingExperience({
               : "No items match this search/category. Try another filter."}
           </section>
         ) : (
-          <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
-            {visibleItems.map((item) => {
-              const quantity = cart[item.id] ?? 0;
-              const parsedImageSrc = item.image.trim();
-              const hasImage = parsedImageSrc.length > 0;
-              const selectedModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
-              const selectedAddons = resolvedSelectedAddonsByItem[item.id] ?? [];
-              const modifierTotal = getSelectedModifierTotal(selectedModifiers);
-              const addonTotal = getSelectedAddonTotal(selectedAddons);
-              const displayPrice = item.price + modifierTotal + addonTotal;
-              const itemModifierOptions = modifierOptionsByItem[item.id] ?? [];
-              const itemAddonGroups = itemAddonGroupsByItem[item.id] ?? [];
-              const hasMappedAddons = itemAddonGroups.length > 0;
+          <div className="space-y-6 sm:space-y-8">
+            {menuSections.map((section) => {
+              const categoryTitle = section.category.name || "Menu";
 
               return (
-                <article
-                  key={item.id}
-                  data-menu-item-id={item.id}
-                  className="cafe-luxe-product-card group overflow-hidden rounded-xl border shadow-[0_26px_60px_-44px_rgba(0,0,0,0.98)] transition duration-300 hover:-translate-y-0.5 active:translate-y-[1px]"
+                <section
+                  key={section.category.id}
+                  className="cafe-luxe-category-coverflow space-y-3 overflow-hidden rounded-[1.75rem] border px-3 py-4 sm:px-4 sm:py-5"
                   style={{
-                    borderColor: withAlpha(WARM_HIGHLIGHT, 0.23),
-                    background: cardGradient,
-                    boxShadow: `0 24px 58px -44px rgba(0,0,0,0.98), 0 0 0 1px ${withAlpha(WARM_HIGHLIGHT, 0.12)} inset`,
-                    contentVisibility: "auto",
-                    containIntrinsicSize: "300px",
+                    borderColor: withAlpha(WARM_HIGHLIGHT, 0.18),
+                    background: isLightTheme
+                      ? `linear-gradient(135deg, ${withAlpha(PALETTE_SURFACE, 0.34)} 0%, ${withAlpha(PALETTE_BACKGROUND, 0.72)} 100%)`
+                      : `linear-gradient(135deg, ${withAlpha(PALETTE_SURFACE, 0.08)} 0%, ${withAlpha(PALETTE_TEXT, 0.42)} 100%)`,
+                    boxShadow: `0 26px 58px -46px rgba(0,0,0,0.78), 0 0 0 1px ${withAlpha(WARM_HIGHLIGHT, 0.08)} inset`,
+                  }}
+                >
+                  <div className="flex items-end justify-between gap-3 px-1">
+                    <div className="min-w-0">
+                      <p className={clsx("text-[11px] font-semibold uppercase tracking-[0.16em]", mutedTextClass)}>
+                        Category
+                      </p>
+                      <h2 className={clsx("truncate text-xl font-semibold sm:text-2xl", contentTextClass)}>
+                        {categoryTitle}
+                      </h2>
+                    </div>
+                    <span
+                      className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+                      style={{
+                        borderColor: withAlpha(WARM_HIGHLIGHT, 0.28),
+                        backgroundColor: withAlpha(WARM_HIGHLIGHT, isLightTheme ? 0.14 : 0.1),
+                        color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE,
+                      }}
+                    >
+                      {section.items.length} item{section.items.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+
+                  <div className="cafeluxe-coverflow-shell">
+                    <Swiper
+                      modules={[EffectCoverflow, A11y]}
+                      effect="coverflow"
+                      grabCursor
+                      centeredSlides
+                      slideToClickedSlide
+                      watchSlidesProgress
+                      slidesPerView="auto"
+                      spaceBetween={16}
+                      loop={section.items.length > 2}
+                      coverflowEffect={{
+                        rotate: 34,
+                        stretch: 0,
+                        depth: 140,
+                        modifier: 0.92,
+                        slideShadows: false,
+                      }}
+                      breakpoints={{
+                        640: { spaceBetween: 20 },
+                        1024: { spaceBetween: 24 },
+                      }}
+                      className="cafeluxe-menu-coverflow"
+                    >
+                      {section.items.map((item) => {
+                        const quantity = cart[item.id] ?? 0;
+                        const parsedImageSrc = item.image.trim();
+                        const hasImage = parsedImageSrc.length > 0;
+                        const selectedModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
+                        const selectedAddons = resolvedSelectedAddonsByItem[item.id] ?? [];
+                        const modifierTotal = getSelectedModifierTotal(selectedModifiers);
+                        const addonTotal = getSelectedAddonTotal(selectedAddons);
+                        const displayPrice = item.price + modifierTotal + addonTotal;
+                        const itemModifierOptions = modifierOptionsByItem[item.id] ?? [];
+                        const itemAddonGroups = itemAddonGroupsByItem[item.id] ?? [];
+                        const hasMappedAddons = itemAddonGroups.length > 0;
+                        const previewQuantity = Math.max(1, quantity);
+                        const previewLineTotal = displayPrice * previewQuantity;
+                        const itemOfferPreview = pickBestItemWiseOfferForLine(
+                          {
+                            itemId: item.id,
+                            name: item.name,
+                            quantity: previewQuantity,
+                            unitPrice: displayPrice,
+                            lineTotal: previewLineTotal,
+                            categoryRefs: item.categoryRefs,
+                          },
+                          autoPromotions,
+                          Math.max(subtotal, previewLineTotal),
+                        );
+                        const handleCardAdd = () => {
+                          if (!item.isAvailable) {
+                            return;
+                          }
+                          if (hasMappedAddons) {
+                            openAddonPickerForItem(item);
+                            return;
+                          }
+                          updateItemQuantity(item.id, 1);
+                        };
+
+                        return (
+                          <SwiperSlide
+                            key={`${section.category.id}_${item.id}`}
+                            className="cafeluxe-menu-coverflow-slide"
+                          >
+                <article
+                  data-menu-item-id={item.id}
+                  role="button"
+                  tabIndex={item.isAvailable ? 0 : -1}
+                  aria-disabled={!item.isAvailable}
+                  aria-label={item.isAvailable ? `Add ${item.name}` : `${item.name} is out of stock`}
+                  className={clsx(
+                    "cafeluxe-menu-glass-card cafe-luxe-product-card group flex h-full flex-col overflow-hidden rounded-[1.45rem] border shadow-[0_26px_60px_-44px_rgba(0,0,0,0.98)] outline-none transition duration-300 hover:-translate-y-1 focus-visible:ring-2 active:translate-y-[1px]",
+                    item.isAvailable ? "cursor-pointer" : "cursor-not-allowed",
+                    !item.isAvailable && quantity === 0 ? "opacity-75" : "",
+                  )}
+                  style={{
+                    borderColor: withAlpha(WARM_HIGHLIGHT, item.isAvailable ? 0.38 : 0.18),
+                    background: isLightTheme
+                      ? `linear-gradient(158deg, ${withAlpha(PALETTE_SURFACE, 0.52)} 0%, ${withAlpha(PALETTE_BACKGROUND, 0.42)} 58%, ${withAlpha(PALETTE_ACCENT, 0.16)} 100%)`
+                      : `linear-gradient(158deg, ${withAlpha(PALETTE_SURFACE, 0.1)} 0%, ${withAlpha(SOFT_DARK_SURFACE, 0.5)} 58%, ${withAlpha(PALETTE_ACCENT, 0.12)} 100%)`,
+                    boxShadow: `0 18px 38px -30px rgba(0,0,0,0.76), 0 36px 78px -52px rgba(0,0,0,0.96), 0 0 0 1px ${withAlpha(WARM_HIGHLIGHT, 0.16)} inset, inset 0 1px 0 rgba(255,255,255,0.34), inset 0 -22px 42px -34px ${withAlpha(WARM_HIGHLIGHT, 0.42)}`,
+                    backdropFilter: "blur(30px) saturate(1.18)",
+                    WebkitBackdropFilter: "blur(30px) saturate(1.18)",
+                    ["--tw-ring-color" as string]: withAlpha(WARM_HIGHLIGHT, 0.45),
+                  }}
+                  onClick={(event) => {
+                    if ((event.target as HTMLElement).closest("[data-menu-card-control]")) {
+                      return;
+                    }
+                    handleCardAdd();
+                  }}
+                  onKeyDown={(event) => {
+                    if ((event.target as HTMLElement).closest("[data-menu-card-control]")) {
+                      return;
+                    }
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      handleCardAdd();
+                    }
                   }}
                 >
                   <div
-                    className="relative aspect-square sm:aspect-[4/3]"
+                    className="cafeluxe-menu-card-image relative aspect-[4/3] overflow-hidden"
                     style={{
                       background: isLightTheme
                         ? "linear-gradient(135deg, rgba(232,217,197,0.96) 0%, rgba(232,217,197,0.28) 100%)"
@@ -7078,7 +7275,17 @@ export default function QrOrderingExperience({
                         background: `linear-gradient(180deg, ${withAlpha(WARM_HIGHLIGHT, 0.18)} 0%, rgba(0,0,0,0) 100%)`,
                       }}
                     />
-                    <div className="absolute left-2 top-2 flex flex-wrap gap-1">
+                    <div className="absolute left-2 top-2 flex max-w-[72%] flex-wrap gap-1">
+                      <span
+                        className="rounded-full border px-1.5 py-0.5 text-[10px] font-semibold"
+                        style={{
+                          borderColor: withAlpha(WARM_HIGHLIGHT, 0.4),
+                          backgroundColor: withAlpha(isLightTheme ? PALETTE_BACKGROUND : PALETTE_TEXT, 0.72),
+                          color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE,
+                        }}
+                      >
+                        {categoryTitle}
+                      </span>
                       {item.isVeg ? (
                         <span
                           className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
@@ -7123,6 +7330,34 @@ export default function QrOrderingExperience({
                         </span>
                       ) : null}
                     </div>
+                    {quantity > 0 ? (
+                      <span
+                        className="absolute right-2 top-2 rounded-full border px-2 py-1 text-[10px] font-semibold"
+                        style={{
+                          borderColor: withAlpha(WARM_HIGHLIGHT, 0.5),
+                          backgroundColor: withAlpha(WARM_HIGHLIGHT, 0.88),
+                          color: PALETTE_TEXT,
+                        }}
+                      >
+                        {quantity} in cart
+                      </span>
+                    ) : null}
+                    {itemOfferPreview ? (
+                      <span
+                        className="absolute bottom-2 left-2 right-2 inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold"
+                        style={{
+                          borderColor: withAlpha(WARM_HIGHLIGHT, 0.42),
+                          backgroundColor: withAlpha(isLightTheme ? PALETTE_BACKGROUND : PALETTE_TEXT, 0.78),
+                          color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE,
+                          backdropFilter: "blur(12px)",
+                        }}
+                      >
+                        <Sparkles className="h-3 w-3 shrink-0" />
+                        <span className="truncate">
+                          {itemOfferPreview.offer.offerName || itemOfferPreview.offer.matchedReason || "Offer available"}
+                        </span>
+                      </span>
+                    ) : null}
                   </div>
 
                   <div className="space-y-2.5 p-3">
@@ -7156,6 +7391,7 @@ export default function QrOrderingExperience({
                       {!item.isAvailable && quantity === 0 ? (
                         <button
                           type="button"
+                          data-menu-card-control
                           className={clsx(
                             "inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-xs font-semibold sm:text-sm",
                             isLightTheme
@@ -7169,17 +7405,14 @@ export default function QrOrderingExperience({
                       ) : quantity === 0 ? (
                         <button
                           type="button"
+                          data-menu-card-control
                           className="cafe-luxe-cta inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs font-semibold text-brand-dark shadow-[0_14px_34px_-20px_rgba(0,0,0,0.9)] transition active:translate-y-px sm:px-3.5 sm:py-2 sm:text-sm"
                           style={{
                             backgroundColor: LUXURY_GOLD,
                             borderColor: withAlpha(LUXURY_GOLD, 0.55),
                           }}
                           onClick={() => {
-                            if (hasMappedAddons) {
-                              openAddonPickerForItem(item);
-                              return;
-                            }
-                            updateItemQuantity(item.id, 1);
+                            handleCardAdd();
                           }}
                         >
                           <Plus className="h-4 w-4" />
@@ -7187,6 +7420,7 @@ export default function QrOrderingExperience({
                         </button>
                       ) : (
                         <div
+                          data-menu-card-control
                           className={clsx(
                             "cafe-luxe-control inline-flex items-center rounded-xl border",
                             isLightTheme
@@ -7196,6 +7430,7 @@ export default function QrOrderingExperience({
                         >
                           <button
                             type="button"
+                            data-menu-card-control
                             className={clsx(
                               "cafe-luxe-control p-1.5 transition sm:p-2",
                               contentTextClass,
@@ -7211,6 +7446,7 @@ export default function QrOrderingExperience({
                           </span>
                           <button
                             type="button"
+                            data-menu-card-control
                             className={clsx(
                               "cafe-luxe-control p-1.5 transition sm:p-2",
                               contentTextClass,
@@ -7234,6 +7470,7 @@ export default function QrOrderingExperience({
                         </p>
                         <button
                           type="button"
+                          data-menu-card-control
                           className={clsx(
                             "cafe-luxe-chip rounded-full border px-2 py-1 text-[11px] font-medium transition",
                             isLightTheme
@@ -7261,6 +7498,7 @@ export default function QrOrderingExperience({
                             <button
                               key={`${item.id}_${option.id}`}
                               type="button"
+                              data-menu-card-control
                       className={clsx(
                         "cafe-luxe-chip rounded-full border px-2 py-1 text-[11px] font-medium transition",
                                 selected
@@ -7301,9 +7539,15 @@ export default function QrOrderingExperience({
                     ) : null}
                   </div>
                 </article>
+                          </SwiperSlide>
+                        );
+                      })}
+                    </Swiper>
+                  </div>
+                </section>
               );
             })}
-          </section>
+          </div>
         )}
       </div>
       ) : null}
@@ -8028,14 +8272,13 @@ export default function QrOrderingExperience({
           className={clsx(
             isStandaloneCartRoute
               ? "relative z-40 mx-auto w-full max-w-3xl px-4 pb-8 pt-4 sm:px-6"
-              : "fixed inset-0 z-40 backdrop-blur-sm",
+              : "cafeluxe-cart-overlay fixed inset-0 z-40 overflow-hidden backdrop-blur-sm",
           )}
           style={
             isStandaloneCartRoute
               ? undefined
               : {
                   backgroundColor: overlayShade,
-                  animation: "luxe-fade-in 0.22s ease-out",
                 }
           }
         >
@@ -8049,22 +8292,24 @@ export default function QrOrderingExperience({
           ) : null}
 
           <aside
+            role="dialog"
+            aria-modal={isStandaloneCartRoute ? undefined : true}
+            aria-labelledby="cart-drawer-title"
             className={clsx(
               isStandaloneCartRoute
                 ? "relative w-full min-h-[calc(100dvh-2rem)] overflow-visible rounded-3xl border shadow-[0_28px_80px_-38px_rgba(0,0,0,0.34)] sm:min-h-[calc(100dvh-2.5rem)]"
-                : "absolute inset-0 w-full h-[100dvh] overflow-hidden rounded-none border-0 shadow-none md:bottom-4 md:left-auto md:right-4 md:top-4 md:h-auto md:w-[480px] md:max-h-[unset] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]",
+                : "cafeluxe-cart-drawer absolute inset-x-0 bottom-0 h-[88dvh] max-h-[calc(100dvh-0.75rem)] w-full overflow-hidden rounded-t-[1.75rem] border-x-0 border-b-0 shadow-[0_-22px_70px_-40px_rgba(0,0,0,0.98)] md:inset-y-4 md:left-auto md:right-4 md:h-[calc(100dvh-2rem)] md:w-[480px] md:max-h-[calc(100dvh-2rem)] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]",
               isLightTheme ? "text-brand-dark" : "text-zinc-100",
             )}
             style={{
               borderColor: accentBorder,
-              animation: isStandaloneCartRoute ? undefined : "luxe-sheet-up 0.25s ease-out",
               background: sheetGradient,
             }}
           >
-            <div className={clsx("flex flex-col", isStandaloneCartRoute ? "h-auto" : "h-full")}>
+            <div className={clsx("flex min-h-0 flex-col", isStandaloneCartRoute ? "h-auto" : "h-full")}>
               <div
                 className={clsx(
-                  "border-b px-5 pb-4 pt-[calc(env(safe-area-inset-top)+12px)] md:rounded-t-3xl md:px-5 md:pt-5",
+                  "shrink-0 border-b px-5 pb-4 pt-[calc(env(safe-area-inset-top)+12px)] md:rounded-t-3xl md:px-5 md:pt-5",
                   isLightTheme ? "border-[#C6A57B]" : "border-zinc-800/90",
                 )}
                 style={{
@@ -8075,7 +8320,7 @@ export default function QrOrderingExperience({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-[1.1rem] font-semibold leading-tight">{"Your Cart"}</h2>
+                    <h2 id="cart-drawer-title" className="text-[1.1rem] font-semibold leading-tight">{"Your Cart"}</h2>
                     <p className={clsx("mt-1 text-[11px]", isLightTheme ? "text-brand-dark/70" : "text-zinc-400")}>
                       {cartCount} item{cartCount === 1 ? "" : "s"}
                     </p>
@@ -8115,7 +8360,7 @@ export default function QrOrderingExperience({
 
               <div
                 className={clsx(
-                  isStandaloneCartRoute ? "px-5 py-5 md:px-5" : "flex-1 overflow-y-auto px-5 py-5 md:px-5",
+                  isStandaloneCartRoute ? "px-5 py-5 md:px-5" : "min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 md:px-5",
                 )}
               >
                 {cartItems.length === 0 ? (
@@ -8410,7 +8655,7 @@ export default function QrOrderingExperience({
               </div>
 
               {/* Kitchen Instructions: placed below items list and above offers */}
-              <div className="pb-3">
+              <div className="shrink-0 px-5 pb-3">
                 <section
                   className={clsx(
                     "cafe-luxe-card space-y-2 rounded-2xl border p-3.5",
@@ -8443,7 +8688,7 @@ export default function QrOrderingExperience({
 
               <div
                 className={clsx(
-                  "space-y-4 border-t px-5 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 md:px-5",
+                  "cafeluxe-checkout-panel max-h-[48dvh] shrink-0 space-y-4 overflow-y-auto overscroll-contain border-t px-5 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 md:max-h-[52dvh] md:px-5",
                   isLightTheme ? "border-[#C6A57B]" : "border-zinc-800",
                 )}
               >
@@ -8602,7 +8847,7 @@ export default function QrOrderingExperience({
                 {paymentMethod === "UPI" ? (
                   <section
                     className={clsx(
-                      "cafe-luxe-card rounded-2xl border p-3.5 text-sm",
+                      "cafeluxe-payment-panel cafe-luxe-card rounded-2xl border p-3.5 text-sm",
                       contentTextClass,
                       isLightTheme
                         ? "border-[#C6A57B] bg-[#E8D9C5]"

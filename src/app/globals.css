@@ -1,3 +1,6 @@
+@import "swiper/css";
+@import "swiper/css/effect-coverflow";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -96,6 +99,76 @@ body {
   }
 }
 
+@keyframes cafeluxe-hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes cafeluxe-section-rise {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes cafeluxe-cart-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes cafeluxe-cart-drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(28px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes cafeluxe-panel-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes cafeluxe-soft-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.004);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .cafe-theme-light {
   color: #2E2A26;
 }
@@ -183,11 +256,16 @@ body {
 .cafe-luxe-card {
   border-radius: 1.1rem;
   box-shadow: var(--cafe-shadow-card-3d-mix), var(--cafe-shadow-inset-soft);
+  backdrop-filter: blur(18px) saturate(1.05);
+  -webkit-backdrop-filter: blur(18px) saturate(1.05);
+  transition: transform 200ms ease, box-shadow 240ms ease, filter 180ms ease;
 }
 
 .cafe-luxe-card-strong {
   border-radius: 1.3rem;
   box-shadow: var(--cafe-shadow-panel-3d-mix), var(--cafe-shadow-inset-soft);
+  backdrop-filter: blur(22px) saturate(1.08);
+  -webkit-backdrop-filter: blur(22px) saturate(1.08);
 }
 
 .cafe-luxe-chip {
@@ -225,6 +303,7 @@ body {
 
 .cafe-luxe-alert {
   box-shadow: 0 22px 44px -30px rgba(122, 109, 96, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  animation: cafeluxe-soft-pop 320ms ease-out both;
 }
 
 .cafe-luxe-product-card {
@@ -275,8 +354,233 @@ body {
 .cafe-luxe-control {
   border-radius: 0.85rem;
   box-shadow: 0 12px 24px -18px rgba(122, 109, 96, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.52);
+  transition: transform 160ms ease, box-shadow 220ms ease, filter 180ms ease;
+}
+
+.cafe-luxe-control:hover {
+  filter: brightness(1.02);
+  box-shadow: 0 18px 34px -24px rgba(122, 109, 96, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.62);
 }
 
 .cafe-luxe-control:active {
   transform: translateY(1px);
+}
+
+.cafeluxe-page-enter {
+  animation: luxe-fade-in 320ms ease-out both;
+}
+
+.cafeluxe-hero-enter {
+  animation: cafeluxe-hero-rise 540ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.cafeluxe-section-reveal,
+.cafe-luxe-category-coverflow {
+  animation: cafeluxe-section-rise 520ms ease-out both;
+}
+
+@supports (animation-timeline: view()) {
+  .cafeluxe-section-reveal,
+  .cafe-luxe-category-coverflow {
+    animation-timeline: view();
+    animation-range: entry 4% cover 28%;
+  }
+}
+
+.cafeluxe-cart-overlay {
+  animation: luxe-fade-in 220ms ease-out both;
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(198, 165, 123, 0.1), rgba(198, 165, 123, 0) 36%),
+    linear-gradient(180deg, rgba(248, 245, 240, 0.06), rgba(46, 42, 38, 0.06));
+}
+
+.cafeluxe-cart-drawer {
+  animation: cafeluxe-cart-sheet-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transform-origin: bottom center;
+  backdrop-filter: blur(30px) saturate(1.15);
+  -webkit-backdrop-filter: blur(30px) saturate(1.15);
+  box-shadow:
+    0 -22px 70px -40px rgba(0, 0, 0, 0.98),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    inset 0 -26px 46px -42px rgba(198, 165, 123, 0.38);
+}
+
+.cafeluxe-checkout-panel {
+  scrollbar-gutter: stable;
+  animation: cafeluxe-panel-rise 280ms ease-out both;
+}
+
+.cafeluxe-payment-panel {
+  animation: cafeluxe-panel-rise 240ms ease-out both;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cafeluxe-menu-stage .cafe-luxe-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 24px 50px -34px rgba(122, 109, 96, 0.32), var(--cafe-shadow-inset-soft);
+  }
+
+  .cafeluxe-menu-stage button:not(:disabled):hover,
+  .cafeluxe-menu-stage a:hover {
+    transform: translateY(-1px);
+  }
+}
+
+@media (min-width: 768px) {
+  .cafeluxe-cart-drawer {
+    animation-name: cafeluxe-cart-drawer-in;
+    transform-origin: center right;
+    box-shadow:
+      0 28px 80px -38px rgba(0, 0, 0, 0.98),
+      inset 0 1px 0 rgba(255, 255, 255, 0.32),
+      inset 24px 0 48px -44px rgba(198, 165, 123, 0.34);
+  }
+}
+
+.cafe-luxe-category-coverflow {
+  perspective: 1400px;
+  transform-style: preserve-3d;
+}
+
+.cafeluxe-coverflow-shell {
+  overflow: hidden;
+  margin-inline: -0.75rem;
+  padding-inline: 0.75rem;
+}
+
+.cafeluxe-menu-coverflow {
+  width: 100%;
+  overflow: visible;
+  padding-block: 0.25rem 1rem;
+}
+
+.cafeluxe-menu-coverflow .swiper-wrapper {
+  align-items: stretch;
+}
+
+.cafeluxe-menu-coverflow-slide {
+  width: min(70vw, 18.25rem);
+  height: auto;
+}
+
+.cafeluxe-menu-coverflow-slide .cafeluxe-menu-glass-card {
+  position: relative;
+  isolation: isolate;
+  transform-style: preserve-3d;
+  will-change: transform, opacity;
+  box-shadow:
+    0 18px 38px -30px rgba(0, 0, 0, 0.74),
+    0 36px 78px -52px rgba(0, 0, 0, 0.96),
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    inset 0 -22px 42px -34px rgba(198, 165, 123, 0.42);
+  transition:
+    transform 240ms ease,
+    opacity 220ms ease,
+    box-shadow 260ms ease,
+    filter 220ms ease;
+}
+
+.cafeluxe-menu-coverflow-slide .cafeluxe-menu-glass-card > * {
+  position: relative;
+  z-index: 2;
+}
+
+.cafeluxe-menu-glass-card::before,
+.cafeluxe-menu-glass-card::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.cafeluxe-menu-glass-card::before {
+  z-index: 1;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0.08) 28%, rgba(255, 255, 255, 0) 54%),
+    linear-gradient(315deg, rgba(198, 165, 123, 0.18) 0%, rgba(198, 165, 123, 0) 42%);
+  mix-blend-mode: screen;
+  opacity: 0.66;
+}
+
+.cafeluxe-menu-glass-card::after {
+  z-index: 1;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    inset 0 18px 38px -34px rgba(248, 245, 240, 0.72),
+    inset 0 -28px 48px -42px rgba(198, 165, 123, 0.5);
+  background:
+    radial-gradient(circle at 16% 10%, rgba(248, 245, 240, 0.28) 0%, rgba(248, 245, 240, 0) 36%),
+    radial-gradient(circle at 88% 92%, rgba(198, 165, 123, 0.18) 0%, rgba(198, 165, 123, 0) 44%);
+  opacity: 0.78;
+}
+
+.cafeluxe-menu-card-image {
+  aspect-ratio: 1.5 / 1 !important;
+}
+
+.cafeluxe-menu-coverflow-slide:not(.swiper-slide-active) .cafeluxe-menu-glass-card {
+  opacity: 0.84;
+  transform: scale(0.925);
+  filter: saturate(0.96);
+}
+
+.cafeluxe-menu-coverflow-slide.swiper-slide-active .cafeluxe-menu-glass-card {
+  opacity: 1;
+  transform: translateZ(22px) scale(1.015);
+}
+
+.cafeluxe-menu-coverflow-slide.swiper-slide-active .cafeluxe-menu-glass-card:hover {
+  transform: translateY(-4px) translateZ(26px) scale(1.025);
+  box-shadow:
+    0 22px 44px -30px rgba(0, 0, 0, 0.78),
+    0 42px 88px -54px rgba(0, 0, 0, 0.98),
+    inset 0 1px 0 rgba(255, 255, 255, 0.46),
+    inset 0 -24px 44px -34px rgba(198, 165, 123, 0.48);
+}
+
+.cafeluxe-menu-coverflow-slide:not(.swiper-slide-active) .cafeluxe-menu-glass-card:hover {
+  transform: translateY(-2px) scale(0.94);
+}
+
+.cafeluxe-menu-glass-card:active {
+  transform: translateY(1px) scale(0.995);
+}
+
+.cafeluxe-menu-card-image::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 44%);
+}
+
+@media (min-width: 640px) {
+  .cafeluxe-menu-coverflow-slide {
+    width: min(42vw, 19rem);
+  }
+}
+
+@media (min-width: 1024px) {
+  .cafeluxe-menu-coverflow-slide {
+    width: 19.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cafeluxe-page-enter,
+  .cafeluxe-page-enter *,
+  .cafeluxe-page-enter *::before,
+  .cafeluxe-page-enter *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .cafeluxe-menu-coverflow-slide .cafeluxe-menu-glass-card,
+  .cafeluxe-menu-coverflow-slide.swiper-slide-active .cafeluxe-menu-glass-card,
+  .cafeluxe-menu-coverflow-slide:not(.swiper-slide-active) .cafeluxe-menu-glass-card {
+    transform: none !important;
+  }
 }
