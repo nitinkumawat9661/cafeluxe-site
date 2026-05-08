@@ -2,6 +2,7 @@
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { A11y, EffectCoverflow } from "swiper/modules";
@@ -22,6 +23,7 @@ import {
   Sparkles,
   Trash2,
   WifiOff,
+  X,
 } from "lucide-react";
 
 import {
@@ -3718,6 +3720,7 @@ export default function QrOrderingExperience({
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [reloadKey, setReloadKey] = useState(0);
   const [cart, setCart] = useState<Record<string, number>>({});
+  const [recentlyAddedItemId, setRecentlyAddedItemId] = useState("");
   const [selectedModifiersByItem, setSelectedModifiersByItem] = useState<
     Record<string, SelectedModifier[]>
   >({});
@@ -3760,6 +3763,8 @@ export default function QrOrderingExperience({
   const persistedCartStateRef = useRef<string | null>(null);
   const persistedBillStateRef = useRef<string | null>(null);
   const persistedSessionStateRef = useRef<string | null>(null);
+  const addFeedbackTimeoutRef = useRef<number | null>(null);
+  const prefersReducedMotion = useReducedMotion();
 
   const activeCartStorageKey = useMemo(
     () => buildActiveCartStorageKey(routeClient, routeTable),
@@ -5348,6 +5353,21 @@ export default function QrOrderingExperience({
   );
   const unpaidTotal = unpaidOnlyPayableTotal;
 
+  function triggerAddFeedback(itemId: string) {
+    if (prefersReducedMotion || typeof window === "undefined") {
+      return;
+    }
+
+    setRecentlyAddedItemId(itemId);
+    if (addFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(addFeedbackTimeoutRef.current);
+    }
+    addFeedbackTimeoutRef.current = window.setTimeout(() => {
+      setRecentlyAddedItemId("");
+      addFeedbackTimeoutRef.current = null;
+    }, 620);
+  }
+
   function updateItemQuantity(itemId: string, delta: number) {
     setCart((current) => {
       const oldQty = current[itemId] ?? 0;
@@ -5408,6 +5428,7 @@ export default function QrOrderingExperience({
     const addonGroups = itemAddonGroupsByItem[item.id] ?? [];
     if (addonGroups.length === 0) {
       updateItemQuantity(item.id, 1);
+      triggerAddFeedback(item.id);
       return;
     }
 
@@ -5488,6 +5509,7 @@ export default function QrOrderingExperience({
 
     if (addonPickerMode === "add") {
       updateItemQuantity(addonPickerItem.id, 1);
+      triggerAddFeedback(addonPickerItem.id);
     }
     closeAddonPicker();
   }
@@ -6459,6 +6481,40 @@ export default function QrOrderingExperience({
   const mutedTextClass = isLightTheme ? "text-zinc-500" : "text-zinc-400";
   const themeScopeClass = isLightTheme ? "cafe-theme-light" : "";
   const shouldShowCartPanel = cartOpen || isStandaloneCartRoute;
+  const luxurySpring = prefersReducedMotion
+    ? { duration: 0 }
+    : { type: "spring" as const, stiffness: 300, damping: 32, mass: 0.82 };
+  const gentleSpring = prefersReducedMotion
+    ? { duration: 0 }
+    : { type: "spring" as const, stiffness: 240, damping: 30, mass: 0.9 };
+  const dockSpring = prefersReducedMotion
+    ? { duration: 0 }
+    : { type: "spring" as const, stiffness: 360, damping: 38, mass: 0.72 };
+  const softEase = [0.22, 1, 0.36, 1] as const;
+  const overlayTransition = prefersReducedMotion ? { duration: 0 } : { duration: 0.22, ease: softEase };
+  const motionInitial = prefersReducedMotion ? false : { opacity: 0, y: 14, scale: 0.985 };
+  const motionVisible = { opacity: 1, y: 0, scale: 1 };
+  const motionTransition = luxurySpring;
+  const pressMotion = prefersReducedMotion ? undefined : { scale: 0.985, y: 1 };
+  const hoverLiftMotion = prefersReducedMotion ? undefined : { y: -2, scale: 1.01 };
+  const addFeedbackPulse =
+    recentlyAddedItemId && !prefersReducedMotion
+      ? { scale: [1, 1.012, 1], y: [0, -1, 0] }
+      : undefined;
+  const cartContentVariants = {
+    hidden: prefersReducedMotion ? { opacity: 1 } : { opacity: 1 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: prefersReducedMotion ? 0 : 0.045,
+        delayChildren: prefersReducedMotion ? 0 : 0.08,
+      },
+    },
+  };
+  const cartContentItemVariants = {
+    hidden: prefersReducedMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 },
+    show: { opacity: 1, y: 0, transition: gentleSpring },
+  };
 
   useEffect(() => {
     if (!shouldShowCartPanel || isStandaloneCartRoute || typeof document === "undefined") {
@@ -6512,6 +6568,14 @@ export default function QrOrderingExperience({
     window.addEventListener("keydown", handleCartEscape);
     return () => window.removeEventListener("keydown", handleCartEscape);
   }, [addonPickerOpen, cartOpen, isStandaloneCartRoute, upiQrOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (addFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(addFeedbackTimeoutRef.current);
+      }
+    };
+  }, []);
 
   if (loadState === "loading") {
     return (
@@ -6650,8 +6714,11 @@ export default function QrOrderingExperience({
       />
 
       {!isStandaloneCartRoute ? (
-      <div className="cafeluxe-menu-stage relative mx-auto flex w-full max-w-5xl flex-col px-4 pb-44 pt-5 sm:px-6 sm:pb-36">
-        <header
+      <div className="cafeluxe-menu-stage relative mx-auto flex w-full max-w-5xl flex-col px-4 pb-[16rem] pt-5 sm:px-6 sm:pb-[14rem] md:pb-[12.5rem]">
+        <motion.header
+          initial={motionInitial}
+          animate={motionVisible}
+          transition={motionTransition}
           className="cafeluxe-hero-enter cafe-luxe-header sticky top-3 z-20 mb-5 rounded-3xl border px-4 py-4 shadow-[0_32px_74px_-42px_rgba(0,0,0,0.98)] backdrop-blur-xl sm:px-5 sm:py-4.5"
           style={{
             background: panelGradient,
@@ -6752,7 +6819,7 @@ export default function QrOrderingExperience({
               </div>
             </div>
           </div>
-        </header>
+        </motion.header>
 
         {errorMessage ? (
           <div
@@ -6793,7 +6860,10 @@ export default function QrOrderingExperience({
         ) : null}
 
         {orderPlacedId ? (
-          <div
+          <motion.div
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 10, scale: 0.992 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={gentleSpring}
             className="cafe-luxe-alert mb-4 flex items-start gap-3 rounded-2xl border p-4"
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.34),
@@ -6828,11 +6898,14 @@ export default function QrOrderingExperience({
                 </div>
               ) : null}
             </div>
-          </div>
+          </motion.div>
         ) : null}
 
         {statusPopup ? (
-          <div
+          <motion.div
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 10, scale: 0.992 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={gentleSpring}
             className="cafe-luxe-alert mb-4 flex items-start gap-3 rounded-2xl border p-4 shadow-[0_18px_40px_-28px_rgba(0,0,0,0.75)]"
             style={{
               borderColor:
@@ -6868,10 +6941,13 @@ export default function QrOrderingExperience({
             >
               Dismiss
             </button>
-          </div>
+          </motion.div>
         ) : null}
 
-        <section
+        <motion.section
+          initial={motionInitial}
+          animate={motionVisible}
+          transition={{ ...motionTransition, delay: prefersReducedMotion ? 0 : 0.08 }}
           className="cafeluxe-section-reveal cafe-luxe-card mb-4 rounded-2xl border p-4 shadow-[0_24px_64px_-38px_rgba(0,0,0,0.98)]"
           style={{
             borderColor: accentSubtle,
@@ -6903,23 +6979,28 @@ export default function QrOrderingExperience({
               </p>
             </div>
           </div>
-        </section>
+        </motion.section>
 
-        <section className="mb-4">
+        <motion.section
+          initial={motionInitial}
+          animate={motionVisible}
+          transition={{ ...motionTransition, delay: prefersReducedMotion ? 0 : 0.14 }}
+          className="cafeluxe-search-section mb-4"
+        >
           <label
             htmlFor="menu-search"
-            className={clsx("mb-2 block text-xs uppercase tracking-[0.16em]", mutedTextClass)}
+            className={clsx("cafeluxe-search-label mb-2 block text-xs uppercase tracking-[0.16em]", mutedTextClass)}
           >
             {"Search Menu"}
           </label>
           <div
-            className="cafe-luxe-input-wrap flex items-center gap-2 rounded-2xl border px-3 py-2.5 shadow-[0_18px_40px_-30px_rgba(0,0,0,0.92)]"
+            className="cafeluxe-search-shell cafe-luxe-input-wrap flex items-center gap-2 rounded-2xl border px-3 py-2.5 shadow-[0_18px_40px_-30px_rgba(0,0,0,0.92)]"
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.32),
               background: sectionGradient,
             }}
           >
-            <Search className={clsx("h-4 w-4", mutedTextClass)} />
+            <Search className={clsx("cafeluxe-search-icon h-4 w-4", mutedTextClass)} />
             <input
               id="menu-search"
               value={searchText}
@@ -6932,22 +7013,43 @@ export default function QrOrderingExperience({
               inputMode="search"
             />
           </div>
-        </section>
+        </motion.section>
 
-        <section className="sticky top-[98px] z-10 mb-4 -mx-1 overflow-x-auto px-1">
-          <div
-            className="cafe-luxe-card inline-flex min-w-full gap-2 rounded-2xl border p-1.5 shadow-[0_20px_48px_-34px_rgba(122,109,96,0.28)] backdrop-blur"
+        <motion.section
+          initial={motionInitial}
+          animate={motionVisible}
+          transition={{ ...motionTransition, delay: prefersReducedMotion ? 0 : 0.18 }}
+          className="cafeluxe-category-strip sticky top-[98px] z-10 mb-4 -mx-1 overflow-x-auto px-1"
+        >
+          <motion.div
+            initial={prefersReducedMotion ? false : "hidden"}
+            animate="show"
+            variants={{
+              hidden: { opacity: 0 },
+              show: {
+                opacity: 1,
+                transition: { staggerChildren: 0.045, delayChildren: 0.05 },
+              },
+            }}
+            className="cafeluxe-category-rail cafe-luxe-card inline-flex min-w-full gap-2 rounded-2xl border p-1.5 shadow-[0_20px_48px_-34px_rgba(122,109,96,0.28)] backdrop-blur"
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.22),
               background: sectionGradient,
             }}
           >
-            <button
+            <motion.button
               type="button"
+              layout
+              variants={{
+                hidden: { opacity: 0, y: 8 },
+                show: { opacity: 1, y: 0 },
+              }}
+              whileHover={hoverLiftMotion}
+              whileTap={pressMotion}
               className={clsx(
-                "cafe-luxe-chip flex-none rounded-xl px-4 py-2 text-sm font-semibold transition active:translate-y-px",
+                "cafeluxe-category-chip cafe-luxe-chip flex-none rounded-xl px-4 py-2 text-sm font-semibold transition active:translate-y-px",
                 activeCategory === "all"
-                  ? "text-brand-dark shadow-[0_12px_30px_-18px_rgba(0,0,0,0.5)]"
+                  ? "cafeluxe-category-chip-active text-brand-dark shadow-[0_12px_30px_-18px_rgba(0,0,0,0.5)]"
                   : isLightTheme ? "text-brand-dark/70 hover:text-brand-dark" : "text-white/70 hover:text-white",
               )}
                   style={
@@ -6967,15 +7069,22 @@ export default function QrOrderingExperience({
               onClick={() => setActiveCategory("all")}
             >
               {"All"}
-            </button>
+            </motion.button>
             {categories.map((category) => (
-              <button
+              <motion.button
                 key={category.id}
                 type="button"
+                layout
+                variants={{
+                  hidden: { opacity: 0, y: 8 },
+                  show: { opacity: 1, y: 0 },
+                }}
+                whileHover={hoverLiftMotion}
+                whileTap={pressMotion}
                 className={clsx(
-                  "cafe-luxe-chip flex-none rounded-xl px-4 py-2 text-sm font-semibold transition active:translate-y-px",
+                  "cafeluxe-category-chip cafe-luxe-chip flex-none rounded-xl px-4 py-2 text-sm font-semibold transition active:translate-y-px",
                   activeCategory === category.id
-                    ? "text-brand-dark shadow-[0_12px_30px_-18px_rgba(0,0,0,0.5)]"
+                    ? "cafeluxe-category-chip-active text-brand-dark shadow-[0_12px_30px_-18px_rgba(0,0,0,0.5)]"
                     : isLightTheme ? "text-brand-dark/70 hover:text-brand-dark" : "text-white/70 hover:text-white",
                 )}
                 style={
@@ -6995,10 +7104,10 @@ export default function QrOrderingExperience({
                 onClick={() => setActiveCategory(category.id)}
               >
                 {category.name}
-              </button>
+              </motion.button>
             ))}
-          </div>
-        </section>
+          </motion.div>
+        </motion.section>
 
         {offersToday.length > 0 ? (
           <section
@@ -7096,14 +7205,21 @@ export default function QrOrderingExperience({
               : "No items match this search/category. Try another filter."}
           </section>
         ) : (
-          <div className="space-y-6 sm:space-y-8">
-            {menuSections.map((section) => {
+          <div className="cafeluxe-menu-listing space-y-6 sm:space-y-8">
+            {menuSections.map((section, sectionIndex) => {
               const categoryTitle = section.category.name || "Menu";
 
               return (
-                <section
+                <motion.section
                   key={section.category.id}
-                  className="cafe-luxe-category-coverflow space-y-3 overflow-hidden rounded-[1.75rem] border px-3 py-4 sm:px-4 sm:py-5"
+                  initial={motionInitial}
+                  whileInView={motionVisible}
+                  viewport={{ once: true, amount: 0.18 }}
+                  transition={{
+                    ...motionTransition,
+                    delay: prefersReducedMotion ? 0 : Math.min(sectionIndex * 0.05, 0.18),
+                  }}
+                  className="cafeluxe-menu-section-card cafe-luxe-category-coverflow space-y-3 overflow-hidden rounded-[1.75rem] border px-3 py-4 sm:px-4 sm:py-5"
                   style={{
                     borderColor: withAlpha(WARM_HIGHLIGHT, 0.18),
                     background: isLightTheme
@@ -7139,21 +7255,33 @@ export default function QrOrderingExperience({
                       effect="coverflow"
                       grabCursor
                       centeredSlides
+                      centerInsufficientSlides
                       slideToClickedSlide
                       watchSlidesProgress
+                      watchOverflow
                       slidesPerView="auto"
-                      spaceBetween={16}
-                      loop={section.items.length > 2}
+                      resistanceRatio={0.6}
+                      touchRatio={1}
+                      threshold={5}
+                      longSwipes
+                      longSwipesRatio={0.28}
+                      speed={420}
+                      roundLengths
+                      preventClicks={false}
+                      preventClicksPropagation={false}
+                      touchStartPreventDefault={false}
+                      spaceBetween={12}
+                      loop={false}
                       coverflowEffect={{
-                        rotate: 34,
+                        rotate: 22,
                         stretch: 0,
-                        depth: 140,
-                        modifier: 0.92,
+                        depth: 92,
+                        modifier: 0.76,
                         slideShadows: false,
                       }}
                       breakpoints={{
-                        640: { spaceBetween: 20 },
-                        1024: { spaceBetween: 24 },
+                        640: { spaceBetween: 16 },
+                        1024: { spaceBetween: 18 },
                       }}
                       className="cafeluxe-menu-coverflow"
                     >
@@ -7192,6 +7320,7 @@ export default function QrOrderingExperience({
                             return;
                           }
                           updateItemQuantity(item.id, 1);
+                          triggerAddFeedback(item.id);
                         };
 
                         return (
@@ -7206,7 +7335,7 @@ export default function QrOrderingExperience({
                   aria-disabled={!item.isAvailable}
                   aria-label={item.isAvailable ? `Add ${item.name}` : `${item.name} is out of stock`}
                   className={clsx(
-                    "cafeluxe-menu-glass-card cafe-luxe-product-card group flex h-full flex-col overflow-hidden rounded-[1.45rem] border shadow-[0_26px_60px_-44px_rgba(0,0,0,0.98)] outline-none transition duration-300 hover:-translate-y-1 focus-visible:ring-2 active:translate-y-[1px]",
+                    "cafeluxe-menu-glass-card cafe-luxe-product-card group flex h-full flex-col overflow-hidden rounded-[1.35rem] border shadow-[0_26px_60px_-44px_rgba(0,0,0,0.98)] outline-none transition duration-300 focus-visible:ring-2",
                     item.isAvailable ? "cursor-pointer" : "cursor-not-allowed",
                     !item.isAvailable && quantity === 0 ? "opacity-75" : "",
                   )}
@@ -7215,9 +7344,9 @@ export default function QrOrderingExperience({
                     background: isLightTheme
                       ? `linear-gradient(158deg, ${withAlpha(PALETTE_SURFACE, 0.52)} 0%, ${withAlpha(PALETTE_BACKGROUND, 0.42)} 58%, ${withAlpha(PALETTE_ACCENT, 0.16)} 100%)`
                       : `linear-gradient(158deg, ${withAlpha(PALETTE_SURFACE, 0.1)} 0%, ${withAlpha(SOFT_DARK_SURFACE, 0.5)} 58%, ${withAlpha(PALETTE_ACCENT, 0.12)} 100%)`,
-                    boxShadow: `0 18px 38px -30px rgba(0,0,0,0.76), 0 36px 78px -52px rgba(0,0,0,0.96), 0 0 0 1px ${withAlpha(WARM_HIGHLIGHT, 0.16)} inset, inset 0 1px 0 rgba(255,255,255,0.34), inset 0 -22px 42px -34px ${withAlpha(WARM_HIGHLIGHT, 0.42)}`,
-                    backdropFilter: "blur(30px) saturate(1.18)",
-                    WebkitBackdropFilter: "blur(30px) saturate(1.18)",
+                    boxShadow: `0 16px 34px -28px rgba(0,0,0,0.68), 0 30px 66px -52px rgba(0,0,0,0.9), 0 0 0 1px ${withAlpha(WARM_HIGHLIGHT, 0.16)} inset, inset 0 1px 0 rgba(255,255,255,0.32), inset 0 -16px 36px -34px ${withAlpha(WARM_HIGHLIGHT, 0.34)}`,
+                    backdropFilter: "blur(12px) saturate(1.08)",
+                    WebkitBackdropFilter: "blur(12px) saturate(1.08)",
                     ["--tw-ring-color" as string]: withAlpha(WARM_HIGHLIGHT, 0.45),
                   }}
                   onClick={(event) => {
@@ -7252,7 +7381,7 @@ export default function QrOrderingExperience({
                       <img
                         src={parsedImageSrc}
                         alt={item.name}
-                        className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
+                        className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.015]"
                         loading="lazy"
                         decoding="async"
                         fetchPriority="low"
@@ -7265,8 +7394,8 @@ export default function QrOrderingExperience({
                       className="pointer-events-none absolute inset-0"
                       style={{
                         background: isLightTheme
-                          ? "linear-gradient(180deg, rgba(232,217,197,0.04) 0%, rgba(122,109,96,0.22) 100%)"
-                          : "linear-gradient(180deg, rgba(122,109,96,0.08) 0%, rgba(17,24,39,0.86) 100%)",
+                          ? "linear-gradient(180deg, rgba(232,217,197,0.02) 0%, rgba(122,109,96,0.1) 100%)"
+                          : "linear-gradient(180deg, rgba(122,109,96,0.04) 0%, rgba(17,24,39,0.34) 100%)",
                       }}
                     />
                     <div
@@ -7331,7 +7460,13 @@ export default function QrOrderingExperience({
                       ) : null}
                     </div>
                     {quantity > 0 ? (
-                      <span
+                      <motion.span
+                        animate={
+                          recentlyAddedItemId === item.id && !prefersReducedMotion
+                            ? { scale: [1, 1.035, 1], opacity: [1, 0.96, 1] }
+                            : undefined
+                        }
+                        transition={{ duration: prefersReducedMotion ? 0 : 0.42, ease: softEase }}
                         className="absolute right-2 top-2 rounded-full border px-2 py-1 text-[10px] font-semibold"
                         style={{
                           borderColor: withAlpha(WARM_HIGHLIGHT, 0.5),
@@ -7340,7 +7475,7 @@ export default function QrOrderingExperience({
                         }}
                       >
                         {quantity} in cart
-                      </span>
+                      </motion.span>
                     ) : null}
                     {itemOfferPreview ? (
                       <span
@@ -7367,9 +7502,9 @@ export default function QrOrderingExperience({
                     </div>
 
                     {item.description ? (
-                      <p className={clsx("line-clamp-2 min-h-8 text-[11px] opacity-85 sm:min-h-10 sm:text-sm", secondaryTextClass)}>{item.description}</p>
+                      <p className={clsx("line-clamp-2 min-h-8 text-[11px] sm:min-h-9 sm:text-xs", secondaryTextClass)}>{item.description}</p>
                     ) : (
-                      <div className="min-h-8 sm:min-h-10" />
+                      <div className="min-h-8 sm:min-h-9" />
                     )}
 
                     <div className="flex items-center justify-between gap-2">
@@ -7403,9 +7538,10 @@ export default function QrOrderingExperience({
                           Unavailable
                         </button>
                       ) : quantity === 0 ? (
-                        <button
+                        <motion.button
                           type="button"
                           data-menu-card-control
+                          whileTap={pressMotion}
                           className="cafe-luxe-cta inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs font-semibold text-brand-dark shadow-[0_14px_34px_-20px_rgba(0,0,0,0.9)] transition active:translate-y-px sm:px-3.5 sm:py-2 sm:text-sm"
                           style={{
                             backgroundColor: LUXURY_GOLD,
@@ -7417,10 +7553,16 @@ export default function QrOrderingExperience({
                         >
                           <Plus className="h-4 w-4" />
                           Add
-                        </button>
+                        </motion.button>
                       ) : (
-                        <div
+                        <motion.div
                           data-menu-card-control
+                          animate={
+                            recentlyAddedItemId === item.id && !prefersReducedMotion
+                              ? { scale: [1, 1.025, 1] }
+                              : undefined
+                          }
+                          transition={{ duration: prefersReducedMotion ? 0 : 0.38, ease: softEase }}
                           className={clsx(
                             "cafe-luxe-control inline-flex items-center rounded-xl border",
                             isLightTheme
@@ -7452,12 +7594,15 @@ export default function QrOrderingExperience({
                               contentTextClass,
                               isLightTheme ? "hover:bg-[#C6A57B]" : "hover:bg-zinc-800",
                             )}
-                            onClick={() => updateItemQuantity(item.id, 1)}
+                            onClick={() => {
+                              updateItemQuantity(item.id, 1);
+                              triggerAddFeedback(item.id);
+                            }}
                             aria-label={`Add one ${item.name}`}
                           >
                             <Plus className="h-4 w-4" />
                           </button>
-                        </div>
+                        </motion.div>
                       )}
                     </div>
 
@@ -7526,6 +7671,7 @@ export default function QrOrderingExperience({
                                 }
                                 if (quantity === 0) {
                                   updateItemQuantity(item.id, 1);
+                                  triggerAddFeedback(item.id);
                                 }
                                 toggleModifierSelection(item.id, option);
                               }}
@@ -7544,7 +7690,7 @@ export default function QrOrderingExperience({
                       })}
                     </Swiper>
                   </div>
-                </section>
+                </motion.section>
               );
             })}
           </div>
@@ -7553,18 +7699,25 @@ export default function QrOrderingExperience({
       ) : null}
 
       {!isStandaloneCartRoute ? (
-      <div className="fixed inset-x-0 bottom-0 z-30 px-4 pb-4 sm:px-6">
+      <motion.div
+        initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...dockSpring, delay: prefersReducedMotion ? 0 : 0.24 }}
+        className="cafeluxe-bottom-bar fixed inset-x-0 bottom-0 z-30 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:px-6"
+      >
         <div
-          className="cafe-luxe-card-strong mx-auto w-full max-w-4xl rounded-2xl border p-2 shadow-[0_30px_80px_-44px_rgba(0,0,0,0.98)] backdrop-blur-xl"
+          className="cafeluxe-floating-dock cafe-luxe-card-strong mx-auto w-full max-w-4xl rounded-2xl border p-2 shadow-[0_30px_80px_-44px_rgba(0,0,0,0.98)] backdrop-blur-xl"
           style={{
             borderColor: withAlpha(WARM_HIGHLIGHT, 0.3),
             background: bottomBarGradient,
           }}
         >
           <div className="grid grid-cols-2 gap-2">
-            <button
+            <motion.button
               type="button"
-              className="cafe-luxe-cta flex items-center justify-between rounded-xl border px-4 py-3 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)] transition active:translate-y-px"
+              whileHover={hoverLiftMotion}
+              whileTap={pressMotion}
+              className="cafeluxe-dock-action cafeluxe-dock-bill cafe-luxe-cta flex items-center justify-between rounded-xl border px-4 py-3 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)] transition active:translate-y-px"
               style={{
                 borderColor: withAlpha(ROYAL_NAVY, 0.34),
                 background: isLightTheme
@@ -7584,13 +7737,28 @@ export default function QrOrderingExperience({
                   isLightTheme ? "bg-[#C6A57B] text-brand-dark" : "bg-black/20",
                 )}
               >
-                {formatMoney(unpaidTotal)}
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.span
+                    key={`bill_total_${unpaidTotal.toFixed(2)}`}
+                    initial={prefersReducedMotion ? false : { opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -5 }}
+                    transition={gentleSpring}
+                    className="block"
+                  >
+                    {formatMoney(unpaidTotal)}
+                  </motion.span>
+                </AnimatePresence>
               </span>
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
               type="button"
-              className="cafe-luxe-cta flex items-center justify-between rounded-xl border px-4 py-3 text-brand-dark shadow-[0_16px_36px_-24px_rgba(0,0,0,0.95)] transition disabled:cursor-not-allowed disabled:opacity-60 active:translate-y-px"
+              whileHover={hoverLiftMotion}
+              whileTap={pressMotion}
+              animate={addFeedbackPulse}
+              transition={{ duration: prefersReducedMotion ? 0 : 0.42, ease: softEase }}
+              className="cafeluxe-dock-action cafeluxe-dock-cart cafe-luxe-cta flex items-center justify-between rounded-xl border px-4 py-3 text-brand-dark shadow-[0_16px_36px_-24px_rgba(0,0,0,0.95)] transition disabled:cursor-not-allowed disabled:opacity-60 active:translate-y-px"
               style={{
                 borderColor: withAlpha(LUXURY_GOLD, 0.42),
                 background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
@@ -7602,15 +7770,26 @@ export default function QrOrderingExperience({
                 {"Cart"} {cartCount > 0 ? `(${cartCount})` : ""}
               </span>
               <span className="rounded-lg bg-black/10 px-2 py-1 text-xs font-semibold">
-                {formatMoney(finalTotal)}
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.span
+                    key={`cart_total_${finalTotal.toFixed(2)}`}
+                    initial={prefersReducedMotion ? false : { opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -5 }}
+                    transition={gentleSpring}
+                    className="block"
+                  >
+                    {formatMoney(finalTotal)}
+                  </motion.span>
+                </AnimatePresence>
               </span>
-            </button>
+            </motion.button>
           </div>
           <p className={clsx("mt-2 text-center text-[11px] font-medium tracking-[0.08em]", isLightTheme ? "text-brand-dark/72" : "text-zinc-400")}>
             Developed by TrustFirst Solutions
           </p>
         </div>
-      </div>
+      </motion.div>
       ) : null}
 
       {billOpen ? (
@@ -8267,8 +8446,14 @@ export default function QrOrderingExperience({
         </div>
       ) : null}
 
+      <AnimatePresence>
       {shouldShowCartPanel ? (
-        <div
+        <motion.div
+          key="customer-cart-panel"
+          initial={isStandaloneCartRoute || prefersReducedMotion ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0 }}
+          transition={overlayTransition}
           className={clsx(
             isStandaloneCartRoute
               ? "relative z-40 mx-auto w-full max-w-3xl px-4 pb-8 pt-4 sm:px-6"
@@ -8291,14 +8476,18 @@ export default function QrOrderingExperience({
             />
           ) : null}
 
-          <aside
+          <motion.aside
+            initial={isStandaloneCartRoute || prefersReducedMotion ? false : { opacity: 0, y: 24, scale: 0.992 }}
+            animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
+            exit={isStandaloneCartRoute || prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.992 }}
+            transition={dockSpring}
             role="dialog"
             aria-modal={isStandaloneCartRoute ? undefined : true}
             aria-labelledby="cart-drawer-title"
             className={clsx(
               isStandaloneCartRoute
                 ? "relative w-full min-h-[calc(100dvh-2rem)] overflow-visible rounded-3xl border shadow-[0_28px_80px_-38px_rgba(0,0,0,0.34)] sm:min-h-[calc(100dvh-2.5rem)]"
-                : "cafeluxe-cart-drawer absolute inset-x-0 bottom-0 h-[88dvh] max-h-[calc(100dvh-0.75rem)] w-full overflow-hidden rounded-t-[1.75rem] border-x-0 border-b-0 shadow-[0_-22px_70px_-40px_rgba(0,0,0,0.98)] md:inset-y-4 md:left-auto md:right-4 md:h-[calc(100dvh-2rem)] md:w-[480px] md:max-h-[calc(100dvh-2rem)] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]",
+                : "cafeluxe-cart-drawer absolute inset-x-0 bottom-0 h-[90dvh] max-h-[calc(100dvh-0.75rem)] w-full overflow-hidden rounded-t-[1.75rem] border-x-0 border-b-0 shadow-[0_-22px_70px_-40px_rgba(0,0,0,0.98)] md:inset-y-4 md:left-auto md:right-4 md:h-[calc(100dvh-2rem)] md:w-[520px] md:max-h-[calc(100dvh-2rem)] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)] lg:w-[540px]",
               isLightTheme ? "text-brand-dark" : "text-zinc-100",
             )}
             style={{
@@ -8306,10 +8495,17 @@ export default function QrOrderingExperience({
               background: sheetGradient,
             }}
           >
-            <div className={clsx("flex min-h-0 flex-col", isStandaloneCartRoute ? "h-auto" : "h-full")}>
-              <div
+            <motion.div
+              variants={cartContentVariants}
+              initial="hidden"
+              animate="show"
+              exit="hidden"
+              className={clsx("flex min-h-0 flex-col", isStandaloneCartRoute ? "h-auto" : "h-full")}
+            >
+              <motion.div
+                variants={cartContentItemVariants}
                 className={clsx(
-                  "shrink-0 border-b px-5 pb-4 pt-[calc(env(safe-area-inset-top)+12px)] md:rounded-t-3xl md:px-5 md:pt-5",
+                  "cafeluxe-cart-header shrink-0 border-b px-4 pb-4 pt-[calc(env(safe-area-inset-top)+12px)] sm:px-5 md:rounded-t-3xl md:pt-5",
                   isLightTheme ? "border-[#C6A57B]" : "border-zinc-800/90",
                 )}
                 style={{
@@ -8319,17 +8515,35 @@ export default function QrOrderingExperience({
                 }}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 id="cart-drawer-title" className="text-[1.1rem] font-semibold leading-tight">{"Your Cart"}</h2>
-                    <p className={clsx("mt-1 text-[11px]", isLightTheme ? "text-brand-dark/70" : "text-zinc-400")}>
-                      {cartCount} item{cartCount === 1 ? "" : "s"}
+                  <div className="min-w-0">
+                    <p className={clsx("text-[10px] font-semibold uppercase tracking-[0.16em]", isLightTheme ? "text-brand-dark/62" : "text-zinc-400")}>
+                      CafeLuxe Checkout
                     </p>
+                    <h2 id="cart-drawer-title" className="mt-1 text-xl font-semibold leading-tight">{"Your Cart"}</h2>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span
+                        className={clsx(
+                          "inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                          isLightTheme ? "border-[#C6A57B] bg-[#F8F5F0]/80 text-brand-dark/82" : "border-zinc-700 bg-zinc-900/55 text-zinc-300",
+                        )}
+                      >
+                        {tableInfo?.tableNo ? `Table ${tableInfo.tableNo}` : tableLabel}
+                      </span>
+                      <span
+                        className={clsx(
+                          "inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                          isLightTheme ? "border-[#C6A57B] bg-[#F8F5F0]/80 text-brand-dark/82" : "border-zinc-700 bg-zinc-900/55 text-zinc-300",
+                        )}
+                      >
+                        {cartCount} item{cartCount === 1 ? "" : "s"}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex shrink-0 items-center gap-1.5">
                     <button
                       type="button"
                       className={clsx(
-                        "inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-[11px] font-medium transition disabled:opacity-50",
+                        "inline-flex h-9 items-center gap-1 rounded-xl border px-2.5 text-[11px] font-medium transition disabled:opacity-50",
                         isLightTheme
                           ? "text-brand-dark hover:bg-[#F8F5F0]/70"
                           : "text-zinc-300 hover:bg-zinc-800",
@@ -8344,23 +8558,27 @@ export default function QrOrderingExperience({
                     <button
                       type="button"
                       className={clsx(
-                        "inline-flex h-8 items-center rounded-lg border px-2.5 text-[11px] font-medium transition",
+                        "inline-flex h-9 w-9 items-center justify-center rounded-xl border text-[11px] font-medium transition",
                         isLightTheme
                           ? "text-brand-dark hover:bg-[#F8F5F0]/70"
                           : "text-zinc-300 hover:bg-zinc-800",
                       )}
                       style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.25) }}
                       onClick={closeCartView}
+                      aria-label={isStandaloneCartRoute ? "Back to menu" : "Close cart"}
                     >
-                      {isStandaloneCartRoute ? "Back To Menu" : "Close"}
+                      <X className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
-              </div>
+              </motion.div>
 
-              <div
+              <motion.div
+                variants={cartContentItemVariants}
                 className={clsx(
-                  isStandaloneCartRoute ? "px-5 py-5 md:px-5" : "min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 md:px-5",
+                  isStandaloneCartRoute
+                    ? "cafeluxe-cart-body px-4 py-4 sm:px-5 md:px-5"
+                    : "cafeluxe-cart-body min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 md:px-5",
                 )}
               >
                 {cartItems.length === 0 ? (
@@ -8431,7 +8649,7 @@ export default function QrOrderingExperience({
                         <section
                           key={item.id}
                           className={clsx(
-                            "cafe-luxe-card rounded-2xl border p-3.5",
+                            "cafeluxe-cart-line-item cafe-luxe-card rounded-2xl border p-3.5",
                             isLightTheme
                               ? "border-[#C6A57B] bg-[#E8D9C5]"
                               : "border-zinc-800/30 bg-[#F8F5F0]/10",
@@ -8551,7 +8769,7 @@ export default function QrOrderingExperience({
                           <div className="mt-3 flex items-center justify-between gap-3">
                             <div
                               className={clsx(
-                                "inline-flex items-center rounded-xl border",
+                                "cafeluxe-cart-qty-control inline-flex items-center rounded-xl border",
                                 isLightTheme
                                   ? "border-[#C6A57B] bg-[#F8F5F0]/90"
                                   : "border-zinc-800/30 bg-[#F8F5F0]/20",
@@ -8652,10 +8870,7 @@ export default function QrOrderingExperience({
                     })}
                   </div>
                 )}
-              </div>
-
-              {/* Kitchen Instructions: placed below items list and above offers */}
-              <div className="shrink-0 px-5 pb-3">
+                <div className="mt-4">
                 <section
                   className={clsx(
                     "cafe-luxe-card space-y-2 rounded-2xl border p-3.5",
@@ -8684,14 +8899,9 @@ export default function QrOrderingExperience({
                     onChange={(event) => setKitchenInstructions(sanitizeInstructionText(event.target.value))}
                   />
                 </section>
-              </div>
+                </div>
 
-              <div
-                className={clsx(
-                  "cafeluxe-checkout-panel max-h-[48dvh] shrink-0 space-y-4 overflow-y-auto overscroll-contain border-t px-5 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 md:max-h-[52dvh] md:px-5",
-                  isLightTheme ? "border-[#C6A57B]" : "border-zinc-800",
-                )}
-              >
+                <div className="mt-4 space-y-4">
                 {applicableCartOffers.length > 0 || cartCouponCandidates.length > 0 ? (
                   <section
                     className={clsx(
@@ -8845,7 +9055,10 @@ export default function QrOrderingExperience({
                 </section>
 
                 {paymentMethod === "UPI" ? (
-                  <section
+                  <motion.section
+                    initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={gentleSpring}
                     className={clsx(
                       "cafeluxe-payment-panel cafe-luxe-card rounded-2xl border p-3.5 text-sm",
                       contentTextClass,
@@ -8991,9 +9204,18 @@ export default function QrOrderingExperience({
                     <p className={clsx("mt-2 text-[11px] leading-relaxed", isLightTheme ? "text-brand-dark/70" : "text-zinc-500")}>
                       {"After payment, your status stays pending until cashier confirms."}
                     </p>
-                  </section>
+                  </motion.section>
                 ) : null}
+                </div>
+              </motion.div>
 
+              <motion.div
+                variants={cartContentItemVariants}
+                className={clsx(
+                  "cafeluxe-checkout-panel shrink-0 space-y-3 border-t px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-3 sm:px-5 md:px-5 md:pb-5",
+                  isLightTheme ? "border-[#C6A57B]" : "border-zinc-800",
+                )}
+              >
                 <section
                   className={clsx(
                     "cafe-luxe-card cafe-luxe-summary space-y-2 rounded-2xl border px-3.5 py-3.5 text-sm",
@@ -9003,12 +9225,12 @@ export default function QrOrderingExperience({
                       : "border-zinc-800/30 bg-[#F8F5F0]/10",
                   )}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="cafeluxe-cart-summary-row flex items-center justify-between gap-4">
                     <span className="opacity-80">Subtotal</span>
                     <span className="font-semibold">{formatMoney(subtotal)}</span>
                   </div>
                   {hasCustomizationsInCart ? (
-                    <div className="flex items-center justify-between">
+                    <div className="cafeluxe-cart-summary-row flex items-center justify-between gap-4">
                       <span className="opacity-80">Customizations</span>
                       <span className="font-semibold">
                         Included
@@ -9017,29 +9239,29 @@ export default function QrOrderingExperience({
                   ) : null}
                   {gstEnabled ? (
                     <>
-                      <div className="flex items-center justify-between">
+                      <div className="cafeluxe-cart-summary-row flex items-center justify-between gap-4">
                         <span className="opacity-80">CGST ({cgstPercentage}%)</span>
                         <span className="font-semibold">{formatMoney(cgstAmount)}</span>
                       </div>
-                      <div className="flex items-center justify-between">
+                      <div className="cafeluxe-cart-summary-row flex items-center justify-between gap-4">
                         <span className="opacity-80">SGST ({sgstPercentage}%)</span>
                         <span className="font-semibold">{formatMoney(sgstAmount)}</span>
                       </div>
                     </>
                   ) : null}
-                  <div className="flex justify-between w-full">
-                    <span>Discount Applied</span>
-                    <span className="text-green-600">-₹{totalDiscountAmount.toFixed(2)}</span>
+                  <div className="cafeluxe-cart-summary-row flex w-full items-center justify-between gap-4">
+                    <span className="opacity-80">Discount Applied</span>
+                    <span className="font-semibold text-green-600">-{formatMoney(totalDiscountAmount)}</span>
                   </div>
                   {applicableCartOffers.length > 0 || resolvedCartCoupon ? (
-                    <div className="flex items-center justify-between">
+                    <div className="cafeluxe-cart-summary-row flex items-center justify-between gap-4">
                       <span className="opacity-80">Matched Offers</span>
                       <span className="font-semibold">{applicableCartOffers.length + (resolvedCartCoupon ? 1 : 0)}</span>
                     </div>
                   ) : null}
-                  <div className="flex justify-between w-full font-bold text-lg">
+                  <div className="cafeluxe-cart-summary-total flex w-full items-center justify-between gap-4 border-t pt-2 font-bold text-lg">
                     <span>Final Payable</span>
-                    <span>₹{finalTotal.toFixed(2)}</span>
+                    <span>{formatMoney(finalTotal)}</span>
                   </div>
                 </section>
 
@@ -9084,11 +9306,12 @@ export default function QrOrderingExperience({
                     </p>
                   </div>
                 ) : null}
-              </div>
-            </div>
-          </aside>
-        </div>
+              </motion.div>
+            </motion.div>
+          </motion.aside>
+        </motion.div>
       ) : null}
+      </AnimatePresence>
 
       {addonPickerOpen && addonPickerItem ? (
         <div
