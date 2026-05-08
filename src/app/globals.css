@@ -583,6 +583,30 @@ body {
   scroll-padding-bottom: 1rem;
 }
 
+.cafeluxe-cart-restaurant-card {
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 14px 32px -28px rgba(46, 42, 38, 0.44),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.cafeluxe-cart-restaurant-card::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 42%),
+    radial-gradient(circle at 100% 0%, rgba(198, 165, 123, 0.14), rgba(198, 165, 123, 0) 38%);
+}
+
+.cafeluxe-cart-restaurant-card > * {
+  position: relative;
+  z-index: 1;
+}
+
 .cafeluxe-cart-body::-webkit-scrollbar,
 .cafeluxe-checkout-panel::-webkit-scrollbar {
   width: 8px;
@@ -619,9 +643,18 @@ body {
   z-index: 1;
 }
 
+.cafeluxe-cart-item-row {
+  align-items: flex-start;
+}
+
+.cafeluxe-cart-price-stack {
+  min-width: 5.8rem;
+}
+
 .cafeluxe-cart-qty-control {
   min-height: 2.35rem;
   overflow: hidden;
+  white-space: nowrap;
   box-shadow:
     0 12px 28px -24px rgba(46, 42, 38, 0.48),
     inset 0 1px 0 rgba(255, 255, 255, 0.48);
@@ -666,6 +699,12 @@ body {
 
 .cafeluxe-cart-summary-total {
   border-color: rgba(198, 165, 123, 0.38);
+}
+
+.cafeluxe-cart-final-cta {
+  box-shadow:
+    0 18px 38px -24px rgba(46, 42, 38, 0.56),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .cafeluxe-payment-panel {
@@ -737,6 +776,7 @@ body {
   backface-visibility: hidden;
   contain: paint;
   will-change: transform;
+  pointer-events: auto;
   box-shadow:
     0 16px 34px -28px rgba(0, 0, 0, 0.68),
     0 32px 68px -50px rgba(0, 0, 0, 0.9),
@@ -919,6 +959,24 @@ body {
     0 22px 42px -26px rgba(46, 42, 38, 0.56),
     0 8px 16px -12px rgba(198, 165, 123, 0.4),
     inset 0 1px 0 rgba(255, 255, 255, 0.56);
+}
+
+.cafeluxe-dock-cart {
+  min-width: 0;
+}
+
+.cafeluxe-dock-cart:disabled {
+  filter: saturate(0.82);
+}
+
+@media (max-width: 420px) {
+  .cafeluxe-cart-price-stack {
+    min-width: 4.8rem;
+  }
+
+  .cafeluxe-cart-line-item {
+    border-radius: 1rem;
+  }
 }
 
 @media (min-width: 640px) {

@@ -3719,7 +3719,8 @@ export default function QrOrderingExperience({
   const [searchText, setSearchText] = useState("");
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [reloadKey, setReloadKey] = useState(0);
-  const [cart, setCart] = useState<Record<string, number>>({});
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [tempCart, setTempCart] = useState<Record<string, number> | null>(null);
   const [recentlyAddedItemId, setRecentlyAddedItemId] = useState("");
   const [selectedModifiersByItem, setSelectedModifiersByItem] = useState<
     Record<string, SelectedModifier[]>
@@ -4068,6 +4069,17 @@ export default function QrOrderingExperience({
         setBranding(null);
         setCategories(ensuredCategories);
         setMenuItems(parsedItems);
+        if (tempCart) {
+          const loadedCartItems: CartItem[] = [];
+          for (const [itemId, qty] of Object.entries(tempCart)) {
+            const menuItem = parsedItems.find(mi => mi.id === itemId);
+            if (menuItem && qty > 0) {
+              loadedCartItems.push({ item: menuItem, quantity: qty });
+            }
+          }
+          setCartItems(loadedCartItems);
+          setTempCart(null);
+        }
         setRestaurantName(
           inferRestaurantName(routeClient, null, ensuredCategories, parsedItems),
         );
@@ -4344,12 +4356,12 @@ export default function QrOrderingExperience({
             syncOrderSnapshot(restoredOrders);
           }
 
-          setCart(hydratedCart);
+          setTempCart(hydratedCart);
           setSelectedModifiersByItem(hydratedModifiers);
           setSelectedAddonsByItem(hydratedAddons);
           setKitchenInstructions(restoredInstructions);
         } else {
-          setCart({});
+          setTempCart({});
           setSelectedModifiersByItem({});
           setSelectedAddonsByItem({});
           setKitchenInstructions("");
@@ -4518,7 +4530,7 @@ export default function QrOrderingExperience({
     }
 
     const nowIso = new Date().toISOString();
-    const hasCart = Object.keys(cart).length > 0;
+    const hasCart = cartItems.length > 0;
     const hasModifierSelections = Object.keys(selectedModifiersByItem).length > 0;
     const hasAddonSelections = Object.keys(selectedAddonsByItem).length > 0;
     const hasInstructions = kitchenInstructions.trim().length > 0;
@@ -4563,7 +4575,7 @@ export default function QrOrderingExperience({
       version: ACTIVE_TABLE_STORAGE_VERSION,
       client: routeClient,
       table: routeTable,
-      cart,
+      cart: cartRecord,
       selectedModifiersByItem,
       selectedAddonsByItem,
       kitchenInstructions: kitchenInstructions.trim(),
@@ -4646,7 +4658,7 @@ export default function QrOrderingExperience({
     activeBillStorageKey,
     activeCartStorageKey,
     activeSessionStorageKey,
-    cart,
+    cartItems,
     customerBillScopeStorageKey,
     customerBrowserId,
     kitchenInstructions,
@@ -4823,16 +4835,7 @@ export default function QrOrderingExperience({
     [menuSections],
   );
 
-  const cartItems = useMemo(() => {
-    const items: CartItem[] = [];
-    for (const menuItem of menuItems) {
-      const quantity = cart[menuItem.id] ?? 0;
-      if (quantity > 0) {
-        items.push({ item: menuItem, quantity });
-      }
-    }
-    return items;
-  }, [cart, menuItems]);
+  const cartRecord = useMemo(() => Object.fromEntries(cartItems.map(ci => [(ci.item.raw.$id || ci.item.id), ci.quantity])), [cartItems]);
 
   const cartCount = useMemo(
     () => cartItems.reduce((total, item) => total + item.quantity, 0),
@@ -4845,7 +4848,7 @@ export default function QrOrderingExperience({
       let changed = false;
 
       for (const [itemId, selections] of Object.entries(current)) {
-        if ((cart[itemId] ?? 0) > 0 && selections.length > 0) {
+        if (cartItems.some(ci => ci.item.id === itemId) && selections.length > 0) {
           next[itemId] = selections;
           continue;
         }
@@ -4857,7 +4860,7 @@ export default function QrOrderingExperience({
       }
       return next;
     });
-  }, [cart]);
+  }, [cartItems]);
 
   useEffect(() => {
     setSelectedAddonsByItem((current) => {
@@ -4865,7 +4868,7 @@ export default function QrOrderingExperience({
       let changed = false;
 
       for (const [itemId, selections] of Object.entries(current)) {
-        if ((cart[itemId] ?? 0) > 0 && selections.length > 0) {
+        if (cartItems.some(ci => ci.item.id === itemId) && selections.length > 0) {
           next[itemId] = selections;
           continue;
         }
@@ -4877,7 +4880,7 @@ export default function QrOrderingExperience({
       }
       return next;
     });
-  }, [cart]);
+  }, [cartItems]);
 
   const modifierOptionsByItem = useMemo(() => {
     const mapping: Record<string, ModifierOption[]> = {};
@@ -5369,20 +5372,34 @@ export default function QrOrderingExperience({
   }
 
   function updateItemQuantity(itemId: string, delta: number) {
-    setCart((current) => {
-      const oldQty = current[itemId] ?? 0;
-      const nextQty = Math.max(0, oldQty + delta);
-      if (nextQty === 0) {
-        const cloned = { ...current };
-        delete cloned[itemId];
-        return cloned;
+    setCartItems(prev => {
+      const existingIndex = prev.findIndex(ci => (ci.item.raw.$id || ci.item.id) === itemId);
+      if (existingIndex >= 0) {
+        const existing = prev[existingIndex];
+        const newQty = existing.quantity + delta;
+        if (newQty <= 0) {
+          const next = prev.filter((_, i) => i !== existingIndex);
+          console.log("CART_AFTER_UPDATE", next);
+          return next;
+        }
+        const next = prev.map((ci, i) => i === existingIndex ? { ...ci, quantity: newQty } : ci);
+        console.log("CART_AFTER_UPDATE", next);
+        return next;
+      } else if (delta > 0) {
+        const menuItem = menuItems.find(mi => (mi.raw.$id || mi.id) === itemId);
+        if (menuItem) {
+          const next = [...prev, { item: menuItem, quantity: delta }];
+          console.log("CART_AFTER_UPDATE", next);
+          return next;
+        }
       }
-      return { ...current, [itemId]: nextQty };
+      console.log("CART_AFTER_UPDATE", prev);
+      return prev;
     });
   }
 
   function clearCart() {
-    setCart({});
+    setCartItems([]);
     setSelectedModifiersByItem({});
     setSelectedAddonsByItem({});
     setKitchenInstructions("");
@@ -6306,7 +6323,7 @@ export default function QrOrderingExperience({
         );
       }
 
-      setCart({});
+      setCartItems([]);
       setSelectedModifiersByItem({});
       setSelectedAddonsByItem({});
       setKitchenInstructions("");
@@ -7286,7 +7303,7 @@ export default function QrOrderingExperience({
                       className="cafeluxe-menu-coverflow"
                     >
                       {section.items.map((item) => {
-                        const quantity = cart[item.id] ?? 0;
+                        const quantity = cartItems.find(ci => ci.item.id === item.id)?.quantity ?? 0;
                         const parsedImageSrc = item.image.trim();
                         const hasImage = parsedImageSrc.length > 0;
                         const selectedModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
@@ -7312,6 +7329,7 @@ export default function QrOrderingExperience({
                           Math.max(subtotal, previewLineTotal),
                         );
                         const handleCardAdd = () => {
+                          console.log("ADD_TO_CART_HANDLER_ENTERED", { id: item.raw.$id || item.id, name: item.name });
                           if (!item.isAvailable) {
                             return;
                           }
@@ -7319,8 +7337,23 @@ export default function QrOrderingExperience({
                             openAddonPickerForItem(item);
                             return;
                           }
-                          updateItemQuantity(item.id, 1);
-                          triggerAddFeedback(item.id);
+                          const itemId = item.raw.$id || item.id;
+                          if (!itemId) {
+                            console.error("INVALID_ITEM_ID", { item });
+                            return;
+                          }
+                          setCartItems(prev => {
+                            const existing = prev.find(ci => (ci.item.raw.$id || ci.item.id) === itemId);
+                            if (existing) {
+                              const newArray = prev.map(ci => (ci.item.raw.$id || ci.item.id) === itemId ? { ...ci, quantity: ci.quantity + 1 } : ci);
+                              console.log("CART_AFTER_ADD", newArray);
+                              return newArray;
+                            }
+                            const newArray = [...prev, { item, quantity: 1 }];
+                            console.log("CART_AFTER_ADD", newArray);
+                            return newArray;
+                          });
+                          triggerAddFeedback(itemId);
                         };
 
                         return (
@@ -7336,8 +7369,7 @@ export default function QrOrderingExperience({
                   aria-label={item.isAvailable ? `Add ${item.name}` : `${item.name} is out of stock`}
                   className={clsx(
                     "cafeluxe-menu-glass-card cafe-luxe-product-card group flex h-full flex-col overflow-hidden rounded-[1.35rem] border shadow-[0_26px_60px_-44px_rgba(0,0,0,0.98)] outline-none transition duration-300 focus-visible:ring-2",
-                    item.isAvailable ? "cursor-pointer" : "cursor-not-allowed",
-                    !item.isAvailable && quantity === 0 ? "opacity-75" : "",
+                    item.isAvailable ? "cursor-pointer pointer-events-auto" : "cursor-not-allowed pointer-events-auto",
                   )}
                   style={{
                     borderColor: withAlpha(WARM_HIGHLIGHT, item.isAvailable ? 0.38 : 0.18),
@@ -7350,6 +7382,7 @@ export default function QrOrderingExperience({
                     ["--tw-ring-color" as string]: withAlpha(WARM_HIGHLIGHT, 0.45),
                   }}
                   onClick={(event) => {
+                    console.log("CARD_CLICK_ADD_ATTEMPT", item);
                     if ((event.target as HTMLElement).closest("[data-menu-card-control]")) {
                       return;
                     }
@@ -7542,12 +7575,13 @@ export default function QrOrderingExperience({
                           type="button"
                           data-menu-card-control
                           whileTap={pressMotion}
-                          className="cafe-luxe-cta inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs font-semibold text-brand-dark shadow-[0_14px_34px_-20px_rgba(0,0,0,0.9)] transition active:translate-y-px sm:px-3.5 sm:py-2 sm:text-sm"
+                          className="cafe-luxe-cta inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs font-semibold text-brand-dark shadow-[0_14px_34px_-20px_rgba(0,0,0,0.9)] transition active:translate-y-px pointer-events-auto sm:px-3.5 sm:py-2 sm:text-sm"
                           style={{
                             backgroundColor: LUXURY_GOLD,
                             borderColor: withAlpha(LUXURY_GOLD, 0.55),
                           }}
                           onClick={() => {
+                            console.log("ADD_BUTTON_CLICK_ATTEMPT", item);
                             handleCardAdd();
                           }}
                         >
@@ -7570,15 +7604,18 @@ export default function QrOrderingExperience({
                               : "border-zinc-700 bg-zinc-950/20",
                           )}
                         >
-                          <button
-                            type="button"
-                            data-menu-card-control
-                            className={clsx(
-                              "cafe-luxe-control p-1.5 transition sm:p-2",
-                              contentTextClass,
-                              isLightTheme ? "hover:bg-[#C6A57B]" : "hover:bg-zinc-800",
-                            )}
-                            onClick={() => updateItemQuantity(item.id, -1)}
+                           <button
+                             type="button"
+                             data-menu-card-control
+                             className={clsx(
+                               "cafe-luxe-control p-1.5 transition pointer-events-auto sm:p-2",
+                               contentTextClass,
+                               isLightTheme ? "hover:bg-[#C6A57B]" : "hover:bg-zinc-800",
+                             )}
+                             onClick={() => {
+                               console.log("MINUS_BUTTON_CLICK", item);
+                               updateItemQuantity(item.id, -1);
+                             }}
                             aria-label={`Remove one ${item.name}`}
                           >
                             <Minus className="h-4 w-4" />
@@ -7586,18 +7623,19 @@ export default function QrOrderingExperience({
                           <span className={clsx("w-7 text-center text-xs font-semibold sm:w-8 sm:text-sm", contentTextClass)}>
                             {quantity}
                           </span>
-                          <button
-                            type="button"
-                            data-menu-card-control
-                            className={clsx(
-                              "cafe-luxe-control p-1.5 transition sm:p-2",
-                              contentTextClass,
-                              isLightTheme ? "hover:bg-[#C6A57B]" : "hover:bg-zinc-800",
-                            )}
-                            onClick={() => {
-                              updateItemQuantity(item.id, 1);
-                              triggerAddFeedback(item.id);
-                            }}
+                           <button
+                             type="button"
+                             data-menu-card-control
+                             className={clsx(
+                               "cafe-luxe-control p-1.5 transition pointer-events-auto sm:p-2",
+                               contentTextClass,
+                               isLightTheme ? "hover:bg-[#C6A57B]" : "hover:bg-zinc-800",
+                             )}
+                             onClick={() => {
+                               console.log("PLUS_BUTTON_CLICK", item);
+                               updateItemQuantity(item.id, 1);
+                               triggerAddFeedback(item.id);
+                             }}
                             aria-label={`Add one ${item.name}`}
                           >
                             <Plus className="h-4 w-4" />
@@ -7666,6 +7704,7 @@ export default function QrOrderingExperience({
                                     }
                               }
                               onClick={() => {
+                                console.log("MODIFIER_ADD_CLICK", item);
                                 if (!item.isAvailable) {
                                   return;
                                 }
@@ -7706,34 +7745,35 @@ export default function QrOrderingExperience({
         className="cafeluxe-bottom-bar fixed inset-x-0 bottom-0 z-30 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:px-6"
       >
         <div
-          className="cafeluxe-floating-dock cafe-luxe-card-strong mx-auto w-full max-w-4xl rounded-2xl border p-2 shadow-[0_30px_80px_-44px_rgba(0,0,0,0.98)] backdrop-blur-xl"
+          className="cafeluxe-floating-dock cafe-luxe-card-strong mx-auto w-full max-w-3xl rounded-2xl border p-2 shadow-[0_30px_80px_-44px_rgba(0,0,0,0.98)] backdrop-blur-xl"
           style={{
             borderColor: withAlpha(WARM_HIGHLIGHT, 0.3),
             background: bottomBarGradient,
           }}
         >
-          <div className="grid grid-cols-2 gap-2">
+          <div className="flex items-center gap-2">
             <motion.button
               type="button"
               whileHover={hoverLiftMotion}
               whileTap={pressMotion}
-              className="cafeluxe-dock-action cafeluxe-dock-bill cafe-luxe-cta flex items-center justify-between rounded-xl border px-4 py-3 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)] transition active:translate-y-px"
+              className="cafeluxe-dock-action cafeluxe-dock-bill cafe-luxe-cta inline-flex h-14 shrink-0 items-center justify-center gap-2 rounded-xl border px-3 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)] transition active:translate-y-px sm:min-w-36 sm:justify-between sm:px-4"
               style={{
                 borderColor: withAlpha(ROYAL_NAVY, 0.34),
                 background: isLightTheme
-                  ? "linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_SURFACE} 100%)"
+                  ? `linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_SURFACE} 100%)`
                   : `linear-gradient(180deg, ${PALETTE_TEXT} 0%, ${PALETTE_SECONDARY} 100%)`,
                 color: isLightTheme ? PALETTE_TEXT : undefined,
               }}
               onClick={openBillDrawer}
+              aria-label="Open my bill"
             >
               <span className="inline-flex items-center gap-2 text-sm font-semibold">
                 <ReceiptText className="h-5 w-5" />
-                {"My Bill"}
+                <span className="hidden sm:inline">{"Bill"}</span>
               </span>
               <span
                 className={clsx(
-                  "rounded-lg px-2 py-1 text-xs font-semibold",
+                  "hidden rounded-lg px-2 py-1 text-xs font-semibold sm:inline-flex",
                   isLightTheme ? "bg-[#C6A57B] text-brand-dark" : "bg-black/20",
                 )}
               >
@@ -7758,18 +7798,29 @@ export default function QrOrderingExperience({
               whileTap={pressMotion}
               animate={addFeedbackPulse}
               transition={{ duration: prefersReducedMotion ? 0 : 0.42, ease: softEase }}
-              className="cafeluxe-dock-action cafeluxe-dock-cart cafe-luxe-cta flex items-center justify-between rounded-xl border px-4 py-3 text-brand-dark shadow-[0_16px_36px_-24px_rgba(0,0,0,0.95)] transition disabled:cursor-not-allowed disabled:opacity-60 active:translate-y-px"
+              className="cafeluxe-dock-action cafeluxe-dock-cart cafe-luxe-cta flex h-14 min-w-0 flex-1 items-center justify-between gap-3 rounded-xl border px-3 text-brand-dark shadow-[0_16px_36px_-24px_rgba(0,0,0,0.95)] transition disabled:cursor-not-allowed disabled:opacity-60 active:translate-y-px sm:px-4"
               style={{
                 borderColor: withAlpha(LUXURY_GOLD, 0.42),
                 background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
               }}
               onClick={openCartPage}
+              disabled={cartCount === 0}
             >
-              <span className="inline-flex items-center gap-2 text-sm font-semibold">
-                <ShoppingBag className="h-5 w-5" />
-                {"Cart"} {cartCount > 0 ? `(${cartCount})` : ""}
+              <span className="flex min-w-0 items-center gap-2 text-left">
+                <ShoppingBag className="h-5 w-5 shrink-0" />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-bold">
+                    {cartCount > 0
+                      ? `${cartCount} item${cartCount === 1 ? "" : "s"} added`
+                      : "Cart is empty"}
+                  </span>
+                  <span className="block text-[11px] font-semibold opacity-75">
+                    {cartCount > 0 ? "Ready for checkout" : "Add dishes to continue"}
+                  </span>
+                </span>
               </span>
-              <span className="rounded-lg bg-black/10 px-2 py-1 text-xs font-semibold">
+              <span className="flex shrink-0 items-center gap-2">
+                <span className="rounded-lg bg-black/10 px-2 py-1 text-xs font-semibold">
                 <AnimatePresence mode="popLayout" initial={false}>
                   <motion.span
                     key={`cart_total_${finalTotal.toFixed(2)}`}
@@ -7782,12 +7833,13 @@ export default function QrOrderingExperience({
                     {formatMoney(finalTotal)}
                   </motion.span>
                 </AnimatePresence>
+                </span>
+                <span className="hidden rounded-lg bg-black/10 px-3 py-1.5 text-xs font-bold sm:inline-flex">
+                  View Cart
+                </span>
               </span>
             </motion.button>
           </div>
-          <p className={clsx("mt-2 text-center text-[11px] font-medium tracking-[0.08em]", isLightTheme ? "text-brand-dark/72" : "text-zinc-400")}>
-            Developed by TrustFirst Solutions
-          </p>
         </div>
       </motion.div>
       ) : null}
@@ -8581,6 +8633,34 @@ export default function QrOrderingExperience({
                     : "cafeluxe-cart-body min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 md:px-5",
                 )}
               >
+                <section
+                  className={clsx(
+                    "cafeluxe-cart-restaurant-card cafe-luxe-card mb-3 rounded-2xl border px-3.5 py-3",
+                    isLightTheme
+                      ? "border-[#C6A57B] bg-[#F8F5F0]/86"
+                      : "border-zinc-800/30 bg-zinc-900/55",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className={clsx("text-[10px] font-semibold uppercase tracking-[0.16em]", mutedTextClass)}>
+                        Dine-in order
+                      </p>
+                      <h3 className={clsx("mt-1 truncate text-sm font-semibold", contentTextClass)}>
+                        {restaurantName || "CafeLuxe"}
+                      </h3>
+                    </div>
+                    <span
+                      className={clsx(
+                        "shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                        isLightTheme ? "border-[#C6A57B] bg-[#E8D9C5] text-brand-dark/78" : "border-zinc-700 bg-zinc-950/45 text-zinc-300",
+                      )}
+                    >
+                      {tableInfo?.tableNo ? `Table ${tableInfo.tableNo}` : tableLabel}
+                    </span>
+                  </div>
+                </section>
+
                 {cartItems.length === 0 ? (
                   <div
                     className={clsx(
@@ -8646,25 +8726,39 @@ export default function QrOrderingExperience({
                       const secondaryLine = item.description || item.nameHi;
 
                       return (
-                        <section
+                        <motion.section
                           key={item.id}
+                          variants={cartContentItemVariants}
                           className={clsx(
-                            "cafeluxe-cart-line-item cafe-luxe-card rounded-2xl border p-3.5",
+                            "cafeluxe-cart-line-item cafe-luxe-card rounded-2xl border px-3.5 py-3",
                             isLightTheme
                               ? "border-[#C6A57B] bg-[#E8D9C5]"
                               : "border-zinc-800/30 bg-[#F8F5F0]/10",
                           )}
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0 space-y-1">
+                          <div className="cafeluxe-cart-item-row flex items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-start gap-2">
+                              <span
+                                className={clsx(
+                                  "mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full border",
+                                  item.isVeg ? "bg-green-600" : "bg-transparent",
+                                )}
+                                style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.5) }}
+                                aria-hidden="true"
+                              />
+                              <div className="min-w-0 space-y-1">
                               <p className={clsx("truncate text-sm font-semibold", contentTextClass)}>{item.name}</p>
                               {secondaryLine ? (
                                 <p className={clsx("line-clamp-2 text-xs leading-relaxed", secondaryTextClass)}>
                                   {secondaryLine}
                                 </p>
                               ) : null}
+                              <p className={clsx("text-[11px] font-medium", mutedTextClass)}>
+                                {formatMoney(effectiveUnit)} each
+                              </p>
+                              </div>
                             </div>
-                            <div className="shrink-0 text-right">
+                            <div className="cafeluxe-cart-price-stack shrink-0 text-right">
                               <p
                                 className={WEBSITE_STYLE_CLASSES.text.sectionTitle}
                                 style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE }}
@@ -8672,7 +8766,7 @@ export default function QrOrderingExperience({
                                 {formatMoney(effectiveUnit * quantity)}
                               </p>
                               <p className={clsx("mt-0.5 text-[11px]", mutedTextClass)}>
-                                {formatMoney(effectiveUnit)} each
+                                Qty {quantity}
                               </p>
                             </div>
                           </div>
@@ -8767,6 +8861,18 @@ export default function QrOrderingExperience({
                           ) : null}
 
                           <div className="mt-3 flex items-center justify-between gap-3">
+                            <button
+                              type="button"
+                              className={clsx(
+                                "rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition",
+                                isLightTheme
+                                  ? "border-[#C6A57B] bg-[#F8F5F0]/80 text-brand-dark/70 hover:bg-[#E8D9C5]"
+                                  : "border-zinc-700 bg-zinc-900/55 text-zinc-300 hover:bg-zinc-800",
+                              )}
+                              onClick={() => updateItemQuantity(item.id, -quantity)}
+                            >
+                              Remove
+                            </button>
                             <div
                               className={clsx(
                                 "cafeluxe-cart-qty-control inline-flex items-center rounded-xl border",
@@ -8795,9 +8901,6 @@ export default function QrOrderingExperience({
                                 <Plus className="h-4 w-4" />
                               </button>
                             </div>
-                            <p className={clsx("text-[11px]", mutedTextClass)}>
-                              {quantity} item{quantity === 1 ? "" : "s"}
-                            </p>
                           </div>
 
                           {hasMappedAddons ? (
@@ -8865,7 +8968,7 @@ export default function QrOrderingExperience({
                               </div>
                             </div>
                           ) : null}
-                        </section>
+                        </motion.section>
                       );
                     })}
                   </div>
@@ -9225,8 +9328,14 @@ export default function QrOrderingExperience({
                       : "border-zinc-800/30 bg-[#F8F5F0]/10",
                   )}
                 >
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <p className={clsx("text-sm font-semibold", contentTextClass)}>Bill Details</p>
+                    <span className={clsx("text-[11px] font-semibold", mutedTextClass)}>
+                      {cartCount} item{cartCount === 1 ? "" : "s"}
+                    </span>
+                  </div>
                   <div className="cafeluxe-cart-summary-row flex items-center justify-between gap-4">
-                    <span className="opacity-80">Subtotal</span>
+                    <span className="opacity-80">Item Total</span>
                     <span className="font-semibold">{formatMoney(subtotal)}</span>
                   </div>
                   {hasCustomizationsInCart ? (
@@ -9260,7 +9369,7 @@ export default function QrOrderingExperience({
                     </div>
                   ) : null}
                   <div className="cafeluxe-cart-summary-total flex w-full items-center justify-between gap-4 border-t pt-2 font-bold text-lg">
-                    <span>Final Payable</span>
+                    <span>To Pay</span>
                     <span>{formatMoney(finalTotal)}</span>
                   </div>
                 </section>
@@ -9268,7 +9377,7 @@ export default function QrOrderingExperience({
                 {paymentMethod === "COUNTER" ? (
                   <button
                     type="button"
-                    className="cafe-luxe-cta inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-brand-dark transition disabled:cursor-not-allowed disabled:opacity-50"
+                    className="cafeluxe-cart-final-cta cafe-luxe-cta inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-brand-dark transition disabled:cursor-not-allowed disabled:opacity-50"
                     style={{
                       borderColor: withAlpha(ROYAL_NAVY, 0.4),
                       background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
@@ -9282,7 +9391,7 @@ export default function QrOrderingExperience({
                         Placing Order...
                       </>
                     ) : (
-                      "Place Order"
+                      <>Place Order <span className="opacity-75">•</span> {formatMoney(finalTotal)}</>
                     )}
                   </button>
                 ) : null}
@@ -9291,7 +9400,7 @@ export default function QrOrderingExperience({
                   <div className="space-y-2 pt-1">
                     <button
                       type="button"
-                      className="cafe-luxe-cta inline-flex h-12 w-full items-center justify-center rounded-xl border px-4 text-sm font-bold text-zinc-950 transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+                      className="cafeluxe-cart-final-cta cafe-luxe-cta inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border px-4 text-sm font-bold text-zinc-950 transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
                       style={{
                         borderColor: withAlpha(ROYAL_NAVY, 0.35),
                         background: `linear-gradient(180deg, ${PALETTE_SURFACE} 0%, ${WARM_HIGHLIGHT} 100%)`,
@@ -9299,7 +9408,7 @@ export default function QrOrderingExperience({
                       onClick={() => void handlePlaceOrder({ redirectToMenuAfterSuccess: true })}
                       disabled={cartCount === 0 || placingOrder}
                     >
-                      {placingOrder ? "Placing Order..." : "Payment Done"}
+                      {placingOrder ? "Placing Order..." : <>Payment Done <span className="opacity-75">•</span> {formatMoney(finalTotal)}</>}
                     </button>
                     <p className="px-1 text-[11px] opacity-70">
                       After paying in your UPI app, tap Payment Done to place the order and keep it pending for staff verification.
