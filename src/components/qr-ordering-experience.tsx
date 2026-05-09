@@ -6075,7 +6075,61 @@ export default function QrOrderingExperience({
     }, 620);
   }
 
-  function updateItemQuantity(itemId: string, delta: number) {
+  async function addToCart(item: MenuItem) {
+    const itemId = item.id;
+    const itemName = item.name;
+    const sessionStatus = tableSession?.status.trim().toLowerCase() ?? "";
+    const tableActive = sessionStatus === "active";
+    const outOfStock = !item.isAvailable;
+    const blocked = sessionBlocked;
+
+    console.log("ADD_TO_CART_ENTERED", {
+      itemId,
+      name: itemName,
+      sessionStatus,
+      sessionBlocked: blocked,
+      tableActive,
+      outOfStock,
+    });
+    console.log("ADD_ITEM_BLOCK_REASON", {
+      itemId,
+      itemName,
+      sessionStatus,
+      sessionBlocked: blocked,
+      tableActive,
+      outOfStock,
+    });
+
+    if (blocked) {
+      setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
+      return;
+    }
+
+    if (outOfStock) {
+      return;
+    }
+
+    const resolvedSession = await ensureTableSessionForOrder();
+    if (!resolvedSession) {
+      return;
+    }
+
+    if (resolvedSession.status.trim().toLowerCase() !== "active") {
+      setErrorMessage(TABLE_SESSION_PAYMENT_PENDING_MESSAGE);
+      return;
+    }
+
+    const addonGroups = itemAddonGroupsByItem[item.id] ?? [];
+    if (addonGroups.length > 0) {
+      await openAddonPickerForItem(item);
+      return;
+    }
+
+    await updateItemQuantity(item.id, 1);
+    triggerAddFeedback(item.id);
+  }
+
+  async function updateItemQuantity(itemId: string, delta: number) {
     if (sessionBlocked) {
       setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
       return;
@@ -6086,8 +6140,28 @@ export default function QrOrderingExperience({
         setErrorMessage("Unable to initialize table session. Please refresh the QR and try again.");
         return;
       }
+
       const menuItem = menuItems.find((item) => item.id === itemId);
+      const menuItemName = menuItem?.name ?? itemId;
+      const sessionStatus = tableSession?.status.trim().toLowerCase() ?? "";
+      const tableActive = sessionStatus === "active";
+      const outOfStock = menuItem ? !menuItem.isAvailable : false;
+      console.log("ADD_TO_CART_ENTERED", {
+        itemId,
+        name: menuItemName,
+        sessionStatus,
+        sessionBlocked,
+        tableActive,
+        outOfStock,
+        delta,
+      });
+
       if (menuItem && !menuItem.isAvailable) {
+        return;
+      }
+
+      const resolvedSession = await ensureTableSessionForOrder();
+      if (!resolvedSession) {
         return;
       }
     }
@@ -6147,7 +6221,7 @@ export default function QrOrderingExperience({
     setAddonPickerMode("add");
   }
 
-  function openAddonPickerForItem(item: MenuItem, mode: "add" | "edit" = "add") {
+  async function openAddonPickerForItem(item: MenuItem, mode: "add" | "edit" = "add") {
     if (sessionBlocked) {
       setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
       return;
@@ -6160,8 +6234,12 @@ export default function QrOrderingExperience({
 
     const addonGroups = itemAddonGroupsByItem[item.id] ?? [];
     if (addonGroups.length === 0) {
-      updateItemQuantity(item.id, 1);
-      triggerAddFeedback(item.id);
+      await addToCart(item);
+      return;
+    }
+
+    const resolvedSession = await ensureTableSessionForOrder();
+    if (!resolvedSession) {
       return;
     }
 
@@ -6871,7 +6949,12 @@ export default function QrOrderingExperience({
         setErrorMessage(TABLE_SESSION_PAYMENT_PENDING_MESSAGE);
         return null;
       }
-      return tableSession;
+
+      if (isTableSessionClosedOrPaid(tableSession)) {
+        // A closed/paid session must not be reused for a new order.
+      } else if (tableSession.status.trim().toLowerCase() === "active") {
+        return tableSession;
+      }
     }
 
     if (!tableInfo?.id) {
@@ -8358,23 +8441,8 @@ export default function QrOrderingExperience({
                           Math.max(subtotal, previewLineTotal),
                         );
                         const handleCardAdd = () => {
-                          if (sessionBlocked) {
-                            setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
-                            return;
-                          }
-                          if (sessionInitFailed) {
-                            setErrorMessage("Unable to initialize table session. Please refresh the QR and try again.");
-                            return;
-                          }
-                          if (!item.isAvailable) {
-                            return;
-                          }
-                          if (hasMappedAddons) {
-                            openAddonPickerForItem(item);
-                            return;
-                          }
-                          updateItemQuantity(item.id, 1);
-                          triggerAddFeedback(item.id);
+                          console.log("PRODUCT_CARD_CLICKED", item);
+                          void addToCart(item);
                         };
 
                         return (
@@ -8603,7 +8671,7 @@ export default function QrOrderingExperience({
                           }}
                           onClick={(event) => {
                             event.stopPropagation();
-                            handleCardAdd();
+                            void addToCart(item);
                           }}
                         >
                           <Plus className="h-4 w-4" />
@@ -9890,7 +9958,9 @@ export default function QrOrderingExperience({
                               <button
                                 type="button"
                                 className={clsx("p-2 transition hover:bg-black/10", contentTextClass)}
-                                onClick={() => updateItemQuantity(item.id, 1)}
+                                onClick={() => {
+                                  void addToCart(item);
+                                }}
                                 aria-label={`Add one ${item.name}`}
                               >
                                 <Plus className="h-4 w-4" />

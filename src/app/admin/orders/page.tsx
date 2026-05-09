@@ -357,6 +357,7 @@ export default function AdminOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [approvingOrderId, setApprovingOrderId] = useState("");
+  const [disablingTables, setDisablingTables] = useState(false);
   const [message, setMessage] = useState("");
 
   async function loadPendingVerificationOrders() {
@@ -497,6 +498,36 @@ export default function AdminOrdersPage() {
       setMessage(error instanceof Error ? error.message : "Unable to approve payment.");
     } finally {
       setApprovingOrderId("");
+    }
+  }
+
+  async function handleDisableAllTables() {
+    setMessage("");
+    const confirmed = window.confirm("Are you sure you want to disable all tables?");
+    if (!confirmed) {
+      return;
+    }
+
+    setDisablingTables(true);
+
+    try {
+      const response = await fetch("/api/admin/disable-all-tables", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error(await readRouteError(response));
+      }
+
+      await response.json().catch(() => ({}));
+      setMessage("All tables were disabled successfully. No active tables should appear on the website.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to disable all tables.");
+    } finally {
+      setDisablingTables(false);
     }
   }
 
@@ -686,21 +717,36 @@ export default function AdminOrdersPage() {
                 backgroundColor: "#fffdf9",
               }}
             />
-            <button
-              type="button"
-              className="h-11 rounded-2xl border px-4 text-sm font-semibold transition"
-              style={{
-                borderColor: `${palette.accent}70`,
-                backgroundColor: palette.accent,
-                color: palette.text,
-              }}
-              onClick={() => {
-                setRefreshing(true);
-                void loadPendingVerificationOrders();
-              }}
-            >
-              {refreshing ? "Refreshing..." : "Refresh Queue"}
-            </button>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                className="h-11 rounded-2xl border px-4 text-sm font-semibold transition"
+                style={{
+                  borderColor: `${palette.accent}70`,
+                  backgroundColor: palette.accent,
+                  color: palette.text,
+                }}
+                onClick={() => {
+                  setRefreshing(true);
+                  void loadPendingVerificationOrders();
+                }}
+              >
+                {refreshing ? "Refreshing..." : "Refresh Queue"}
+              </button>
+              <button
+                type="button"
+                className="h-11 rounded-2xl border px-4 text-sm font-semibold transition"
+                style={{
+                  borderColor: `${palette.accent}70`,
+                  backgroundColor: "#ffe8e0",
+                  color: "#892b1a",
+                }}
+                onClick={() => void handleDisableAllTables()}
+                disabled={disablingTables}
+              >
+                {disablingTables ? "Disabling..." : "Disable All Tables"}
+              </button>
+            </div>
           </div>
           {message ? (
             <p className="mt-3 text-sm" style={{ color: palette.secondaryText }}>

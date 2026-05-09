@@ -63,6 +63,18 @@ body {
   border-color: rgba(122, 109, 96, 0.28);
 }
 
+.cafeluxe-menu-glass-card,
+.cafeluxe-menu-card-image,
+.cafeluxe-menu-coverflow-slide,
+.cafe-luxe-cta,
+.cafe-luxe-control {
+  pointer-events: auto;
+}
+
+.cafeluxe-menu-card-image .pointer-events-none {
+  pointer-events: none;
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
