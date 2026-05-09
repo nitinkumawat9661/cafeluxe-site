@@ -9,6 +9,8 @@ const COLLECTION_IDS = {
   offers: "offers",
   orders: "orders",
   payments: "payments",
+  tableSessions: "table_sessions",
+  printJobs: "print_jobs",
   reports: "reports",
   settings: "settings",
   notifications: "notifications",
@@ -17,10 +19,29 @@ const COLLECTION_IDS = {
 const SAFE_CLIENT_CREATE_COLLECTIONS = new Set([
   COLLECTION_IDS.orders,
   COLLECTION_IDS.payments,
+  COLLECTION_IDS.tableSessions,
+  COLLECTION_IDS.printJobs,
 ]);
-const SAFE_CLIENT_UPDATE_COLLECTIONS = new Set([COLLECTION_IDS.orders]);
+const SAFE_CLIENT_UPDATE_COLLECTIONS = new Set([
+  COLLECTION_IDS.orders,
+  COLLECTION_IDS.tableSessions,
+]);
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 12000;
+
+class ProxyAppwriteError extends Error {
+  code: number;
+  type: string;
+  response: unknown;
+
+  constructor(message: string, code: number, type: string, response: unknown) {
+    super(message);
+    this.name = "ProxyAppwriteError";
+    this.code = code;
+    this.type = type;
+    this.response = response;
+  }
+}
 
 function withTimeout<T>(
   operation: Promise<T>,
@@ -45,12 +66,30 @@ function withTimeout<T>(
 }
 
 async function readProxyError(response: Response) {
+  let payload: Record<string, unknown> = {};
   try {
-    const data = (await response.json()) as { message?: string; error?: string };
-    return data?.message || data?.error || `Proxy request failed (${response.status})`;
+    const data = (await response.json()) as unknown;
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      payload = data as Record<string, unknown>;
+    }
   } catch {
-    return `Proxy request failed (${response.status})`;
+    payload = {};
   }
+
+  const message =
+    typeof payload.message === "string"
+      ? payload.message
+      : typeof payload.error === "string"
+        ? payload.error
+        : `Proxy request failed (${response.status})`;
+  const code =
+    typeof payload.code === "number" && Number.isFinite(payload.code)
+      ? payload.code
+      : response.status;
+  const type = typeof payload.type === "string" ? payload.type : "";
+  const errorResponse = Object.hasOwn(payload, "response") ? payload.response : payload;
+
+  return new ProxyAppwriteError(message, code, type, errorResponse);
 }
 
 async function proxyListDocuments(
@@ -75,7 +114,7 @@ async function proxyListDocuments(
   );
 
   if (!response.ok) {
-    throw new Error(await readProxyError(response));
+    throw await readProxyError(response);
   }
 
   return response.json() as Promise<{
@@ -102,7 +141,7 @@ async function proxyCreateDocument(
   );
 
   if (!response.ok) {
-    throw new Error(await readProxyError(response));
+    throw await readProxyError(response);
   }
 
   return response.json() as Promise<AppwriteDocument>;
@@ -113,12 +152,24 @@ async function proxyUpdateDocument(
   documentId: string,
   documentData: Record<string, unknown>,
   timeoutMs: number,
+  scope?: UpdateScope,
 ) {
+  const body: Record<string, unknown> = { collectionId, documentId, documentData };
+  if (scope?.clientId) {
+    body.clientId = scope.clientId;
+  }
+  if (scope?.tableId) {
+    body.tableId = scope.tableId;
+  }
+  if (scope?.lockedBy) {
+    body.lockedBy = scope.lockedBy;
+  }
+
   const response = await withTimeout(
     fetch("/api/appwrite/documents", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ collectionId, documentId, documentData }),
+      body: JSON.stringify(body),
       cache: "no-store",
       credentials: "same-origin",
     }),
@@ -127,7 +178,7 @@ async function proxyUpdateDocument(
   );
 
   if (!response.ok) {
-    throw new Error(await readProxyError(response));
+    throw await readProxyError(response);
   }
 
   return response.json() as Promise<AppwriteDocument>;
@@ -158,6 +209,17 @@ type ListOptions = {
   maxDocs?: number;
   queries?: string[];
   timeoutMs?: number;
+};
+
+type UpdateScope = {
+  clientId?: string;
+  tableId?: string;
+  lockedBy?: string;
+};
+
+type UpdateOptions = {
+  timeoutMs?: number;
+  scope?: UpdateScope;
 };
 
 function escapeQueryString(value: string) {
@@ -237,7 +299,8 @@ export async function fetchAllDocuments(collectionId: string, options?: ListOpti
     } catch (error) {
       const canUseBroadFallback =
         collectionId !== COLLECTION_IDS.orders &&
-        collectionId !== COLLECTION_IDS.payments;
+        collectionId !== COLLECTION_IDS.payments &&
+        collectionId !== COLLECTION_IDS.tableSessions;
       if (baseQueries.length > 0 && canUseBroadFallback && isIndexOrQueryFailure(error)) {
         return fetchAllDocuments(collectionId, { ...options, queries: [] });
       }
@@ -284,23 +347,26 @@ export async function updateDocument(
   documentId: string,
   documentData: Record<string, unknown>,
   timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  scope?: UpdateScope,
 ) {
   if (!SAFE_CLIENT_UPDATE_COLLECTIONS.has(collectionId)) {
     throw new Error("Collection update is not allowed from client flow.");
   }
-  return proxyUpdateDocument(collectionId, documentId, documentData, timeoutMs);
+  return proxyUpdateDocument(collectionId, documentId, documentData, timeoutMs, scope);
 }
 
 export async function updateDocumentWithFallback(
   collectionId: string,
   documentId: string,
   payloadCandidates: Record<string, unknown>[],
+  options?: UpdateOptions,
 ) {
   let latestError: unknown = null;
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 
   for (const payload of payloadCandidates) {
     try {
-      return await updateDocument(collectionId, documentId, payload);
+      return await updateDocument(collectionId, documentId, payload, timeoutMs, options?.scope);
     } catch (error) {
       latestError = error;
       if (!isSchemaRetryableError(error)) {

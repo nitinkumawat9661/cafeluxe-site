@@ -680,6 +680,48 @@ function getDocSettingValue(doc: AppwriteDocument) {
   return "";
 }
 
+type SettingValueEntry = {
+  key: string;
+  value: string;
+  updatedAt: number;
+};
+
+type SettingValueMap = Map<string, SettingValueEntry>;
+
+function getSettingUpdatedAt(doc: AppwriteDocument) {
+  return (
+    parseDateToTimestamp(toSafeString(doc.$updatedAt)) ||
+    parseDateToTimestamp(toSafeString(doc.$createdAt)) ||
+    0
+  );
+}
+
+function getLatestSettingEntry(settings: SettingValueMap, keys: readonly string[]) {
+  let selected: { entry: SettingValueEntry; priority: number } | null = null;
+
+  for (let priority = 0; priority < keys.length; priority += 1) {
+    const key = keys[priority];
+    const entry = settings.get(normalizeSettingKey(key));
+    if (!entry) {
+      continue;
+    }
+
+    if (
+      !selected ||
+      entry.updatedAt > selected.entry.updatedAt ||
+      (entry.updatedAt === selected.entry.updatedAt && priority < selected.priority)
+    ) {
+      selected = { entry, priority };
+    }
+  }
+
+  return selected?.entry ?? null;
+}
+
+function getLatestSettingValue(settings: SettingValueMap, keys: readonly string[]) {
+  return getLatestSettingEntry(settings, keys)?.value ?? "";
+}
+
 function clampTaxPercent(value: number) {
   if (!Number.isFinite(value)) {
     return 0;
@@ -715,8 +757,8 @@ function resolveTaxSettings(source: {
   sgstPercentage?: unknown;
 }) {
   const explicitGstEnabled =
-    parseBooleanLike(source.gstEnabled) ??
     parseBooleanLike(source.taxEnabled) ??
+    parseBooleanLike(source.gstEnabled) ??
     parseBooleanLike(source.enableGst);
 
   const directTaxPercentage = clampTaxPercent(toSafeNumber(source.taxPercentage, 0));
@@ -774,7 +816,7 @@ export function parseClientSettings(docs: AppwriteDocument[], client: string): R
     return defaults;
   }
 
-  const keyValueMap = new Map<string, string>();
+  const keyValueMap: SettingValueMap = new Map();
   for (const doc of clientDocs) {
     const key = normalizeSettingKey(getDocSettingKey(doc));
     if (!key) {
@@ -784,40 +826,76 @@ export function parseClientSettings(docs: AppwriteDocument[], client: string): R
     if (!value) {
       continue;
     }
-    keyValueMap.set(key, value);
+    const nextEntry = {
+      key,
+      value,
+      updatedAt: getSettingUpdatedAt(doc),
+    };
+    const currentEntry = keyValueMap.get(key);
+    if (!currentEntry || nextEntry.updatedAt >= currentEntry.updatedAt) {
+      keyValueMap.set(key, nextEntry);
+    }
   }
 
   if (keyValueMap.size > 0) {
     const restaurantName =
-      keyValueMap.get("restaurantname") ||
-      keyValueMap.get("name") ||
+      getLatestSettingValue(keyValueMap, ["restaurant_name", "restaurantName"]) ||
+      getLatestSettingValue(keyValueMap, ["name"]) ||
       fallbackName;
-    const currency = (keyValueMap.get("currency") || "INR").toUpperCase();
+    const currency = (getLatestSettingValue(keyValueMap, ["currency"]) || "INR").toUpperCase();
+    const gstEnabledSetting = getLatestSettingValue(keyValueMap, [
+      "tax_enabled",
+      "taxEnabled",
+      "gst_enabled",
+      "gstEnabled",
+      "enable_gst",
+      "enableGst",
+      "tax_status",
+      "gst_status",
+    ]);
     const taxSettings = resolveTaxSettings({
-      gstEnabled: keyValueMap.get("gstenabled") ?? keyValueMap.get("gststatus"),
-      taxEnabled: keyValueMap.get("taxenabled") ?? keyValueMap.get("taxstatus"),
-      enableGst: keyValueMap.get("enablegst"),
+      taxEnabled: gstEnabledSetting,
       taxPercentage:
-        keyValueMap.get("taxpercentage") ??
-        keyValueMap.get("taxpercent") ??
-        keyValueMap.get("gstpercentage"),
-      cgstPercentage: keyValueMap.get("cgst"),
-      sgstPercentage: keyValueMap.get("sgst"),
+        getLatestSettingValue(keyValueMap, [
+          "tax_percentage",
+          "taxPercentage",
+          "tax_percent",
+          "taxPercent",
+          "gst_percentage",
+          "gstPercentage",
+        ]) || undefined,
+      cgstPercentage:
+        getLatestSettingValue(keyValueMap, [
+          "cgst_percentage",
+          "cgstPercentage",
+          "cgst",
+        ]) || undefined,
+      sgstPercentage:
+        getLatestSettingValue(keyValueMap, [
+          "sgst_percentage",
+          "sgstPercentage",
+          "sgst",
+        ]) || undefined,
     });
-    const supportPhone = keyValueMap.get("supportphone") || "";
-    const upiId = keyValueMap.get("upiid") || "";
-    const upiName = keyValueMap.get("upiname") || "";
+    const supportPhone = getLatestSettingValue(keyValueMap, ["support_phone", "supportPhone"]) || "";
+    const upiId = getLatestSettingValue(keyValueMap, ["upi_id", "upiId"]) || "";
+    const upiName = getLatestSettingValue(keyValueMap, ["upi_name", "upiName"]) || "";
     const themeColor =
-      keyValueMap.get("themecolor") ||
-      keyValueMap.get("accentcolor") ||
+      getLatestSettingValue(keyValueMap, ["theme_color", "themeColor"]) ||
+      getLatestSettingValue(keyValueMap, ["accent_color", "accentColor"]) ||
       defaults.themeColor;
     const logoUrl = resolveAssetUrl(
-      keyValueMap.get("logourl") || keyValueMap.get("logo") || "",
+      getLatestSettingValue(keyValueMap, ["logo_url", "logoUrl", "logo"]) || "",
     );
     const heroImageUrl = resolveAssetUrl(
-      keyValueMap.get("heroimageurl") || keyValueMap.get("heroimage") || "",
+      getLatestSettingValue(keyValueMap, [
+        "hero_image_url",
+        "heroImageUrl",
+        "hero_image",
+        "heroImage",
+      ]) || "",
     );
-    const tagline = keyValueMap.get("tagline") || keyValueMap.get("subtitle") || "";
+    const tagline = getLatestSettingValue(keyValueMap, ["tagline", "subtitle"]) || "";
 
     return {
       restaurantName,
@@ -847,9 +925,11 @@ export function parseClientSettings(docs: AppwriteDocument[], client: string): R
   const taxSettings = resolveTaxSettings({
     gstEnabled:
       preferredDoc.gst_enabled ??
-      preferredDoc.gstEnabled ??
+      preferredDoc.gstEnabled,
+    taxEnabled:
       preferredDoc.tax_enabled ??
-      preferredDoc.taxEnabled ??
+      preferredDoc.taxEnabled,
+    enableGst:
       preferredDoc.enable_gst ??
       preferredDoc.enableGst,
     taxPercentage:
@@ -857,8 +937,8 @@ export function parseClientSettings(docs: AppwriteDocument[], client: string): R
       preferredDoc.taxPercentage ??
       preferredDoc.gst_percentage ??
       preferredDoc.gstPercentage,
-    cgstPercentage: preferredDoc.cgst ?? preferredDoc.cgst_percentage ?? preferredDoc.cgstPercentage,
-    sgstPercentage: preferredDoc.sgst ?? preferredDoc.sgst_percentage ?? preferredDoc.sgstPercentage,
+    cgstPercentage: preferredDoc.cgst_percentage ?? preferredDoc.cgstPercentage ?? preferredDoc.cgst,
+    sgstPercentage: preferredDoc.sgst_percentage ?? preferredDoc.sgstPercentage ?? preferredDoc.sgst,
   });
 
   return {

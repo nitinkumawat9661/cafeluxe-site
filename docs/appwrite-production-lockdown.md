@@ -15,8 +15,14 @@ Tables:
 - `tables`
 - `categories`
 - `menu_items`
+- `addon_groups` (optional add-on feature)
+- `addon_options` (optional add-on feature)
+- `item_addon_map` (optional add-on feature)
+- `offers` (optional offers feature)
 - `orders`
 - `payments`
+- `table_sessions`
+- `print_jobs` (optional kitchen/KOT feature)
 - `reports`
 - `settings`
 - `notifications`
@@ -27,7 +33,7 @@ The website uses anonymous sessions, so "browser client" means users with `users
 
 Recommended table-level permission intent:
 
-1. `tables` / `categories` / `menu_items` / `settings`
+1. `tables` / `categories` / `menu_items` / `addon_groups` / `addon_options` / `item_addon_map` / `offers` / `settings`
    - `read`: allow browser clients (`users` or `any`)
    - `create`, `update`, `delete`: block browser clients
 2. `orders`
@@ -36,13 +42,19 @@ Recommended table-level permission intent:
 3. `payments`
    - `create`: allow browser clients
    - `read`, `update`, `delete`: block browser clients
-4. `users` / `reports` / `notifications`
+4. `table_sessions`
+   - `create`, `update`: allow browser clients
+   - `read`, `delete`: block browser clients
+5. `print_jobs`
+   - `create`: allow browser clients if KOT printing is enabled
+   - `read`, `update`, `delete`: block browser clients
+6. `users` / `reports` / `notifications`
    - block browser clients for `read/create/update/delete`
 
 Row security recommendations:
 
-- `tables`, `categories`, `menu_items`, `settings`: `rowSecurity=false` (reference data)
-- `orders`, `payments`, `users`, `reports`, `notifications`: `rowSecurity=true`
+- `tables`, `categories`, `menu_items`, `addon_groups`, `addon_options`, `item_addon_map`, `offers`, `settings`: `rowSecurity=false` (reference data)
+- `orders`, `payments`, `table_sessions`, `print_jobs`, `users`, `reports`, `notifications`: `rowSecurity=true`
 
 ## 3) Minimum index baseline
 
@@ -57,12 +69,26 @@ Create (or verify) at least these indexes:
    - key: `[client_id]`
    - optional key for category filtering, one of:
      - `[client_id, catogry_id]`
-4. `orders`
+4. Add-ons and offers, if enabled
+   - `addon_groups`: optional key `[client_id]` or `[client]`
+   - `addon_options`: optional key `[client_id]` or `[client]`
+   - `addon_options`: optional key `[addon_group_id]` or `[group_id]`
+   - `item_addon_map`: optional key `[client_id]` or `[client]`
+   - `item_addon_map`: optional key `[item_id]`, `[menu_item_id]`, or `[product_id]`
+   - `offers`: optional key `[client_id]` or `[client]`
+5. `orders`
    - key: `[client_id, table_id]`
+   - key: `[bill_id, session_id]`
    - optional: unique/key `[client_id, order_number]`
-5. `settings`
+6. `table_sessions`
+   - key: `[client_id, table_id, status]`
+   - key: `[bill_id, session_id]`
+7. `print_jobs`, if KOT printing is enabled
+   - optional key: `[client_id, status]`
+   - optional key: `[bill_id, session_id]`
+8. `settings`
    - key: `[client_id]`
-6. `payments`
+9. `payments`
    - optional key: `[order_id]`
    - optional key: `[client_id, order_id]`
 
@@ -75,6 +101,7 @@ APPWRITE_ENDPOINT=https://<region>.cloud.appwrite.io/v1
 APPWRITE_PROJECT_ID=your_appwrite_project_id
 APPWRITE_DATABASE_ID=your_appwrite_database_id
 APPWRITE_API_KEY=your_server_api_key
+WEB_ADMIN_APPROVAL_PIN=your_cashier_pin
 ```
 
 Run:
@@ -89,6 +116,8 @@ To auto-create missing indexes where possible:
 npm run audit:appwrite:apply-indexes
 ```
 
+The audit script also loads `.env.local` automatically for local checks.
+
 ## 5) Frontend data exposure control
 
 The app now supports a secure default:
@@ -98,3 +127,5 @@ The app now supports a secure default:
 When false, customer client does **not** query backend orders to restore state, reducing accidental order visibility risk.
 
 Set to `true` only if you intentionally allow and audit order read behavior.
+
+The `/api/appwrite/documents` proxy requires `client_id` and `table_id` filters for customer order and table-session reads. Customer order/session updates also send the same scope so the server can verify the current document before patching it.

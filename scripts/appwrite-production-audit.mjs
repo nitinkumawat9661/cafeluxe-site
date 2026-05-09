@@ -1,15 +1,51 @@
 #!/usr/bin/env node
 
+import nextEnv from "@next/env";
 import { Client, TablesDB } from "node-appwrite";
+
+const { loadEnvConfig } = nextEnv;
+
+loadEnvConfig(process.cwd());
 
 const args = new Set(process.argv.slice(2));
 const applyIndexes = args.has("--apply-indexes");
 const strict = args.has("--strict");
 
-const endpoint = process.env.APPWRITE_ENDPOINT ?? "";
-const projectId = process.env.APPWRITE_PROJECT_ID ?? "";
-const databaseId = process.env.APPWRITE_DATABASE_ID ?? "";
-const apiKey = process.env.APPWRITE_API_KEY ?? "";
+function normalizeEnvValue(value) {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const quoteWrapped =
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"));
+  const angleWrapped = trimmed.startsWith("<") && trimmed.endsWith(">");
+
+  return quoteWrapped || angleWrapped ? trimmed.slice(1, -1).trim() : trimmed;
+}
+
+function firstConfiguredEnvValue(...names) {
+  for (const name of names) {
+    const value = normalizeEnvValue(process.env[name]);
+    if (value) {
+      return value;
+    }
+  }
+  return "";
+}
+
+function normalizeConfiguredCollectionId(value, fallback) {
+  if (!value) {
+    return fallback;
+  }
+  return /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(value) ? value : fallback;
+}
+
+const endpoint = normalizeEnvValue(process.env.APPWRITE_ENDPOINT);
+const projectId = normalizeEnvValue(process.env.APPWRITE_PROJECT_ID);
+const databaseId = normalizeEnvValue(process.env.APPWRITE_DATABASE_ID);
+const apiKey = normalizeEnvValue(process.env.APPWRITE_API_KEY);
 
 if (!endpoint || !projectId || !databaseId || !apiKey) {
   console.error(
@@ -31,6 +67,12 @@ const ACCESS = {
     update: false,
     delete: false,
   },
+  clientCreateUpdateOnly: {
+    read: false,
+    create: true,
+    update: true,
+    delete: false,
+  },
   privateOnly: {
     read: false,
     create: false,
@@ -39,9 +81,71 @@ const ACCESS = {
   },
 };
 
+const COLLECTION_IDS = {
+  users: "users",
+  tables: normalizeConfiguredCollectionId(
+    firstConfiguredEnvValue(
+      "APPWRITE_TABLES_COLLECTION_ID",
+      "NEXT_PUBLIC_APPWRITE_TABLES_COLLECTION_ID",
+    ),
+    "tables",
+  ),
+  categories: normalizeConfiguredCollectionId(
+    firstConfiguredEnvValue(
+      "APPWRITE_CATEGORIES_COLLECTION_ID",
+      "NEXT_PUBLIC_APPWRITE_CATEGORIES_COLLECTION_ID",
+    ),
+    "categories",
+  ),
+  menuItems: normalizeConfiguredCollectionId(
+    firstConfiguredEnvValue(
+      "APPWRITE_MENU_COLLECTION_ID",
+      "APPWRITE_MENU_ITEMS_COLLECTION_ID",
+      "NEXT_PUBLIC_APPWRITE_MENU_COLLECTION_ID",
+      "NEXT_PUBLIC_APPWRITE_MENU_ITEMS_COLLECTION_ID",
+    ),
+    "menu_items",
+  ),
+  addonGroups: "addon_groups",
+  addonOptions: "addon_options",
+  itemAddonMap: "item_addon_map",
+  offers: normalizeConfiguredCollectionId(
+    firstConfiguredEnvValue(
+      "APPWRITE_OFFERS_COLLECTION_ID",
+      "NEXT_PUBLIC_APPWRITE_OFFERS_COLLECTION_ID",
+    ),
+    "offers",
+  ),
+  orders: normalizeConfiguredCollectionId(
+    firstConfiguredEnvValue(
+      "APPWRITE_ORDERS_COLLECTION_ID",
+      "NEXT_PUBLIC_APPWRITE_ORDERS_COLLECTION_ID",
+    ),
+    "orders",
+  ),
+  payments: normalizeConfiguredCollectionId(
+    firstConfiguredEnvValue(
+      "APPWRITE_PAYMENTS_COLLECTION_ID",
+      "NEXT_PUBLIC_APPWRITE_PAYMENTS_COLLECTION_ID",
+    ),
+    "payments",
+  ),
+  tableSessions: "table_sessions",
+  printJobs: "print_jobs",
+  reports: "reports",
+  settings: normalizeConfiguredCollectionId(
+    firstConfiguredEnvValue(
+      "APPWRITE_SETTINGS_COLLECTION_ID",
+      "NEXT_PUBLIC_APPWRITE_SETTINGS_COLLECTION_ID",
+    ),
+    "settings",
+  ),
+  notifications: "notifications",
+};
+
 const SPECS = [
   {
-    id: "users",
+    id: COLLECTION_IDS.users,
     access: ACCESS.privateOnly,
     recommendedRowSecurity: true,
     requiredColumns: [],
@@ -49,7 +153,7 @@ const SPECS = [
     indexGroups: [],
   },
   {
-    id: "tables",
+    id: COLLECTION_IDS.tables,
     access: ACCESS.clientReadable,
     recommendedRowSecurity: false,
     requiredColumns: ["client_id", "table_no", "table_code", "active"],
@@ -70,7 +174,7 @@ const SPECS = [
     ],
   },
   {
-    id: "categories",
+    id: COLLECTION_IDS.categories,
     access: ACCESS.clientReadable,
     recommendedRowSecurity: false,
     requiredColumns: ["client_id", "name", "display_order", "active"],
@@ -85,7 +189,7 @@ const SPECS = [
     ],
   },
   {
-    id: "menu_items",
+    id: COLLECTION_IDS.menuItems,
     access: ACCESS.clientReadable,
     recommendedRowSecurity: false,
     requiredColumns: ["client_id", "catogry_id", "price"],
@@ -108,17 +212,124 @@ const SPECS = [
     ],
   },
   {
-    id: "orders",
+    id: COLLECTION_IDS.addonGroups,
+    requiredTable: false,
+    access: ACCESS.clientReadable,
+    recommendedRowSecurity: false,
+    requiredColumns: ["name"],
+    requiredAnyColumns: [["client_id", "client"]],
+    indexGroups: [
+      {
+        key: "idx_addon_groups_client",
+        label: "Client scoped add-on groups",
+        required: false,
+        options: [
+          { type: "key", columns: ["client_id"] },
+          { type: "key", columns: ["client"] },
+        ],
+      },
+    ],
+  },
+  {
+    id: COLLECTION_IDS.addonOptions,
+    requiredTable: false,
+    access: ACCESS.clientReadable,
+    recommendedRowSecurity: false,
+    requiredColumns: ["name", "price"],
+    requiredAnyColumns: [["client_id", "client"], ["addon_group_id", "group_id"]],
+    indexGroups: [
+      {
+        key: "idx_addon_options_client",
+        label: "Client scoped add-on options",
+        required: false,
+        options: [
+          { type: "key", columns: ["client_id"] },
+          { type: "key", columns: ["client"] },
+        ],
+      },
+      {
+        key: "idx_addon_options_group",
+        label: "Options by add-on group",
+        required: false,
+        options: [
+          { type: "key", columns: ["addon_group_id"] },
+          { type: "key", columns: ["group_id"] },
+        ],
+      },
+    ],
+  },
+  {
+    id: COLLECTION_IDS.itemAddonMap,
+    requiredTable: false,
+    access: ACCESS.clientReadable,
+    recommendedRowSecurity: false,
+    requiredColumns: [],
+    requiredAnyColumns: [
+      ["client_id", "client"],
+      ["addon_group_id", "group_id"],
+      ["item_id", "menu_item_id", "product_id", "item"],
+    ],
+    indexGroups: [
+      {
+        key: "idx_item_addon_map_client",
+        label: "Client scoped item add-on mapping",
+        required: false,
+        options: [
+          { type: "key", columns: ["client_id"] },
+          { type: "key", columns: ["client"] },
+        ],
+      },
+      {
+        key: "idx_item_addon_map_item",
+        label: "Add-on mapping by item",
+        required: false,
+        options: [
+          { type: "key", columns: ["item_id"] },
+          { type: "key", columns: ["menu_item_id"] },
+          { type: "key", columns: ["product_id"] },
+        ],
+      },
+    ],
+  },
+  {
+    id: COLLECTION_IDS.offers,
+    requiredTable: false,
+    access: ACCESS.clientReadable,
+    recommendedRowSecurity: false,
+    requiredColumns: ["name"],
+    requiredAnyColumns: [["client_id", "client"], ["offer_type", "type"]],
+    indexGroups: [
+      {
+        key: "idx_offers_client",
+        label: "Client scoped offer fetch",
+        required: false,
+        options: [
+          { type: "key", columns: ["client_id"] },
+          { type: "key", columns: ["client"] },
+        ],
+      },
+    ],
+  },
+  {
+    id: COLLECTION_IDS.orders,
     access: ACCESS.clientCreateOnly,
     recommendedRowSecurity: true,
     requiredColumns: [
       "client_id",
       "table_id",
       "order_number",
+      "session_id",
+      "bill_id",
+      "table_number",
+      "order_round",
+      "is_add_more",
+      "kot_status",
       "status",
       "payment_status",
+      "payment_method",
       "subtotal",
       "total_amount",
+      "created_at_custom",
     ],
     requiredAnyColumns: [],
     indexGroups: [
@@ -137,10 +348,16 @@ const SPECS = [
           { type: "key", columns: ["client_id", "order_number"] },
         ],
       },
+      {
+        key: "idx_orders_bill_session",
+        label: "Bill scoped order approval",
+        required: true,
+        options: [{ type: "key", columns: ["bill_id", "session_id"] }],
+      },
     ],
   },
   {
-    id: "payments",
+    id: COLLECTION_IDS.payments,
     access: ACCESS.clientCreateOnly,
     recommendedRowSecurity: true,
     requiredColumns: [
@@ -169,7 +386,76 @@ const SPECS = [
     ],
   },
   {
-    id: "reports",
+    id: COLLECTION_IDS.tableSessions,
+    access: ACCESS.clientCreateUpdateOnly,
+    recommendedRowSecurity: true,
+    requiredColumns: [
+      "client_id",
+      "table_id",
+      "table_number",
+      "session_id",
+      "bill_id",
+      "status",
+      "payment_status",
+      "locked_by",
+      "heartbeat_at",
+      "opened_at",
+      "total_amount",
+    ],
+    requiredAnyColumns: [],
+    indexGroups: [
+      {
+        key: "idx_table_sessions_client_table_status",
+        label: "Active session lookup by client + table + status",
+        required: true,
+        options: [{ type: "key", columns: ["client_id", "table_id", "status"] }],
+      },
+      {
+        key: "idx_table_sessions_bill_session",
+        label: "Bill scoped session close",
+        required: true,
+        options: [{ type: "key", columns: ["bill_id", "session_id"] }],
+      },
+    ],
+  },
+  {
+    id: COLLECTION_IDS.printJobs,
+    requiredTable: false,
+    access: ACCESS.clientCreateOnly,
+    recommendedRowSecurity: true,
+    requiredColumns: [
+      "client_id",
+      "table_id",
+      "table_number",
+      "session_id",
+      "bill_id",
+      "order_id",
+      "job_type",
+      "label",
+      "items_json",
+      "total_amount",
+      "status",
+      "printer_type",
+      "created_at_custom",
+    ],
+    requiredAnyColumns: [],
+    indexGroups: [
+      {
+        key: "idx_print_jobs_client_status",
+        label: "Kitchen queue by client + status",
+        required: false,
+        options: [{ type: "key", columns: ["client_id", "status"] }],
+      },
+      {
+        key: "idx_print_jobs_bill_session",
+        label: "Print jobs by bill",
+        required: false,
+        options: [{ type: "key", columns: ["bill_id", "session_id"] }],
+      },
+    ],
+  },
+  {
+    id: COLLECTION_IDS.reports,
     access: ACCESS.privateOnly,
     recommendedRowSecurity: true,
     requiredColumns: [],
@@ -177,7 +463,7 @@ const SPECS = [
     indexGroups: [],
   },
   {
-    id: "settings",
+    id: COLLECTION_IDS.settings,
     access: ACCESS.clientReadable,
     recommendedRowSecurity: false,
     requiredColumns: ["client_id", "key", "value"],
@@ -192,7 +478,7 @@ const SPECS = [
     ],
   },
   {
-    id: "notifications",
+    id: COLLECTION_IDS.notifications,
     access: ACCESS.privateOnly,
     recommendedRowSecurity: true,
     requiredColumns: [],
@@ -294,7 +580,11 @@ async function main() {
       table = await tablesDb.getTable({ databaseId, tableId: spec.id });
       push("PASS", `Table exists (${spec.id})`);
     } catch (error) {
-      push("FAIL", `Table missing or inaccessible (${spec.id}): ${error.message}`);
+      const missingLevel = spec.requiredTable === false ? "WARN" : "FAIL";
+      push(
+        missingLevel,
+        `Table missing or inaccessible (${spec.id}): ${error.message}`,
+      );
       continue;
     }
 

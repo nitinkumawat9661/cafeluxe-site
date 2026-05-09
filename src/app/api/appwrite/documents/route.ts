@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AppwriteException, Client, Databases } from "node-appwrite";
+import { AppwriteException, Client, Databases, Query as ServerQuery } from "node-appwrite";
 
 export const runtime = "nodejs";
 
@@ -93,6 +93,8 @@ const SETTINGS_COLLECTION_ID = normalizeConfiguredCollectionId(
 );
 const ORDERS_COLLECTION_ID = "orders";
 const PAYMENTS_COLLECTION_ID = "payments";
+const TABLE_SESSIONS_COLLECTION_ID = "table_sessions";
+const PRINT_JOBS_COLLECTION_ID = "print_jobs";
 const READ_COLLECTION_ALIASES = new Map([
   [TABLES_COLLECTION_ALIAS, TABLES_COLLECTION_ID],
   [TABLES_COLLECTION_ID, TABLES_COLLECTION_ID],
@@ -116,8 +118,14 @@ const READ_ALLOWED_COLLECTIONS = new Set([
   OFFERS_COLLECTION_ID,
   SETTINGS_COLLECTION_ID,
   ORDERS_COLLECTION_ID,
+  TABLE_SESSIONS_COLLECTION_ID,
 ]);
-const CREATE_ALLOWED_COLLECTIONS = new Set([ORDERS_COLLECTION_ID, PAYMENTS_COLLECTION_ID]);
+const CREATE_ALLOWED_COLLECTIONS = new Set([
+  ORDERS_COLLECTION_ID,
+  PAYMENTS_COLLECTION_ID,
+  TABLE_SESSIONS_COLLECTION_ID,
+  PRINT_JOBS_COLLECTION_ID,
+]);
 const DELETE_ALLOWED_COLLECTIONS = new Set([ORDERS_COLLECTION_ID]);
 
 const SAFE_ORDER_PAYMENT_SWITCH_FIELDS = new Set([
@@ -138,6 +146,24 @@ const ALLOWED_PENDING_PAYMENT_STATUSES = new Set([
   "PENDING_VERIFICATION",
 ]);
 const ALLOWED_SETTLED_PAYMENT_STATUSES = new Set(["PAID", "SETTLED", "COMPLETED"]);
+const ALLOWED_TABLE_SESSION_STATUSES = new Set([
+  "active",
+  "closing_requested",
+  "payment_pending",
+  "closed",
+  "paid",
+]);
+const ALLOWED_TABLE_SESSION_PAYMENT_STATUSES = new Set([
+  "unpaid",
+  "pending",
+  "paid",
+  "settled",
+  "completed",
+]);
+const ALLOWED_KOT_STATUSES = new Set(["pending", "sent", "printed", "completed"]);
+const ALLOWED_PRINT_JOB_TYPES = new Set(["KOT"]);
+const ALLOWED_PRINT_JOB_STATUSES = new Set(["pending"]);
+const ALLOWED_PRINTER_TYPES = new Set(["KITCHEN"]);
 
 const MAX_BODY_SIZE_BYTES = 48 * 1024;
 const MAX_QUERY_COUNT = 10;
@@ -225,8 +251,8 @@ function noStoreJson(payload: Record<string, unknown>, status: number) {
   });
 }
 
-function jsonError(message: string, status: number) {
-  return noStoreJson({ message }, status);
+function jsonError(message: string, status: number, details?: Record<string, unknown>) {
+  return noStoreJson({ message, code: status, ...details }, status);
 }
 
 function ensureServerConfig(requireApiKey = true) {
@@ -305,6 +331,14 @@ function sanitizeEnum(value: unknown, allowedValues: Set<string>) {
   return allowedValues.has(normalized) ? normalized : "";
 }
 
+function sanitizeLowercaseEnum(value: unknown, allowedValues: Set<string>) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const normalized = value.trim().toLowerCase();
+  return allowedValues.has(normalized) ? normalized : "";
+}
+
 function sanitizeUtrNumber(value: unknown) {
   if (typeof value !== "string") {
     return "";
@@ -365,6 +399,23 @@ function sanitizeBoolean(value: unknown) {
   return null;
 }
 
+function sanitizePositiveInteger(value: unknown, min: number, max: number) {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  const rounded = Math.trunc(parsed);
+  if (rounded < min || rounded > max) {
+    return null;
+  }
+  return rounded;
+}
+
 function sanitizeIsoTimestamp(value: unknown) {
   if (typeof value !== "string") {
     return "";
@@ -375,14 +426,6 @@ function sanitizeIsoTimestamp(value: unknown) {
   }
   const parsed = Date.parse(trimmed);
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : "";
-}
-
-function toTimestamp(value: unknown) {
-  if (typeof value !== "string") {
-    return 0;
-  }
-  const parsed = Date.parse(value.trim());
-  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function sanitizeJsonSnapshotString(value: unknown) {
@@ -615,7 +658,7 @@ function parseNormalizedQuery(query: string) {
   }
 }
 
-function hasScopedOrderReadFilters(queries: string[]) {
+function hasClientTableScopeFilters(queries: string[]) {
   let hasClientFilter = false;
   let hasTableFilter = false;
 
@@ -782,6 +825,185 @@ async function listReadableDocuments(collectionId: string, queries: string[]) {
   }
 
   return listDocumentsWithServerClient(collectionId, queries, false);
+}
+
+async function listBillScopedOrders(
+  databases: Databases,
+  sourceOrder: Record<string, unknown>,
+) {
+  const billId = sanitizeIdentifier(sourceOrder.bill_id, 96);
+  const sessionId = sanitizeIdentifier(sourceOrder.session_id, 96);
+  const clientId = sanitizeIdentifier(sourceOrder.client_id, 64);
+  const tableId = sanitizeIdentifier(sourceOrder.table_id, 64);
+
+  if (!billId || !sessionId) {
+    return [sourceOrder];
+  }
+
+  const billQueries = [
+    ServerQuery.equal("bill_id", [billId]),
+    ServerQuery.equal("session_id", [sessionId]),
+    ServerQuery.limit(100),
+  ];
+
+  try {
+    const billResponse = await databases.listDocuments({
+      databaseId: APPWRITE_DATABASE_ID,
+      collectionId: ORDERS_COLLECTION_ID,
+      queries: billQueries,
+    });
+    return billResponse.documents as unknown as Record<string, unknown>[];
+  } catch (error) {
+    console.warn("Admin bill-scope order query failed, falling back to table scan.", {
+      billId,
+      sessionId,
+      code: getAppwriteErrorCode(error),
+      type: getAppwriteErrorType(error),
+    });
+  }
+
+  if (!clientId || !tableId) {
+    return [sourceOrder];
+  }
+
+  try {
+    const tableResponse = await databases.listDocuments({
+      databaseId: APPWRITE_DATABASE_ID,
+      collectionId: ORDERS_COLLECTION_ID,
+      queries: [
+        ServerQuery.equal("client_id", [clientId]),
+        ServerQuery.equal("table_id", [tableId]),
+        ServerQuery.limit(200),
+      ],
+    });
+    return (tableResponse.documents as unknown as Record<string, unknown>[]).filter(
+      (doc) =>
+        sanitizeIdentifier(doc.bill_id, 96) === billId &&
+        sanitizeIdentifier(doc.session_id, 96) === sessionId,
+    );
+  } catch (error) {
+    console.warn("Admin table-scope order fallback failed.", {
+      billId,
+      sessionId,
+      code: getAppwriteErrorCode(error),
+      type: getAppwriteErrorType(error),
+    });
+    return [sourceOrder];
+  }
+}
+
+async function closeBillScopedTableSessions(
+  databases: Databases,
+  sourceOrder: Record<string, unknown>,
+) {
+  const billId = sanitizeIdentifier(sourceOrder.bill_id, 96);
+  const sessionId = sanitizeIdentifier(sourceOrder.session_id, 96);
+  const clientId = sanitizeIdentifier(sourceOrder.client_id, 64);
+  const tableId = sanitizeIdentifier(sourceOrder.table_id, 64);
+  if (!billId || !sessionId) {
+    return [] as string[];
+  }
+
+  let sessionDocs: Record<string, unknown>[] = [];
+  try {
+    const sessionResponse = await databases.listDocuments({
+      databaseId: APPWRITE_DATABASE_ID,
+      collectionId: TABLE_SESSIONS_COLLECTION_ID,
+      queries: [
+        ServerQuery.equal("bill_id", [billId]),
+        ServerQuery.equal("session_id", [sessionId]),
+        ServerQuery.limit(20),
+      ],
+    });
+    sessionDocs = sessionResponse.documents as unknown as Record<string, unknown>[];
+  } catch (error) {
+    console.warn("Admin bill-scope session query failed, falling back to table session scan.", {
+      billId,
+      sessionId,
+      code: getAppwriteErrorCode(error),
+      type: getAppwriteErrorType(error),
+    });
+  }
+
+  if (sessionDocs.length === 0 && clientId && tableId) {
+    try {
+      const sessionResponse = await databases.listDocuments({
+        databaseId: APPWRITE_DATABASE_ID,
+        collectionId: TABLE_SESSIONS_COLLECTION_ID,
+        queries: [
+          ServerQuery.equal("client_id", [clientId]),
+          ServerQuery.equal("table_id", [tableId]),
+          ServerQuery.limit(50),
+        ],
+      });
+      sessionDocs = (sessionResponse.documents as unknown as Record<string, unknown>[]).filter(
+        (doc) =>
+          sanitizeIdentifier(doc.bill_id, 96) === billId &&
+          sanitizeIdentifier(doc.session_id, 96) === sessionId,
+      );
+    } catch (error) {
+      console.warn("Admin table session fallback failed.", {
+        billId,
+        sessionId,
+        code: getAppwriteErrorCode(error),
+        type: getAppwriteErrorType(error),
+      });
+    }
+  }
+
+  const updatedSessionIds: string[] = [];
+  for (const sessionDoc of sessionDocs) {
+    const sessionDocumentId = normalizeDocumentId(sessionDoc.$id);
+    if (!sessionDocumentId) {
+      continue;
+    }
+    await databases.updateDocument({
+      databaseId: APPWRITE_DATABASE_ID,
+      collectionId: TABLE_SESSIONS_COLLECTION_ID,
+      documentId: sessionDocumentId,
+      data: {
+        status: "closed",
+        payment_status: "paid",
+      },
+    });
+    updatedSessionIds.push(sessionDocumentId);
+  }
+
+  return updatedSessionIds;
+}
+
+async function approveBillScopedOrders(documentId: string, data: Record<string, unknown>) {
+  const databases = createServerDatabases(true);
+  const sourceOrder = (await databases.getDocument({
+    databaseId: APPWRITE_DATABASE_ID,
+    collectionId: ORDERS_COLLECTION_ID,
+    documentId,
+  })) as unknown as Record<string, unknown>;
+
+  const billOrders = await listBillScopedOrders(databases, sourceOrder);
+  const updatedOrderIds: string[] = [];
+  for (const order of billOrders) {
+    const orderDocumentId = normalizeDocumentId(order.$id);
+    if (!orderDocumentId) {
+      continue;
+    }
+    await databases.updateDocument({
+      databaseId: APPWRITE_DATABASE_ID,
+      collectionId: ORDERS_COLLECTION_ID,
+      documentId: orderDocumentId,
+      data,
+    });
+    updatedOrderIds.push(orderDocumentId);
+  }
+
+  const updatedSessionIds = await closeBillScopedTableSessions(databases, sourceOrder);
+
+  return {
+    ...sourceOrder,
+    payment_status: data.payment_status,
+    updated_order_ids: updatedOrderIds,
+    updated_table_session_ids: updatedSessionIds,
+  } satisfies Record<string, unknown>;
 }
 
 function sanitizeUpstreamMessage(value: string) {
@@ -1063,6 +1285,12 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
     sanitizeEnum(documentData.payment_method, ALLOWED_PAYMENT_METHODS) || "COUNTER";
   const createdAtCustom =
     sanitizeIsoTimestamp(documentData.created_at_custom) || new Date().toISOString();
+  const sessionId = sanitizeIdentifier(documentData.session_id, 96);
+  const billId = sanitizeIdentifier(documentData.bill_id, 96);
+  const tableNumber = sanitizeText(documentData.table_number, 64);
+  const orderRound = sanitizePositiveInteger(documentData.order_round, 1, 999);
+  const isAddMore = sanitizeBoolean(documentData.is_add_more);
+  const kotStatus = sanitizeLowercaseEnum(documentData.kot_status, ALLOWED_KOT_STATUSES);
 
   const payload: Record<string, unknown> = {
     client_id: clientId,
@@ -1075,6 +1303,30 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
     total_amount: totalAmount,
     created_at_custom: createdAtCustom,
   };
+
+  if (sessionId) {
+    payload.session_id = sessionId;
+  }
+
+  if (billId) {
+    payload.bill_id = billId;
+  }
+
+  if (tableNumber) {
+    payload.table_number = tableNumber;
+  }
+
+  if (orderRound !== null) {
+    payload.order_round = orderRound;
+  }
+
+  if (isAddMore !== null) {
+    payload.is_add_more = isAddMore;
+  }
+
+  if (kotStatus) {
+    payload.kot_status = kotStatus;
+  }
 
   if (Object.hasOwn(documentData, "items_json")) {
     const snapshot = sanitizeJsonSnapshotString(documentData.items_json);
@@ -1145,6 +1397,168 @@ function sanitizePaymentCreatePayload(documentData: Record<string, unknown>) {
     customer_marked_paid: customerMarkedPaid,
     verified_by: verifiedBy,
     amount,
+  } satisfies Record<string, unknown>;
+}
+
+function sanitizeTableSessionCreatePayload(documentData: Record<string, unknown>) {
+  const clientId = sanitizeIdentifier(documentData.client_id, 64);
+  const tableId = sanitizeIdentifier(documentData.table_id, 64);
+  const tableNumber = sanitizeText(documentData.table_number, 64);
+  const sessionId = sanitizeIdentifier(documentData.session_id, 96);
+  const billId = sanitizeIdentifier(documentData.bill_id, 96);
+  const lockedBy = sanitizeIdentifier(documentData.locked_by, 96);
+  const status =
+    sanitizeLowercaseEnum(documentData.status, ALLOWED_TABLE_SESSION_STATUSES) || "active";
+  const paymentStatus =
+    sanitizeLowercaseEnum(
+      documentData.payment_status,
+      ALLOWED_TABLE_SESSION_PAYMENT_STATUSES,
+    ) || "unpaid";
+  const nowIso = new Date().toISOString();
+  const heartbeatAt = sanitizeIsoTimestamp(documentData.heartbeat_at) || nowIso;
+  const openedAt = sanitizeIsoTimestamp(documentData.opened_at) || nowIso;
+  const totalAmount = sanitizeAmount(documentData.total_amount, 0, 1_000_000);
+
+  if (!clientId || !tableId || !tableNumber || !sessionId || !billId || !lockedBy) {
+    return null;
+  }
+
+  return {
+    client_id: clientId,
+    table_id: tableId,
+    table_number: tableNumber,
+    session_id: sessionId,
+    bill_id: billId,
+    status,
+    payment_status: paymentStatus,
+    locked_by: lockedBy,
+    heartbeat_at: heartbeatAt,
+    opened_at: openedAt,
+    total_amount: totalAmount ?? 0,
+  } satisfies Record<string, unknown>;
+}
+
+function sanitizeTableSessionUpdatePayload(documentData: Record<string, unknown>) {
+  const keys = Object.keys(documentData);
+  if (keys.length === 0) {
+    return null;
+  }
+
+  const allowedFields = new Set([
+    "status",
+    "payment_status",
+    "locked_by",
+    "heartbeat_at",
+    "close_requested_at",
+    "total_amount",
+  ]);
+  if (keys.some((key) => !allowedFields.has(key))) {
+    return null;
+  }
+
+  const payload: Record<string, unknown> = {};
+
+  if (Object.hasOwn(documentData, "status")) {
+    const status = sanitizeLowercaseEnum(documentData.status, ALLOWED_TABLE_SESSION_STATUSES);
+    if (!status) {
+      return null;
+    }
+    payload.status = status;
+  }
+
+  if (Object.hasOwn(documentData, "payment_status")) {
+    const paymentStatus = sanitizeLowercaseEnum(
+      documentData.payment_status,
+      ALLOWED_TABLE_SESSION_PAYMENT_STATUSES,
+    );
+    if (!paymentStatus) {
+      return null;
+    }
+    payload.payment_status = paymentStatus;
+  }
+
+  if (Object.hasOwn(documentData, "locked_by")) {
+    const lockedBy = sanitizeIdentifier(documentData.locked_by, 96);
+    if (!lockedBy) {
+      return null;
+    }
+    payload.locked_by = lockedBy;
+  }
+
+  if (Object.hasOwn(documentData, "heartbeat_at")) {
+    const heartbeatAt = sanitizeIsoTimestamp(documentData.heartbeat_at);
+    if (!heartbeatAt) {
+      return null;
+    }
+    payload.heartbeat_at = heartbeatAt;
+  }
+
+  if (Object.hasOwn(documentData, "close_requested_at")) {
+    const closeRequestedAt = sanitizeIsoTimestamp(documentData.close_requested_at);
+    if (!closeRequestedAt) {
+      return null;
+    }
+    payload.close_requested_at = closeRequestedAt;
+  }
+
+  if (Object.hasOwn(documentData, "total_amount")) {
+    const totalAmount = sanitizeAmount(documentData.total_amount, 0, 1_000_000);
+    if (totalAmount === null) {
+      return null;
+    }
+    payload.total_amount = totalAmount;
+  }
+
+  return Object.keys(payload).length > 0 ? payload : null;
+}
+
+function sanitizePrintJobCreatePayload(documentData: Record<string, unknown>) {
+  const clientId = sanitizeIdentifier(documentData.client_id, 64);
+  const tableId = sanitizeIdentifier(documentData.table_id, 64);
+  const tableNumber = sanitizeText(documentData.table_number, 64);
+  const sessionId = sanitizeIdentifier(documentData.session_id, 96);
+  const billId = sanitizeIdentifier(documentData.bill_id, 96);
+  const orderId = sanitizeIdentifier(documentData.order_id, 64);
+  const jobType = sanitizeEnum(documentData.job_type, ALLOWED_PRINT_JOB_TYPES);
+  const label = sanitizeText(documentData.label, 160);
+  const itemsJson = sanitizeJsonSnapshotString(documentData.items_json);
+  const totalAmount = sanitizeAmount(documentData.total_amount, 0, 1_000_000);
+  const status =
+    sanitizeLowercaseEnum(documentData.status, ALLOWED_PRINT_JOB_STATUSES) || "pending";
+  const printerType = sanitizeEnum(documentData.printer_type, ALLOWED_PRINTER_TYPES);
+  const createdAtCustom =
+    sanitizeIsoTimestamp(documentData.created_at_custom) || new Date().toISOString();
+
+  if (
+    !clientId ||
+    !tableId ||
+    !tableNumber ||
+    !sessionId ||
+    !billId ||
+    !orderId ||
+    jobType !== "KOT" ||
+    !label ||
+    !itemsJson ||
+    totalAmount === null ||
+    !printerType
+  ) {
+    return null;
+  }
+
+  return {
+    client_id: clientId,
+    table_id: tableId,
+    table_number: tableNumber,
+    session_id: sessionId,
+    bill_id: billId,
+    order_id: orderId,
+    job_type: "KOT",
+    label,
+    items_json: itemsJson,
+    total_amount: totalAmount,
+    status,
+    printer_type: printerType,
+    created_at_custom: createdAtCustom,
   } satisfies Record<string, unknown>;
 }
 
@@ -1220,7 +1634,8 @@ function sanitizePatchScope(source: Record<string, unknown>) {
   if (!clientId || !tableId) {
     return null;
   }
-  return { clientId, tableId };
+  const lockedBy = sanitizeIdentifier(source.lockedBy ?? source.locked_by, 96);
+  return { clientId, tableId, lockedBy };
 }
 
 function sanitizeCreatePayload(
@@ -1232,6 +1647,12 @@ function sanitizeCreatePayload(
   }
   if (collectionId === PAYMENTS_COLLECTION_ID) {
     return sanitizePaymentCreatePayload(documentData);
+  }
+  if (collectionId === TABLE_SESSIONS_COLLECTION_ID) {
+    return sanitizeTableSessionCreatePayload(documentData);
+  }
+  if (collectionId === PRINT_JOBS_COLLECTION_ID) {
+    return sanitizePrintJobCreatePayload(documentData);
   }
   return null;
 }
@@ -1276,8 +1697,11 @@ export async function GET(request: NextRequest) {
     return jsonError("Invalid query parameters.", 400);
   }
 
-  if (collectionId === ORDERS_COLLECTION_ID && !hasScopedOrderReadFilters(queries)) {
-    return jsonError("Order read requires client and table filters.", 400);
+  if (
+    [ORDERS_COLLECTION_ID, TABLE_SESSIONS_COLLECTION_ID].includes(collectionId) &&
+    !hasClientTableScopeFilters(queries)
+  ) {
+    return jsonError("Scoped reads require client and table filters.", 400);
   }
 
   try {
@@ -1288,9 +1712,14 @@ export async function GET(request: NextRequest) {
     return noStoreJson(payload, 200);
   } catch (error) {
     const status = getAppwriteErrorCode(error) || 500;
+    const response = getAppwriteExceptionPayload(error);
     return jsonError(
-      sanitizeUpstreamErrorMessage(status, getAppwriteExceptionPayload(error)),
+      sanitizeUpstreamErrorMessage(status, response),
       status,
+      {
+        type: getAppwriteErrorType(error),
+        response,
+      },
     );
   }
 }
@@ -1392,7 +1821,7 @@ export async function PATCH(request: NextRequest) {
 
   if (
     !collectionId ||
-    collectionId !== ORDERS_COLLECTION_ID ||
+    ![ORDERS_COLLECTION_ID, TABLE_SESSIONS_COLLECTION_ID].includes(collectionId) ||
     !documentId ||
     !documentData
   ) {
@@ -1402,7 +1831,13 @@ export async function PATCH(request: NextRequest) {
   let sanitizedData: Record<string, unknown> | null = null;
   let requiresScopeVerification = false;
 
-  if (adminPin) {
+  if (collectionId === TABLE_SESSIONS_COLLECTION_ID) {
+    if (!scope) {
+      return jsonError("Table session scope is required for update.", 403);
+    }
+    sanitizedData = sanitizeTableSessionUpdatePayload(documentData);
+    requiresScopeVerification = true;
+  } else if (adminPin) {
     if (!WEB_ADMIN_APPROVAL_PIN || adminPin !== WEB_ADMIN_APPROVAL_PIN) {
       return jsonError("Admin approval is not authorized.", 403);
     }
@@ -1414,11 +1849,34 @@ export async function PATCH(request: NextRequest) {
     sanitizedData = sanitizeOrderUtrSubmissionPatch(documentData);
     requiresScopeVerification = true;
   } else {
+    if (!scope) {
+      return jsonError("Order scope is required for update.", 403);
+    }
     sanitizedData = sanitizeOrderPaymentSwitchPatch(documentData);
+    requiresScopeVerification = true;
   }
 
   if (!sanitizedData) {
     return jsonError("Invalid update payload.", 400);
+  }
+
+  if (collectionId === ORDERS_COLLECTION_ID && adminPin) {
+    try {
+      const payload = await approveBillScopedOrders(documentId, sanitizedData);
+      return noStoreJson(payload, 200);
+    } catch (error) {
+      const status = getAppwriteErrorCode(error) || 500;
+      console.error("Admin bill-scoped approval failed.", {
+        documentId,
+        collectionId,
+        code: getAppwriteErrorCode(error),
+        type: getAppwriteErrorType(error),
+      });
+      return jsonError(
+        sanitizeUpstreamErrorMessage(status, getAppwriteExceptionPayload(error)),
+        status >= 400 && status < 600 ? status : 500,
+      );
+    }
   }
 
   const upstreamUrl = `${APPWRITE_ENDPOINT}/databases/${encodeURIComponent(
@@ -1445,7 +1903,17 @@ export async function PATCH(request: NextRequest) {
     const docClientId = sanitizeIdentifier(currentDoc.client_id, 64);
     const docTableId = sanitizeIdentifier(currentDoc.table_id, 64);
     if (docClientId !== scope.clientId || docTableId !== scope.tableId) {
-      return jsonError("Document scope mismatch for verification update.", 403);
+      return jsonError("Document scope mismatch for update.", 403);
+    }
+
+    const docLockedBy = sanitizeIdentifier(currentDoc.locked_by, 96);
+    if (
+      collectionId === TABLE_SESSIONS_COLLECTION_ID &&
+      docLockedBy &&
+      scope.lockedBy &&
+      normalizeIdentityToken(docLockedBy) !== normalizeIdentityToken(scope.lockedBy)
+    ) {
+      return jsonError("Table session is locked by another browser.", 403);
     }
   }
 

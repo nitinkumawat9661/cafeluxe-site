@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useRouter } from "next/navigation";
@@ -30,6 +30,7 @@ import {
   appwriteConfig,
   createDocumentWithFallback,
   fetchAllDocuments,
+  type AppwriteDocument,
   Query,
   updateDocumentWithFallback,
 } from "@/lib/appwrite";
@@ -129,6 +130,9 @@ type BillLineItem = {
 type TableOrderRecord = {
   orderId: string;
   orderNumber: string;
+  sessionId?: string;
+  billId?: string;
+  orderRound?: number;
   tableNo: string;
   status: string;
   paymentStatus: string;
@@ -145,6 +149,28 @@ type TableOrderRecord = {
   items: BillLineItem[];
   source: "local" | "backend";
 };
+
+type TableSessionRecord = {
+  documentId: string;
+  clientId: string;
+  tableId: string;
+  tableNumber: string;
+  sessionId: string;
+  billId: string;
+  status: string;
+  paymentStatus: string;
+  lockedBy: string;
+  heartbeatAt: string;
+  openedAt: string;
+  totalAmount: number;
+};
+
+type TableSessionLifecycleState =
+  | "checking"
+  | "ready"
+  | "blocked"
+  | "needs_recovery"
+  | "error";
 
 type OfferEvaluationType = "flat_discount" | "bxgy" | "combo" | "time_based";
 type OfferTargetScope = "all" | "category" | "product" | "cart";
@@ -222,6 +248,11 @@ type ActiveTableBillState = {
   ownerBrowserId?: string;
   ownerScopeKey?: string;
   ownedOrderIds?: string[];
+  tableSessionDocumentId?: string;
+  sessionId?: string;
+  billId?: string;
+  tableSessionStatus?: string;
+  tableSessionPaymentStatus?: string;
   updatedAt: string;
 };
 
@@ -235,6 +266,13 @@ type ActiveTableSessionState = {
   lastActivityAt: string;
   ownerBrowserId?: string;
   ownerScopeKey?: string;
+  tableSessionDocumentId?: string;
+  sessionId?: string;
+  billId?: string;
+  tableSessionStatus?: string;
+  tableSessionPaymentStatus?: string;
+  lockedBy?: string;
+  orderRound?: number;
   updatedAt: string;
 };
 
@@ -315,7 +353,17 @@ const ACTIVE_TABLE_STORAGE_VERSION = 1;
 const REQUEST_TIMEOUT_MS = 12000;
 const BILL_SYNC_TIMEOUT_MS = 10000;
 const ORDER_STATUS_WATCH_INTERVAL_MS = 14000;
+const TABLE_SESSION_STATUS_WATCH_INTERVAL_MS = 5000;
+const SETTINGS_REFRESH_INTERVAL_MS = 5000;
 const MAX_TABLE_ORDER_RECORDS = 60;
+const ACTIVE_TABLE_SESSION_STATUSES = ["active", "closing_requested", "payment_pending"];
+const CLOSED_TABLE_SESSION_STATUSES = ["closed", "paid"];
+const CLOSED_TABLE_SESSION_PAYMENT_STATUSES = ["paid", "settled", "completed"];
+const ORDER_LOCKED_TABLE_SESSION_STATUSES = ["closing_requested", "payment_pending"];
+const TABLE_SESSION_LOCKED_MESSAGE = "This table is already active on another device.";
+const TABLE_SESSION_PAYMENT_PENDING_MESSAGE = "Payment verification is pending at counter.";
+const TABLE_SESSION_CLOSED_MESSAGE = "Bill closed. Thank you for visiting Cafe Luxe.";
+const SESSION_MONITOR_WARNING_MESSAGE = "Bill status is reconnecting. You can keep using the menu.";
 const MAX_ROUTE_CLIENT_LENGTH = 64;
 const MAX_ROUTE_TABLE_LENGTH = 32;
 const MAX_SEARCH_INPUT_LENGTH = 64;
@@ -337,9 +385,6 @@ const LUXURY_GOLD = PALETTE_ACCENT;
 const DEEP_CHARCOAL = PALETTE_TEXT;
 const SOFT_DARK_SURFACE = PALETTE_SURFACE;
 const WARM_HIGHLIGHT = PALETTE_ACCENT;
-const LIGHT_TEXT = PALETTE_TEXT;
-const BRAND_BG = PALETTE_BACKGROUND;
-const BRAND_SURFACE = PALETTE_SURFACE;
 
 const PIZZA_FALLBACK_MODIFIER_OPTIONS: ModifierOption[] = [
   { id: "extra_cheese", label: "Extra Cheese", price: 40, kind: "paid" },
@@ -382,6 +427,129 @@ function getErrorMessage(error: unknown) {
     return String(error.message);
   }
   return "Unexpected error";
+}
+
+type SessionMonitorErrorDetails = {
+  message: string;
+  code?: string | number;
+  type?: string;
+  response?: unknown;
+  status?: string | number;
+  stack?: string;
+  raw?: string;
+};
+
+function stringifyUnknownError(value: unknown) {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (!value) {
+    return String(value);
+  }
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized && serialized !== "{}") {
+      return serialized;
+    }
+  } catch {
+    // Fall through to String(value).
+  }
+  return String(value);
+}
+
+function extractSessionMonitorError(error: unknown): SessionMonitorErrorDetails {
+  const base: SessionMonitorErrorDetails = {
+    message: "Unknown session monitor error",
+  };
+
+  if (error instanceof Error) {
+    const source = error as Error & {
+      code?: unknown;
+      type?: unknown;
+      response?: unknown;
+      status?: unknown;
+    };
+    return {
+      message: error.message || error.name || base.message,
+      code:
+        typeof source.code === "string" || typeof source.code === "number"
+          ? source.code
+          : undefined,
+      type: typeof source.type === "string" ? source.type : undefined,
+      response: source.response,
+      status:
+        typeof source.status === "string" || typeof source.status === "number"
+          ? source.status
+          : undefined,
+      stack: error.stack,
+      raw: error.name || undefined,
+    };
+  }
+
+  if (typeof error === "object" && error) {
+    const source = error as Record<string, unknown>;
+    const message =
+      typeof source.message === "string" && source.message.trim()
+        ? source.message
+        : typeof source.error === "string" && source.error.trim()
+          ? source.error
+          : stringifyUnknownError(error);
+
+    return {
+      message: message || base.message,
+      code:
+        typeof source.code === "string" || typeof source.code === "number"
+          ? source.code
+          : undefined,
+      type: typeof source.type === "string" ? source.type : undefined,
+      response: source.response,
+      status:
+        typeof source.status === "string" || typeof source.status === "number"
+          ? source.status
+          : undefined,
+      stack: typeof source.stack === "string" ? source.stack : undefined,
+      raw: stringifyUnknownError(error),
+    };
+  }
+
+  return {
+    message: stringifyUnknownError(error) || base.message,
+    raw: stringifyUnknownError(error),
+  };
+}
+
+function getSessionMonitorErrorSignature(details: SessionMonitorErrorDetails) {
+  return [
+    details.message,
+    details.code ?? "",
+    details.status ?? "",
+    details.type ?? "",
+  ].join("|");
+}
+
+function logSessionMonitorError(
+  error: unknown,
+  consecutiveFailureCount: number,
+  previousSignature: string,
+) {
+  const details = extractSessionMonitorError(error);
+  const signature = getSessionMonitorErrorSignature(details);
+  const shouldLog =
+    consecutiveFailureCount === 1 ||
+    signature !== previousSignature ||
+    consecutiveFailureCount % 5 === 0;
+
+  if (shouldLog) {
+    console.warn("SESSION_MONITOR_ERROR", {
+      failureCount: consecutiveFailureCount,
+      ...details,
+    });
+  }
+
+  return signature;
 }
 
 const IS_DEV_BUILD = process.env.NODE_ENV !== "production";
@@ -491,6 +659,22 @@ function parseInteger(value: unknown, fallback: number) {
 
 function roundCurrency(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+function resolveClientTaxConfig(settings: RestaurantSettings) {
+  const gstIsEnabled = !!settings.gstEnabled;
+  return {
+    gstEnabled: gstIsEnabled,
+    taxPercentage: gstIsEnabled
+      ? Math.min(100, Math.max(0, settings.taxPercentage || 0))
+      : 0,
+    cgstPercentage: gstIsEnabled
+      ? Math.min(100, Math.max(0, settings.cgstPercentage || 0))
+      : 0,
+    sgstPercentage: gstIsEnabled
+      ? Math.min(100, Math.max(0, settings.sgstPercentage || 0))
+      : 0,
+  };
 }
 
 function getRecordString(source: Record<string, unknown>, keys: string[]) {
@@ -1766,15 +1950,6 @@ function pickBestApplicableOffer(
   };
 }
 
-function resolveApplicableOffersForSubtotal(
-  subtotalAmount: number,
-  lines: OfferEvaluationLine[],
-  allOffers: Offer[],
-) {
-  return evaluateApplicableOffers(allOffers, lines, subtotalAmount);
-}
-
-
 function normalizeThemeColor(value: string, fallback = PALETTE_ACCENT) {
   const candidate = value.trim();
   if (!candidate) {
@@ -2477,6 +2652,17 @@ function ensureBrowserCustomerId() {
   return generated;
 }
 
+function buildSessionToken(prefix: "session" | "bill", clientId: string, tableId: string) {
+  const clientToken = normalizeRouteToken(clientId).slice(0, 24) || "client";
+  const tableToken = normalizeRouteToken(tableId).slice(0, 24) || "table";
+  const randomToken =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID().replace(/-/g, "").slice(0, 16)
+      : Math.random().toString(36).slice(2, 14);
+
+  return `${prefix}_${clientToken}_${tableToken}_${Date.now().toString(36)}_${randomToken}`;
+}
+
 function emptyCustomerProfile(browserId: string): CustomerProfile {
   return {
     version: CUSTOMER_PROFILE_VERSION,
@@ -2940,7 +3126,7 @@ function parseBillItems(value: unknown): BillLineItem[] {
   return [];
 }
 
-function parseTableOrderRecord(value: unknown) {
+function parseTableOrderRecord(value: unknown): TableOrderRecord | null {
   if (!value || typeof value !== "object") {
     return null;
   }
@@ -2975,6 +3161,12 @@ function parseTableOrderRecord(value: unknown) {
       toSafeString(source.orderNumber) ||
       toSafeString(source.order_number) ||
       `ORD-${orderId.slice(-6).toUpperCase()}`,
+    sessionId: toSafeString(source.sessionId) || toSafeString(source.session_id) || undefined,
+    billId: toSafeString(source.billId) || toSafeString(source.bill_id) || undefined,
+    orderRound:
+      toPositiveQuantity(source.orderRound ?? source.order_round) > 0
+        ? toPositiveQuantity(source.orderRound ?? source.order_round)
+        : undefined,
     tableNo: toSafeString(source.tableNo) || toSafeString(source.table_no),
     status: toSafeString(source.status) || "PLACED",
     paymentStatus: toSafeString(source.paymentStatus ?? source.payment_status) || "UNPAID",
@@ -3178,6 +3370,16 @@ function parseActiveBillState(rawValue: string | null) {
       ownerBrowserId: toSafeString(parsed.ownerBrowserId) || toSafeString(parsed.owner_browser_id),
       ownerScopeKey: toSafeString(parsed.ownerScopeKey) || toSafeString(parsed.owner_scope_key),
       ownedOrderIds: normalizeOwnedOrderIds(parsed.ownedOrderIds ?? parsed.owned_order_ids),
+      tableSessionDocumentId:
+        toSafeString(parsed.tableSessionDocumentId) ||
+        toSafeString(parsed.table_session_document_id),
+      sessionId: toSafeString(parsed.sessionId) || toSafeString(parsed.session_id),
+      billId: toSafeString(parsed.billId) || toSafeString(parsed.bill_id),
+      tableSessionStatus:
+        toSafeString(parsed.tableSessionStatus) || toSafeString(parsed.table_session_status),
+      tableSessionPaymentStatus:
+        toSafeString(parsed.tableSessionPaymentStatus) ||
+        toSafeString(parsed.table_session_payment_status),
       updatedAt: toSafeString(parsed.updatedAt) || activeOrder?.updatedAt || new Date().toISOString(),
     } satisfies ActiveTableBillState;
   } catch {
@@ -3220,6 +3422,18 @@ function parseActiveSessionState(rawValue: string | null) {
         "",
       ownerBrowserId: toSafeString(parsed.ownerBrowserId) || toSafeString(parsed.owner_browser_id),
       ownerScopeKey: toSafeString(parsed.ownerScopeKey) || toSafeString(parsed.owner_scope_key),
+      tableSessionDocumentId:
+        toSafeString(parsed.tableSessionDocumentId) ||
+        toSafeString(parsed.table_session_document_id),
+      sessionId: toSafeString(parsed.sessionId) || toSafeString(parsed.session_id),
+      billId: toSafeString(parsed.billId) || toSafeString(parsed.bill_id),
+      tableSessionStatus:
+        toSafeString(parsed.tableSessionStatus) || toSafeString(parsed.table_session_status),
+      tableSessionPaymentStatus:
+        toSafeString(parsed.tableSessionPaymentStatus) ||
+        toSafeString(parsed.table_session_payment_status),
+      lockedBy: toSafeString(parsed.lockedBy) || toSafeString(parsed.locked_by),
+      orderRound: toPositiveQuantity(parsed.orderRound ?? parsed.order_round),
       updatedAt: toSafeString(parsed.updatedAt) || new Date().toISOString(),
     } satisfies ActiveTableSessionState;
   } catch {
@@ -3335,27 +3549,6 @@ function isOrderClosed(status: string, paymentStatus: string) {
   );
 }
 
-function isOrderAccepted(status: string) {
-  const normalized = status.trim().toUpperCase();
-  if (!normalized) {
-    return false;
-  }
-  return [
-    "ACCEPTED",
-    "CONFIRMED",
-    "PREPARING",
-    "IN_PROGRESS",
-    "COOKING",
-    "READY",
-    "SERVED",
-    "DELIVERED",
-    "BILLED",
-    "COMPLETED",
-    "CLOSED",
-    "SETTLED",
-  ].includes(normalized);
-}
-
 function isPaymentConfirmed(status: string) {
   const normalized = status.trim().toUpperCase();
   if (!normalized) {
@@ -3446,7 +3639,13 @@ function parseOrderRecordFromDocument(doc: Record<string, unknown>): TableOrderR
   return {
     orderId,
     orderNumber: toSafeString(doc.order_number) || `ORD-${orderId.slice(-6).toUpperCase()}`,
-    tableNo: toSafeString(doc.table_no),
+    sessionId: toSafeString(doc.session_id) || undefined,
+    billId: toSafeString(doc.bill_id) || undefined,
+    orderRound:
+      toPositiveQuantity(doc.order_round) > 0
+        ? toPositiveQuantity(doc.order_round)
+        : undefined,
+    tableNo: toSafeString(doc.table_number) || toSafeString(doc.table_no),
     status: toSafeString(doc.status) || "PLACED",
     paymentStatus: toSafeString(doc.payment_status) || "UNPAID",
     paymentMethod,
@@ -3469,7 +3668,12 @@ function parseOrderRecordFromDocument(doc: Record<string, unknown>): TableOrderR
   } satisfies TableOrderRecord;
 }
 
-async function fetchTableOrderRecords(clientId: string, tableId: string) {
+async function fetchTableOrderRecords(
+  clientId: string,
+  tableId: string,
+  billId?: string,
+  sessionId?: string,
+) {
   try {
     const orderDocs = await fetchAllDocuments(appwriteConfig.collections.orders, {
       pageSize: 50,
@@ -3484,7 +3688,12 @@ async function fetchTableOrderRecords(clientId: string, tableId: string) {
 
     return orderDocs
       .map((doc) => parseOrderRecordFromDocument(doc))
-      .filter((entry): entry is TableOrderRecord => !!entry);
+      .filter((entry): entry is TableOrderRecord => !!entry)
+      .filter(
+        (entry) =>
+          (!billId || entry.billId === billId) &&
+          (!sessionId || entry.sessionId === sessionId),
+      );
   } catch (error) {
     const message = getErrorMessage(error).toLowerCase();
     const canIgnore =
@@ -3586,9 +3795,190 @@ function generateOrderNumber(clientId: string, tableNo: string) {
   return `ORD-${clientToken}-${tableToken}-${yyyy}${mm}${dd}${hh}${min}${sec}`;
 }
 
+function parseTableSessionRecord(doc: Record<string, unknown>): TableSessionRecord | null {
+  const documentId = toSafeString(doc.$id) || toSafeString(doc.id);
+  const clientId = toSafeString(doc.client_id);
+  const tableId = toSafeString(doc.table_id);
+  const tableNumber = toSafeString(doc.table_number) || toSafeString(doc.table_no);
+  const sessionId = toSafeString(doc.session_id) || documentId;
+  const billId = toSafeString(doc.bill_id) || documentId;
+  if (!documentId || !clientId || !tableId || !sessionId || !billId) {
+    return null;
+  }
+
+  return {
+    documentId,
+    clientId,
+    tableId,
+    tableNumber,
+    sessionId,
+    billId,
+    status: toSafeString(doc.status) || "active",
+    paymentStatus: toSafeString(doc.payment_status) || "unpaid",
+    lockedBy: toSafeString(doc.locked_by),
+    heartbeatAt: toSafeString(doc.heartbeat_at),
+    openedAt: toSafeString(doc.opened_at) || toSafeString(doc.$createdAt),
+    totalAmount: toAmount(doc.total_amount),
+  } satisfies TableSessionRecord;
+}
+
+function isTableSessionPaymentSettled(session: TableSessionRecord | null | undefined) {
+  return CLOSED_TABLE_SESSION_PAYMENT_STATUSES.includes(
+    session?.paymentStatus.trim().toLowerCase() ?? "",
+  );
+}
+
+function isTableSessionClosedOrPaid(session: TableSessionRecord | null | undefined) {
+  return (
+    CLOSED_TABLE_SESSION_STATUSES.includes(session?.status.trim().toLowerCase() ?? "") ||
+    isTableSessionPaymentSettled(session)
+  );
+}
+
+function isTableSessionOrderLocked(session: TableSessionRecord | null | undefined) {
+  return ORDER_LOCKED_TABLE_SESSION_STATUSES.includes(
+    session?.status.trim().toLowerCase() ?? "",
+  );
+}
+
+function isOrderForSessionBill(order: TableOrderRecord, billId: string, sessionId: string) {
+  return order.billId === billId && order.sessionId === sessionId;
+}
+
+async function resolveTableSessionForBrowser(
+  clientId: string,
+  tableInfo: RestaurantTable,
+  browserId: string,
+) {
+  const tableNumber = tableInfo.tableNo || tableInfo.displayLabel || tableInfo.id;
+  const sessionDocs = await fetchAllDocuments(appwriteConfig.collections.tableSessions, {
+    pageSize: 20,
+    maxDocs: 80,
+    queries: [
+      Query.equal("client_id", [clientId]),
+      Query.equal("table_id", [tableInfo.id]),
+      Query.equal("status", ACTIVE_TABLE_SESSION_STATUSES),
+      Query.orderDesc("$updatedAt"),
+    ],
+    timeoutMs: REQUEST_TIMEOUT_MS,
+  });
+
+  const activeSessions = sessionDocs
+    .map((doc) => parseTableSessionRecord(doc))
+    .filter((entry): entry is TableSessionRecord => !!entry)
+    .filter(
+      (entry) =>
+        entry.clientId === clientId &&
+        entry.tableId === tableInfo.id &&
+        ACTIVE_TABLE_SESSION_STATUSES.includes(entry.status.trim().toLowerCase()) &&
+        !isTableSessionPaymentSettled(entry),
+    )
+    .sort((a, b) => {
+      const aStamp = Math.max(toTimestamp(a.heartbeatAt), toTimestamp(a.openedAt));
+      const bStamp = Math.max(toTimestamp(b.heartbeatAt), toTimestamp(b.openedAt));
+      return bStamp - aStamp;
+    });
+
+  const existingSession = activeSessions[0] ?? null;
+  const nowIso = new Date().toISOString();
+  if (existingSession) {
+    if (existingSession.lockedBy && existingSession.lockedBy !== browserId) {
+      throw new Error(TABLE_SESSION_LOCKED_MESSAGE);
+    }
+
+    try {
+      const updated = await updateDocumentWithFallback(
+        appwriteConfig.collections.tableSessions,
+        existingSession.documentId,
+        [
+          {
+            locked_by: browserId,
+            heartbeat_at: nowIso,
+          },
+        ],
+        {
+          scope: {
+            clientId,
+            tableId: tableInfo.id,
+            lockedBy: existingSession.lockedBy || browserId,
+          },
+        },
+      );
+      return parseTableSessionRecord(updated) ?? {
+        ...existingSession,
+        lockedBy: browserId,
+        heartbeatAt: nowIso,
+      };
+    } catch (error) {
+      devWarn("Table session heartbeat update failed:", error);
+      return {
+        ...existingSession,
+        lockedBy: browserId || existingSession.lockedBy,
+        heartbeatAt: nowIso,
+      };
+    }
+  }
+
+  const created = await createDocumentWithFallback(appwriteConfig.collections.tableSessions, [
+    {
+      client_id: clientId,
+      table_id: tableInfo.id,
+      table_number: tableNumber,
+      session_id: buildSessionToken("session", clientId, tableInfo.id),
+      bill_id: buildSessionToken("bill", clientId, tableInfo.id),
+      status: "active",
+      payment_status: "unpaid",
+      locked_by: browserId,
+      heartbeat_at: nowIso,
+      opened_at: nowIso,
+      total_amount: 0,
+    },
+  ]);
+
+  const createdSession = parseTableSessionRecord(created);
+  if (!createdSession) {
+    throw new Error("Unable to initialize table session.");
+  }
+  return createdSession;
+}
+
+async function fetchCurrentTableSessionRecord(
+  clientId: string,
+  tableInfo: RestaurantTable,
+  currentSession: TableSessionRecord,
+) {
+  const sessionDocs = await fetchAllDocuments(appwriteConfig.collections.tableSessions, {
+    pageSize: 30,
+    maxDocs: 120,
+    queries: [
+      Query.equal("client_id", [clientId]),
+      Query.equal("table_id", [tableInfo.id]),
+      Query.orderDesc("$updatedAt"),
+    ],
+    timeoutMs: REQUEST_TIMEOUT_MS,
+  });
+
+  const parsedSessions = sessionDocs
+    .map((doc) => parseTableSessionRecord(doc))
+    .filter((entry): entry is TableSessionRecord => !!entry)
+    .filter((entry) => entry.clientId === clientId && entry.tableId === tableInfo.id);
+
+  return (
+    parsedSessions.find((entry) => entry.documentId === currentSession.documentId) ??
+    parsedSessions.find(
+      (entry) =>
+        entry.sessionId === currentSession.sessionId && entry.billId === currentSession.billId,
+    ) ??
+    null
+  );
+}
+
 function buildTableOrderRecordFromCart(
   orderId: string,
   orderNumber: string,
+  sessionId: string,
+  billId: string,
+  orderRound: number,
   tableNo: string,
   paymentMethod: PaymentMethod,
   subtotal: number,
@@ -3605,6 +3995,9 @@ function buildTableOrderRecordFromCart(
   return {
     orderId,
     orderNumber,
+    sessionId,
+    billId,
+    orderRound,
     tableNo,
     status: "PLACED",
     paymentStatus: "UNPAID",
@@ -3749,6 +4142,9 @@ export default function QrOrderingExperience({
   const [activeOrderContext, setActiveOrderContext] = useState<ActiveOrderContext | null>(
     null,
   );
+  const [tableSession, setTableSession] = useState<TableSessionRecord | null>(null);
+  const [tableSessionState, setTableSessionState] =
+    useState<TableSessionLifecycleState>("checking");
   const [tableOrders, setTableOrders] = useState<TableOrderRecord[]>([]);
   const [billLastActivityAt, setBillLastActivityAt] = useState("");
   const [customerBrowserId, setCustomerBrowserId] = useState("");
@@ -3760,6 +4156,15 @@ export default function QrOrderingExperience({
   const orderSyncSnapshotRef = useRef<Record<string, { status: string; paymentStatus: string }>>({});
   const shownKitchenStatusAlertKeysRef = useRef<Set<string>>(new Set());
   const ownedOrderIdsRef = useRef<Set<string>>(new Set());
+  const handledClosedSessionKeysRef = useRef<Set<string>>(new Set());
+  const closedSessionResetTimeoutRef = useRef<number | null>(null);
+  const sessionMonitorFailureCountRef = useRef(0);
+  const sessionMonitorLastErrorSignatureRef = useRef("");
+  const sessionMonitorMissingIdentityWarnedRef = useRef(false);
+  const clientSettingsRef = useRef<RestaurantSettings>(clientSettings);
+  const categoriesRef = useRef<Category[]>([]);
+  const menuItemsRef = useRef<MenuItem[]>([]);
+  const settingsRefreshInFlightRef = useRef<Promise<RestaurantSettings> | null>(null);
   const persistedCartStateRef = useRef<string | null>(null);
   const persistedBillStateRef = useRef<string | null>(null);
   const persistedSessionStateRef = useRef<string | null>(null);
@@ -3801,7 +4206,98 @@ export default function QrOrderingExperience({
     return buildCustomerBillOwnerScopeKey(routeClient, routeTable, customerBrowserId);
   }, [customerBrowserId, routeClient, routeTable]);
 
+  useEffect(() => {
+    clientSettingsRef.current = clientSettings;
+  }, [clientSettings]);
+
+  useEffect(() => {
+    categoriesRef.current = categories;
+  }, [categories]);
+
+  useEffect(() => {
+    menuItemsRef.current = menuItems;
+  }, [menuItems]);
+
+  const applyClientSettingsDocs = useCallback(
+    (settingsDocs: AppwriteDocument[]) => {
+      const normalizedSettings = parseClientSettings(settingsDocs, routeClient);
+      const brandingSettings =
+        settingsDocs.length > 0 ? parseBrandingSettings(settingsDocs, routeClient) : null;
+
+      console.log("GST_SETTINGS_SYNC", {
+        gstEnabled: normalizedSettings.gstEnabled,
+        rawSettings: settingsDocs,
+      });
+
+      clientSettingsRef.current = normalizedSettings;
+      setClientSettings(normalizedSettings);
+      setBranding(brandingSettings);
+      setRestaurantName(
+        normalizedSettings.restaurantName ||
+          inferRestaurantName(
+            routeClient,
+            brandingSettings,
+            categoriesRef.current,
+            menuItemsRef.current,
+          ),
+      );
+
+      return normalizedSettings;
+    },
+    [routeClient],
+  );
+
+  const refreshClientSettings = useCallback(async () => {
+    if (!routeClient) {
+      return clientSettingsRef.current;
+    }
+
+    if (settingsRefreshInFlightRef.current) {
+      return settingsRefreshInFlightRef.current;
+    }
+
+    const refreshPromise = (async () => {
+      try {
+        const settingsDocs = await fetchClientScopedDocuments(
+          appwriteConfig.collections.settings,
+          routeClient,
+          { pageSize: 40, maxDocs: 120 },
+        );
+        return applyClientSettingsDocs(settingsDocs as AppwriteDocument[]);
+      } catch (error) {
+        devWarn("Settings refresh failed, keeping current settings:", error);
+        return clientSettingsRef.current;
+      }
+    })();
+
+    settingsRefreshInFlightRef.current = refreshPromise;
+    try {
+      return await refreshPromise;
+    } finally {
+      if (settingsRefreshInFlightRef.current === refreshPromise) {
+        settingsRefreshInFlightRef.current = null;
+      }
+    }
+  }, [applyClientSettingsDocs, routeClient]);
+
+  const sessionReady = !!tableSession?.sessionId && !!tableSession?.billId;
+  const sessionBlocked = tableSessionState === "blocked";
+  const sessionInitFailed = tableSessionState === "error" && !sessionReady;
+  const sessionOrderLocked = isTableSessionOrderLocked(tableSession);
+
   const isLightTheme = true;
+
+  useEffect(() => {
+    return () => {
+      if (
+        typeof window !== "undefined" &&
+        closedSessionResetTimeoutRef.current !== null
+      ) {
+        window.clearTimeout(closedSessionResetTimeoutRef.current);
+        closedSessionResetTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   function touchBillActivity(activityAt = new Date().toISOString()) {
     setBillLastActivityAt(activityAt);
@@ -3937,6 +4433,8 @@ export default function QrOrderingExperience({
       setStatusPopup(null);
       setOrderPlacedId("");
       setActiveOrderContext(null);
+      setTableSession(null);
+      setTableSessionState("checking");
       setTableOrders([]);
       setBillLastActivityAt("");
       tableOrdersRef.current = [];
@@ -3980,6 +4478,43 @@ export default function QrOrderingExperience({
           return;
         }
 
+        setLoadingMessage("Checking table session...");
+        const sessionBrowserId =
+          customerBrowserId || (typeof window !== "undefined" ? ensureBrowserCustomerId() : "");
+        if (!customerBrowserId && sessionBrowserId) {
+          setCustomerBrowserId(sessionBrowserId);
+        }
+        let resolvedTableSession: TableSessionRecord | null = null;
+        try {
+          resolvedTableSession = await withTimeout(
+            resolveTableSessionForBrowser(
+              matchedTable.clientId || routeClient,
+              matchedTable,
+              sessionBrowserId,
+            ),
+            REQUEST_TIMEOUT_MS,
+            "Table session",
+          );
+          setTableSessionState("ready");
+        } catch (sessionError) {
+          const sessionErrorMessage = getErrorMessage(sessionError);
+          if (sessionErrorMessage === TABLE_SESSION_LOCKED_MESSAGE) {
+            setTableSessionState("blocked");
+            setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
+          } else {
+            devError(sessionError);
+            setTableSessionState("needs_recovery");
+            setErrorMessage(
+              "Unable to initialize table session right now. You can browse the menu; ordering will retry before submit.",
+            );
+          }
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        setTableSession(resolvedTableSession);
         setLoadingMessage("Loading menu...");
         const settingsPromise = fetchClientScopedDocuments(
           appwriteConfig.collections.settings,
@@ -4062,15 +4597,18 @@ export default function QrOrderingExperience({
           parsedCategories.length > 0
             ? mergeCategorySets(parsedCategories, fallbackCategories)
             : fallbackCategories;
-        const fallbackSettings = parseClientSettings([], routeClient);
+        const initialSettingsDocs = await settingsPromise;
+
+        if (cancelled) {
+          return;
+        }
+
+        categoriesRef.current = ensuredCategories;
+        menuItemsRef.current = parsedItems;
+        applyClientSettingsDocs(initialSettingsDocs as AppwriteDocument[]);
         setTableInfo(matchedTable);
-        setClientSettings(fallbackSettings);
-        setBranding(null);
         setCategories(ensuredCategories);
         setMenuItems(parsedItems);
-        setRestaurantName(
-          inferRestaurantName(routeClient, null, ensuredCategories, parsedItems),
-        );
         setActiveCategory((current) =>
           current !== "all" && ensuredCategories.some((category) => category.id === current)
             ? current
@@ -4108,7 +4646,7 @@ export default function QrOrderingExperience({
           const legacySession = parseLegacyPersistedSession(
             window.localStorage.getItem(legacyTableSessionStorageKey),
           );
-          const resolvedBrowserId = customerBrowserId || ensureBrowserCustomerId();
+          const resolvedBrowserId = sessionBrowserId || customerBrowserId || ensureBrowserCustomerId();
           if (!customerBrowserId && resolvedBrowserId) {
             setCustomerBrowserId(resolvedBrowserId);
           }
@@ -4151,20 +4689,43 @@ export default function QrOrderingExperience({
           const sessionForRouteCandidate = isRecordForRoute(activeSessionState, routeClient, routeTable)
             ? activeSessionState
             : null;
-          const billForRoute = isRecordOwnedByCurrentBrowser(
+          let billForRoute = isRecordOwnedByCurrentBrowser(
             billForRouteCandidate,
             resolvedBrowserId,
             ownerScopeKey,
           )
             ? billForRouteCandidate
             : null;
-          const sessionForRoute = isRecordOwnedByCurrentBrowser(
+          let sessionForRoute = isRecordOwnedByCurrentBrowser(
             sessionForRouteCandidate,
             resolvedBrowserId,
             ownerScopeKey,
           )
             ? sessionForRouteCandidate
             : null;
+          const resolvedSessionId = resolvedTableSession?.sessionId ?? "";
+          const resolvedBillId = resolvedTableSession?.billId ?? "";
+          const hasResolvedSessionIdentity = !!resolvedSessionId && !!resolvedBillId;
+          const hasStoredBillMismatch =
+            hasResolvedSessionIdentity &&
+            ((billForRoute &&
+              (billForRoute.billId !== resolvedBillId ||
+                billForRoute.sessionId !== resolvedSessionId)) ||
+              (sessionForRoute &&
+                (sessionForRoute.billId !== resolvedBillId ||
+                  sessionForRoute.sessionId !== resolvedSessionId)));
+          if (hasStoredBillMismatch) {
+            window.localStorage.removeItem(activeBillStorageKey);
+            window.localStorage.removeItem(activeSessionStorageKey);
+            window.sessionStorage.removeItem(activeBillStorageKey);
+            window.sessionStorage.removeItem(activeSessionStorageKey);
+            window.localStorage.removeItem(scopeStorageKey);
+            persistedBillStateRef.current = null;
+            persistedSessionStateRef.current = null;
+            billForRoute = null;
+            sessionForRoute = null;
+            ownedOrderIds.clear();
+          }
           if (billForRoute?.ownedOrderIds) {
             for (const orderId of billForRoute.ownedOrderIds) {
               ownedOrderIds.add(orderId);
@@ -4222,6 +4783,11 @@ export default function QrOrderingExperience({
                 ownerBrowserId: resolvedBrowserId,
                 ownerScopeKey: ownerScopeKey,
                 ownedOrderIds: legacyForRoute.activeOrder?.id ? [legacyForRoute.activeOrder.id] : [],
+                tableSessionDocumentId: resolvedTableSession?.documentId,
+                sessionId: resolvedTableSession?.sessionId,
+                billId: resolvedTableSession?.billId,
+                tableSessionStatus: resolvedTableSession?.status,
+                tableSessionPaymentStatus: resolvedTableSession?.paymentStatus,
                 updatedAt: legacyForRoute.activeOrder.updatedAt || legacyForRoute.updatedAt || nowIso,
               };
               window.localStorage.setItem(activeBillStorageKey, JSON.stringify(migratedBill));
@@ -4238,6 +4804,13 @@ export default function QrOrderingExperience({
                 lastActivityAt: legacyForRoute.updatedAt || nowIso,
                 ownerBrowserId: resolvedBrowserId,
                 ownerScopeKey: ownerScopeKey,
+                tableSessionDocumentId: resolvedTableSession?.documentId,
+                sessionId: resolvedTableSession?.sessionId,
+                billId: resolvedTableSession?.billId,
+                tableSessionStatus: resolvedTableSession?.status,
+                tableSessionPaymentStatus: resolvedTableSession?.paymentStatus,
+                lockedBy: resolvedTableSession?.lockedBy,
+                orderRound: 0,
                 updatedAt: legacyForRoute.updatedAt || nowIso,
               };
               window.localStorage.setItem(
@@ -4286,14 +4859,24 @@ export default function QrOrderingExperience({
             }
           }
 
-          let restoredOrder =
-            billForRoute?.activeOrder ??
-            sessionForRoute?.activeOrder ??
-            legacyForRoute?.activeOrder ??
-            null;
-          const persistedOrders = (billForRoute?.orders ?? []).filter((order) =>
-            ownedOrderIdsRef.current.has(order.orderId),
-          );
+          const activeBillId =
+            resolvedTableSession?.billId || sessionForRoute?.billId || billForRoute?.billId || "";
+          const activeSessionId =
+            resolvedTableSession?.sessionId ||
+            sessionForRoute?.sessionId ||
+            billForRoute?.sessionId ||
+            "";
+          let restoredOrder = activeBillId
+            ? billForRoute?.activeOrder ??
+              sessionForRoute?.activeOrder ??
+              legacyForRoute?.activeOrder ??
+              null
+            : null;
+          const persistedOrders = activeBillId && activeSessionId
+            ? (billForRoute?.orders ?? []).filter((order) =>
+                isOrderForSessionBill(order, activeBillId, activeSessionId),
+              )
+            : [];
           const restoredBillActivityAt =
             billForRoute?.lastActivityAt ||
             sessionForRoute?.lastActivityAt ||
@@ -4304,7 +4887,7 @@ export default function QrOrderingExperience({
           const restoredOrders = applyBillInactivityPolicy(
             persistedOrders,
             restoredBillActivityAt,
-          );
+          ).filter((order) => isOrderForSessionBill(order, activeBillId, activeSessionId));
           const nextBillActivityAt =
             restoredBillActivityAt || (restoredOrders.length > 0 || restoredOrder ? new Date().toISOString() : "");
           setBillLastActivityAt(nextBillActivityAt);
@@ -4361,23 +4944,6 @@ export default function QrOrderingExperience({
         setLoadState("ready");
         setIsCartHydrated(true);
 
-        // Settings are non-critical for first paint; apply them after menu is ready.
-        void settingsPromise.then((settingsDocs) => {
-          if (cancelled || settingsDocs.length === 0) {
-            return;
-          }
-
-          const normalizedSettings = parseClientSettings(settingsDocs, routeClient);
-          const brandingSettings = parseBrandingSettings(settingsDocs, routeClient);
-
-          setClientSettings(normalizedSettings);
-          setBranding(brandingSettings);
-          setRestaurantName(
-            normalizedSettings.restaurantName ||
-              inferRestaurantName(routeClient, brandingSettings, ensuredCategories, parsedItems),
-          );
-        });
-
         void offersPromise.then((offerDocs) => {
           if (cancelled) {
             return;
@@ -4408,7 +4974,12 @@ export default function QrOrderingExperience({
           void (async () => {
             try {
               const backendOrders = await withTimeout(
-                fetchTableOrderRecords(cleanupClientId, matchedTable.id),
+                fetchTableOrderRecords(
+                  cleanupClientId,
+                  matchedTable.id,
+                  resolvedTableSession?.billId,
+                  resolvedTableSession?.sessionId,
+                ),
                 BILL_SYNC_TIMEOUT_MS,
                 "Initial bill sync",
               );
@@ -4431,7 +5002,9 @@ export default function QrOrderingExperience({
         devError(error);
         setLoadState("error");
         const message = getErrorMessage(error).toLowerCase();
-        if (message.includes("timed out")) {
+        if (getErrorMessage(error) === TABLE_SESSION_LOCKED_MESSAGE) {
+          setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
+        } else if (message.includes("timed out")) {
           setErrorMessage("Loading is taking longer than expected. Please check internet and retry.");
         } else if (message.includes("project") || message.includes("database")) {
           setErrorMessage("Appwrite configuration issue detected. Please verify project and database settings.");
@@ -4452,11 +5025,50 @@ export default function QrOrderingExperience({
     activeBillStorageKey,
     activeCartStorageKey,
     activeSessionStorageKey,
+    applyClientSettingsDocs,
     legacyTableSessionStorageKey,
     reloadKey,
     routeClient,
     routeTable,
   ]);
+
+  useEffect(() => {
+    if (loadState !== "ready" || typeof window === "undefined") {
+      return;
+    }
+
+    const refreshVisibleSettings = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+      void refreshClientSettings();
+    };
+
+    window.addEventListener("focus", refreshVisibleSettings);
+    document.addEventListener("visibilitychange", refreshVisibleSettings);
+
+    return () => {
+      window.removeEventListener("focus", refreshVisibleSettings);
+      document.removeEventListener("visibilitychange", refreshVisibleSettings);
+    };
+  }, [loadState, refreshClientSettings]);
+
+  useEffect(() => {
+    if (loadState !== "ready" || typeof window === "undefined") {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+      void refreshClientSettings();
+    }, SETTINGS_REFRESH_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [loadState, refreshClientSettings]);
 
   useEffect(() => {
     if (!tableInfo || loadState !== "ready") {
@@ -4481,7 +5093,12 @@ export default function QrOrderingExperience({
         }
         try {
           const backendRecords = await withTimeout(
-            fetchTableOrderRecords(tableInfo.clientId || routeClient, tableInfo.id),
+            fetchTableOrderRecords(
+              tableInfo.clientId || routeClient,
+              tableInfo.id,
+              tableSession?.billId,
+              tableSession?.sessionId,
+            ),
             BILL_SYNC_TIMEOUT_MS,
             "Status watch sync",
           );
@@ -4508,8 +5125,126 @@ export default function QrOrderingExperience({
     loadState,
     orderPlacedId,
     routeClient,
+    tableSession?.billId,
     tableInfo,
     tableOrders.length,
+  ]);
+
+  useEffect(() => {
+    if (!tableInfo || loadState !== "ready" || !tableSession?.documentId) {
+      return;
+    }
+    if (!tableSession.sessionId || !tableSession.billId) {
+      if (!sessionMonitorMissingIdentityWarnedRef.current) {
+        console.warn("Session monitor skipped: missing session id");
+        sessionMonitorMissingIdentityWarnedRef.current = true;
+      }
+      return;
+    }
+    sessionMonitorMissingIdentityWarnedRef.current = false;
+
+    let cancelled = false;
+    const sessionBeingWatched = tableSession;
+
+    const resetMonitorFailureState = () => {
+      sessionMonitorFailureCountRef.current = 0;
+      sessionMonitorLastErrorSignatureRef.current = "";
+      setNoticeMessage((current) =>
+        current === SESSION_MONITOR_WARNING_MESSAGE ? "" : current,
+      );
+    };
+
+    const recordMonitorFailure = (error: unknown) => {
+      sessionMonitorFailureCountRef.current += 1;
+      const previousSignature = sessionMonitorLastErrorSignatureRef.current;
+      sessionMonitorLastErrorSignatureRef.current = logSessionMonitorError(
+        error,
+        sessionMonitorFailureCountRef.current,
+        previousSignature,
+      );
+
+      if (sessionMonitorFailureCountRef.current >= 5) {
+        setNoticeMessage((current) =>
+          current && current !== SESSION_MONITOR_WARNING_MESSAGE
+            ? current
+            : SESSION_MONITOR_WARNING_MESSAGE,
+        );
+      }
+    };
+
+    const pollTableSessionStatus = async () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+      if (typeof navigator !== "undefined" && "onLine" in navigator && !navigator.onLine) {
+        return;
+      }
+
+      try {
+        const latestSession = await withTimeout(
+          fetchCurrentTableSessionRecord(
+            tableInfo.clientId || routeClient,
+            tableInfo,
+            sessionBeingWatched,
+          ),
+          REQUEST_TIMEOUT_MS,
+          "Table session status",
+        );
+        if (cancelled) {
+          return;
+        }
+
+        if (!latestSession) {
+          recordMonitorFailure(
+            new Error("Current table session was not found in the monitor response."),
+          );
+          return;
+        }
+
+        resetMonitorFailureState();
+
+        if (isTableSessionClosedOrPaid(latestSession)) {
+          resetCustomerSessionAfterClose(latestSession);
+          return;
+        }
+
+        if (isTableSessionOrderLocked(latestSession)) {
+          setTableSession(latestSession);
+          setErrorMessage(TABLE_SESSION_PAYMENT_PENDING_MESSAGE);
+          setBillSyncMessage(TABLE_SESSION_PAYMENT_PENDING_MESSAGE);
+          return;
+        }
+
+        setTableSession((current) =>
+          current?.documentId === latestSession.documentId ? latestSession : current,
+        );
+        setErrorMessage((current) =>
+          current === TABLE_SESSION_PAYMENT_PENDING_MESSAGE ? "" : current,
+        );
+      } catch (error) {
+        if (!cancelled) {
+          recordMonitorFailure(error);
+        }
+      }
+    };
+
+    void pollTableSessionStatus();
+    const intervalId = window.setInterval(
+      () => void pollTableSessionStatus(),
+      TABLE_SESSION_STATUS_WATCH_INTERVAL_MS,
+    );
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [
+    loadState,
+    routeClient,
+    tableInfo,
+    tableSession?.billId,
+    tableSession?.documentId,
+    tableSession?.sessionId,
   ]);
 
   useEffect(() => {
@@ -4522,6 +5257,7 @@ export default function QrOrderingExperience({
     const hasModifierSelections = Object.keys(selectedModifiersByItem).length > 0;
     const hasAddonSelections = Object.keys(selectedAddonsByItem).length > 0;
     const hasInstructions = kitchenInstructions.trim().length > 0;
+    const hasTableSession = !!tableSession;
     const hasOpenOrder =
       !!activeOrderContext &&
       !isOrderClosed(activeOrderContext.status, activeOrderContext.paymentStatus);
@@ -4580,6 +5316,11 @@ export default function QrOrderingExperience({
       ownerBrowserId: resolvedBrowserId || undefined,
       ownerScopeKey: resolvedOwnerScopeKey || undefined,
       ownedOrderIds: normalizedOwnedOrderIds,
+      tableSessionDocumentId: tableSession?.documentId,
+      sessionId: tableSession?.sessionId,
+      billId: tableSession?.billId,
+      tableSessionStatus: tableSession?.status,
+      tableSessionPaymentStatus: tableSession?.paymentStatus,
       updatedAt: activeOrderContext?.updatedAt || nowIso,
     };
 
@@ -4593,6 +5334,17 @@ export default function QrOrderingExperience({
       lastActivityAt: effectiveBillLastActivityAt,
       ownerBrowserId: resolvedBrowserId || undefined,
       ownerScopeKey: resolvedOwnerScopeKey || undefined,
+      tableSessionDocumentId: tableSession?.documentId,
+      sessionId: tableSession?.sessionId,
+      billId: tableSession?.billId,
+      tableSessionStatus: tableSession?.status,
+      tableSessionPaymentStatus: tableSession?.paymentStatus,
+      lockedBy: tableSession?.lockedBy,
+      orderRound: tableSession
+        ? tableOrders.filter((order) =>
+            isOrderForSessionBill(order, tableSession.billId, tableSession.sessionId),
+          ).length
+        : 0,
       updatedAt: nowIso,
     };
 
@@ -4626,7 +5378,7 @@ export default function QrOrderingExperience({
       window.sessionStorage.removeItem(activeBillStorageKey);
     }
 
-    if (hasCart || hasOpenOrder || hasBillOrders) {
+    if (hasTableSession || hasCart || hasOpenOrder || hasBillOrders) {
       if (persistedSessionStateRef.current !== sessionStatePayload) {
         window.localStorage.setItem(activeSessionStorageKey, sessionStatePayload);
         persistedSessionStateRef.current = sessionStatePayload;
@@ -4656,6 +5408,7 @@ export default function QrOrderingExperience({
     routeTable,
     selectedAddonsByItem,
     selectedModifiersByItem,
+    tableSession,
     tableOrders,
     billLastActivityAt,
   ]);
@@ -5009,19 +5762,14 @@ export default function QrOrderingExperience({
     const code = clientSettings.currency.trim().toUpperCase();
     return code || "INR";
   }, [clientSettings.currency]);
-  const gstEnabled = useMemo(() => !!clientSettings.gstEnabled, [clientSettings.gstEnabled]);
-  const taxPercentage = useMemo(
-    () => (gstEnabled ? Math.min(100, Math.max(0, clientSettings.taxPercentage || 0)) : 0),
-    [clientSettings.taxPercentage, gstEnabled],
+  const clientTaxConfig = useMemo(
+    () => resolveClientTaxConfig(clientSettings),
+    [clientSettings],
   );
-  const cgstPercentage = useMemo(
-    () => (gstEnabled ? Math.min(100, Math.max(0, clientSettings.cgstPercentage || 0)) : 0),
-    [clientSettings.cgstPercentage, gstEnabled],
-  );
-  const sgstPercentage = useMemo(
-    () => (gstEnabled ? Math.min(100, Math.max(0, clientSettings.sgstPercentage || 0)) : 0),
-    [clientSettings.sgstPercentage, gstEnabled],
-  );
+  const gstEnabled = clientTaxConfig.gstEnabled;
+  const taxPercentage = clientTaxConfig.taxPercentage;
+  const cgstPercentage = clientTaxConfig.cgstPercentage;
+  const sgstPercentage = clientTaxConfig.sgstPercentage;
   const taxAmount = useMemo(
     () => (gstEnabled ? Number(((subtotal * taxPercentage) / 100).toFixed(2)) : 0),
     [subtotal, taxPercentage, gstEnabled],
@@ -5054,10 +5802,6 @@ export default function QrOrderingExperience({
   const autoPromotions = useMemo(
     () => offersToday.filter((offer) => resolveOfferApplicationLevel(offer) === "promotion"),
     [offersToday],
-  );
-  const bxgyOffers = useMemo(
-    () => autoPromotions.filter((offer) => resolveOfferTypeToken(offer) === "bxgy"),
-    [autoPromotions],
   );
   const cartLevelOffers = useMemo(
     () => offersToday.filter((offer) => resolveOfferApplicationLevel(offer) === "cart"),
@@ -5107,33 +5851,7 @@ export default function QrOrderingExperience({
       ),
     [matchedItemOffers, preDiscountTotal, resolvedCartCoupon],
   );
-  const itemPromotionDiscountTotal = useMemo(
-    () => roundCurrency(matchedItemOffers.reduce((sum, entry) => sum + entry.discountAmount, 0)),
-    [matchedItemOffers],
-  );
-  const cartCouponDiscount = roundCurrency(resolvedCartCoupon?.discountAmount ?? 0);
   const finalTotal = roundCurrency(Math.max(0, safeSubtotal + safeTaxes - totalDiscountAmount));
-  console.log("Tax Settings Debug", {
-    gstEnabled,
-    taxPercentage,
-    subtotal: safeSubtotal,
-    discountAmount: totalDiscountAmount,
-    taxAmount: safeTaxes,
-    finalTotal,
-  });
-  console.log("Offer Bucket Debug", {
-    cartItems,
-    autoPromotions,
-    cartCouponCandidates,
-    bxgyOffers,
-    itemLevelDiscounts: matchedItemOffers,
-    selectedCartCoupon,
-    bestCartCoupon,
-    itemPromotionDiscountTotal,
-    cartCouponDiscount,
-    totalDiscountAmount,
-    finalTotal,
-  });
 
   const mergedBillItems = useMemo(
     () => mergeBillItemsFromOrders(tableOrders, menuItems),
@@ -5278,23 +5996,6 @@ export default function QrOrderingExperience({
     () => new Map(menuItems.map((item) => [item.id, item])),
     [menuItems],
   );
-  const unpaidOfferEvaluationLines = useMemo(() => {
-    return unpaidMergedItems.map((lineItem) => {
-      const menuItem = menuItemLookup.get(lineItem.itemId);
-      return {
-        itemId: lineItem.itemId,
-        name: lineItem.name,
-        quantity: lineItem.quantity,
-        unitPrice: lineItem.unitPrice,
-        lineTotal: lineItem.lineTotal,
-        categoryRefs: menuItem?.categoryRefs ?? [],
-      } satisfies OfferEvaluationLine;
-    });
-  }, [menuItemLookup, unpaidMergedItems]);
-  const applicableUnpaidOffers = useMemo(
-    () => evaluateApplicableOffers(offersToday, unpaidOfferEvaluationLines, unpaidSubtotal),
-    [offersToday, unpaidOfferEvaluationLines, unpaidSubtotal],
-  );
   const unpaidStoredPayableTotal = useMemo(
     () => sumTableOrderPayableAmount(unpaidOrders),
     [unpaidOrders],
@@ -5352,6 +6053,12 @@ export default function QrOrderingExperience({
     [unpaidOrders],
   );
   const unpaidTotal = unpaidOnlyPayableTotal;
+  const placeOrderDisabled =
+    cartCount === 0 ||
+    placingOrder ||
+    sessionBlocked ||
+    sessionOrderLocked ||
+    sessionInitFailed;
 
   function triggerAddFeedback(itemId: string) {
     if (prefersReducedMotion || typeof window === "undefined") {
@@ -5369,6 +6076,22 @@ export default function QrOrderingExperience({
   }
 
   function updateItemQuantity(itemId: string, delta: number) {
+    if (sessionBlocked) {
+      setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
+      return;
+    }
+
+    if (delta > 0) {
+      if (sessionInitFailed) {
+        setErrorMessage("Unable to initialize table session. Please refresh the QR and try again.");
+        return;
+      }
+      const menuItem = menuItems.find((item) => item.id === itemId);
+      if (menuItem && !menuItem.isAvailable) {
+        return;
+      }
+    }
+
     setCart((current) => {
       const oldQty = current[itemId] ?? 0;
       const nextQty = Math.max(0, oldQty + delta);
@@ -5425,6 +6148,16 @@ export default function QrOrderingExperience({
   }
 
   function openAddonPickerForItem(item: MenuItem, mode: "add" | "edit" = "add") {
+    if (sessionBlocked) {
+      setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
+      return;
+    }
+
+    if (sessionInitFailed) {
+      setErrorMessage("Unable to initialize table session. Please refresh the QR and try again.");
+      return;
+    }
+
     const addonGroups = itemAddonGroupsByItem[item.id] ?? [];
     if (addonGroups.length === 0) {
       updateItemQuantity(item.id, 1);
@@ -5516,6 +6249,79 @@ export default function QrOrderingExperience({
 
   function showStatusPopup(nextPopup: StatusPopupState) {
     setStatusPopup(nextPopup);
+  }
+
+  function resetCustomerSessionAfterClose(
+    closedSession: TableSessionRecord | null | undefined = tableSession,
+  ) {
+    const closedSessionKey = closedSession
+      ? `${closedSession.documentId}:${closedSession.sessionId}:${closedSession.billId}`
+      : "";
+    if (closedSessionKey && handledClosedSessionKeysRef.current.has(closedSessionKey)) {
+      return;
+    }
+    if (closedSessionKey) {
+      handledClosedSessionKeysRef.current.add(closedSessionKey);
+    }
+
+    setActiveOrderContext(null);
+    activeOrderContextRef.current = null;
+    setOrderPlacedId("");
+    tableOrdersRef.current = [];
+    setTableOrders([]);
+    syncOrderSnapshot([]);
+    clearCart();
+    setBillLastActivityAt("");
+    billLastActivityRef.current = "";
+    ownedOrderIdsRef.current = new Set();
+    setTableSession(null);
+    setTableSessionState("checking");
+    setBillOpen(false);
+    setCartOpen(false);
+    setUpiQrOpen(false);
+    setAddonPickerItemId("");
+    setAddonPickerDraftByGroup({});
+    setAddonPickerError("");
+    setKitchenInstructions("");
+    setErrorMessage("");
+    setBillSyncMessage(TABLE_SESSION_CLOSED_MESSAGE);
+    setNoticeMessage(TABLE_SESSION_CLOSED_MESSAGE);
+    showStatusPopup({
+      title: "Bill Closed",
+      description: "Thank you for visiting Cafe Luxe.",
+      tone: "success",
+    });
+
+    persistedCartStateRef.current = null;
+    persistedBillStateRef.current = null;
+    persistedSessionStateRef.current = null;
+
+    if (typeof window === "undefined") {
+      setTableSessionState("ready");
+      return;
+    }
+
+    window.localStorage.removeItem(activeCartStorageKey);
+    window.localStorage.removeItem(activeBillStorageKey);
+    window.localStorage.removeItem(activeSessionStorageKey);
+    window.localStorage.removeItem(legacyTableSessionStorageKey);
+    window.sessionStorage.removeItem(activeCartStorageKey);
+    window.sessionStorage.removeItem(activeBillStorageKey);
+    window.sessionStorage.removeItem(activeSessionStorageKey);
+    if (customerBillScopeStorageKey) {
+      window.localStorage.removeItem(customerBillScopeStorageKey);
+    }
+    if (customerBillOwnerScopeKey) {
+      window.localStorage.removeItem(customerBillOwnerScopeKey);
+    }
+
+    if (closedSessionResetTimeoutRef.current !== null) {
+      window.clearTimeout(closedSessionResetTimeoutRef.current);
+    }
+    closedSessionResetTimeoutRef.current = window.setTimeout(() => {
+      setTableSessionState((current) => (current === "checking" ? "ready" : current));
+      closedSessionResetTimeoutRef.current = null;
+    }, 900);
   }
 
   function markKitchenStatusAlertSeen(orderId: string, status: string) {
@@ -5671,11 +6477,15 @@ export default function QrOrderingExperience({
       return "none" as const;
     }
 
+    const activeBillId = tableSession?.billId || "";
+    const activeSessionId = tableSession?.sessionId || "";
     const ownedOrderIds = ownedOrderIdsRef.current;
-    const scopedBackendRecords =
-      ownedOrderIds.size > 0
-        ? backendRecords.filter((record) => ownedOrderIds.has(record.orderId))
-        : [];
+    const scopedBackendRecords = backendRecords.filter((record) => {
+      if (activeBillId && activeSessionId) {
+        return isOrderForSessionBill(record, activeBillId, activeSessionId);
+      }
+      return ownedOrderIds.has(record.orderId);
+    });
 
     const mergedRecords = mergeTableOrderRecords(tableOrdersRef.current, scopedBackendRecords);
     checkBackendTransitions(mergedRecords);
@@ -5712,16 +6522,18 @@ export default function QrOrderingExperience({
       setActiveOrderContext(null);
       activeOrderContextRef.current = null;
       setOrderPlacedId("");
-      syncOrderSnapshot(visibleRecords);
-      if (typeof window !== "undefined") {
-        if (visibleRecords.length === 0) {
-          window.localStorage.removeItem(activeBillStorageKey);
-          window.localStorage.removeItem(activeSessionStorageKey);
-          window.sessionStorage.removeItem(activeBillStorageKey);
-          window.sessionStorage.removeItem(activeSessionStorageKey);
-        }
+      if (mergedRecords.length > 0) {
+        resetCustomerSessionAfterClose();
+        return "closed" as const;
       }
-      return mergedRecords.length > 0 ? ("closed" as const) : ("applied" as const);
+      syncOrderSnapshot([]);
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(activeBillStorageKey);
+        window.localStorage.removeItem(activeSessionStorageKey);
+        window.sessionStorage.removeItem(activeBillStorageKey);
+        window.sessionStorage.removeItem(activeSessionStorageKey);
+      }
+      return "applied" as const;
     }
 
     setActiveOrderContext(latestContext);
@@ -5739,11 +6551,23 @@ export default function QrOrderingExperience({
     setBillActionOrderId(order.orderId);
     setBillSyncMessage("");
 
+    if (!tableInfo) {
+      setBillActionOrderId("");
+      setBillSyncMessage("Table context is not ready. Please refresh and retry.");
+      return false;
+    }
+
     try {
       await updateDocumentWithFallback(
         appwriteConfig.collections.orders,
         order.orderId,
         payloadCandidates,
+        {
+          scope: {
+            clientId: tableInfo.clientId || routeClient,
+            tableId: tableInfo.id,
+          },
+        },
       );
 
       setTableOrders((current) =>
@@ -5935,7 +6759,12 @@ export default function QrOrderingExperience({
 
     try {
       const backendRecords = await withTimeout(
-        fetchTableOrderRecords(tableInfo.clientId || routeClient, tableInfo.id),
+        fetchTableOrderRecords(
+          tableInfo.clientId || routeClient,
+          tableInfo.id,
+          tableSession?.billId,
+          tableSession?.sessionId,
+        ),
         BILL_SYNC_TIMEOUT_MS,
         "Bill refresh",
       );
@@ -5971,6 +6800,130 @@ export default function QrOrderingExperience({
     }
   }
 
+  async function requestCloseBill() {
+    if (!tableSession?.documentId || !tableInfo) {
+      setBillSyncMessage("Table session is not ready. Please refresh and retry.");
+      return;
+    }
+
+    if (unpaidOrders.length === 0) {
+      setBillSyncMessage("No unpaid bill is available to close yet.");
+      return;
+    }
+
+    const confirmed =
+      typeof window === "undefined"
+        ? true
+        : window.confirm("Request final bill for this table?");
+    if (!confirmed) {
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    setBillActionOrderId("__close_bill__");
+    setBillSyncMessage("");
+
+    try {
+      await updateDocumentWithFallback(
+        appwriteConfig.collections.tableSessions,
+        tableSession.documentId,
+        [
+          {
+            status: "payment_pending",
+            close_requested_at: nowIso,
+          },
+        ],
+        {
+          scope: {
+            clientId: tableInfo.clientId || routeClient,
+            tableId: tableInfo.id,
+            lockedBy: tableSession.lockedBy || customerBrowserId,
+          },
+        },
+      );
+      setTableSession((current) =>
+        current
+          ? {
+              ...current,
+              status: "payment_pending",
+              heartbeatAt: nowIso,
+            }
+          : current,
+      );
+      touchBillActivity(nowIso);
+      setBillSyncMessage("Close bill requested. Staff will prepare payment.");
+    } catch (error) {
+      devError(error);
+      setBillSyncMessage("Unable to request close bill right now. Please retry.");
+    } finally {
+      setBillActionOrderId("");
+    }
+  }
+
+  async function ensureTableSessionForOrder() {
+    if (sessionBlocked) {
+      setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
+      return null;
+    }
+
+    if (tableSession?.sessionId && tableSession.billId) {
+      if (isTableSessionOrderLocked(tableSession)) {
+        setErrorMessage(TABLE_SESSION_PAYMENT_PENDING_MESSAGE);
+        return null;
+      }
+      return tableSession;
+    }
+
+    if (!tableInfo?.id) {
+      setTableSessionState("error");
+      setErrorMessage("Table session could not start because table mapping is missing.");
+      return null;
+    }
+
+    const resolvedBrowserId =
+      customerBrowserId || (typeof window !== "undefined" ? ensureBrowserCustomerId() : "");
+    if (!customerBrowserId && resolvedBrowserId) {
+      setCustomerBrowserId(resolvedBrowserId);
+    }
+
+    setTableSessionState("checking");
+    try {
+      const recoveredSession = await withTimeout(
+        resolveTableSessionForBrowser(
+          tableInfo.clientId || routeClient,
+          tableInfo,
+          resolvedBrowserId,
+        ),
+        REQUEST_TIMEOUT_MS,
+        "Table session recovery",
+      );
+      setTableSession(recoveredSession);
+      setTableSessionState("ready");
+      if (isTableSessionOrderLocked(recoveredSession)) {
+        setErrorMessage(TABLE_SESSION_PAYMENT_PENDING_MESSAGE);
+        return null;
+      }
+      if (
+        errorMessage ===
+        "Unable to initialize table session right now. You can browse the menu; ordering will retry before submit."
+      ) {
+        setErrorMessage("");
+      }
+      return recoveredSession;
+    } catch (error) {
+      const message = getErrorMessage(error);
+      if (message === TABLE_SESSION_LOCKED_MESSAGE) {
+        setTableSessionState("blocked");
+        setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
+      } else {
+        devError(error);
+        setTableSessionState("error");
+        setErrorMessage("Unable to initialize table session. Please refresh the QR and try again.");
+      }
+      return null;
+    }
+  }
+
   function openBillDrawer() {
     touchBillActivity();
     setCartOpen(false);
@@ -5978,9 +6931,10 @@ export default function QrOrderingExperience({
     setBillSyncMessage("");
   }
 
-  function openCartPage() {
+  async function openCartPage() {
     touchBillActivity();
     setBillOpen(false);
+    await refreshClientSettings();
     if (isStandaloneCartRoute) {
       setCartOpen(true);
       return;
@@ -6032,6 +6986,16 @@ export default function QrOrderingExperience({
   }
 
   async function handlePlaceOrder(options?: { redirectToMenuAfterSuccess?: boolean }) {
+    if (sessionBlocked) {
+      setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
+      return;
+    }
+
+    if (sessionOrderLocked) {
+      setErrorMessage(TABLE_SESSION_PAYMENT_PENDING_MESSAGE);
+      return;
+    }
+
     if (placeOrderLockRef.current || placingOrder || cartCount === 0 || !tableInfo) {
       return;
     }
@@ -6049,9 +7013,24 @@ export default function QrOrderingExperience({
       return;
     }
 
+    const latestSettings = await refreshClientSettings();
+    const latestTaxConfig = resolveClientTaxConfig(latestSettings);
+
+    const activeOrderSession = await ensureTableSessionForOrder();
+    if (!activeOrderSession?.sessionId || !activeOrderSession.billId) {
+      setPlacingOrder(false);
+      placeOrderLockRef.current = false;
+      return;
+    }
+
     const nowIso = new Date().toISOString();
     const clientId = tableInfo.clientId || routeClient;
     const orderNumber = generateOrderNumber(clientId, tableInfo.tableNo);
+    const currentBillOrders = tableOrdersRef.current.filter((order) =>
+      isOrderForSessionBill(order, activeOrderSession.billId, activeOrderSession.sessionId),
+    );
+    const orderRound = currentBillOrders.length + 1;
+    const isAddMore = orderRound > 1;
     const browserIdForOrder =
       customerBrowserId || (typeof window !== "undefined" ? ensureBrowserCustomerId() : "");
     if (!customerBrowserId && browserIdForOrder) {
@@ -6095,14 +7074,14 @@ export default function QrOrderingExperience({
     const computedSubtotal = Math.round(
       compactItems.reduce((sum, entry) => sum + toAmount(entry.line_total), 0) * 100,
     ) / 100;
-    const computedTaxAmount = gstEnabled
-      ? Math.round((computedSubtotal * taxPercentage) / 100 * 100) / 100
+    const computedTaxAmount = latestTaxConfig.gstEnabled
+      ? Math.round((computedSubtotal * latestTaxConfig.taxPercentage) / 100 * 100) / 100
       : 0;
-    const computedCgstAmount = gstEnabled
-      ? Math.round((computedSubtotal * cgstPercentage) / 100 * 100) / 100
+    const computedCgstAmount = latestTaxConfig.gstEnabled
+      ? Math.round((computedSubtotal * latestTaxConfig.cgstPercentage) / 100 * 100) / 100
       : 0;
-    const computedSgstAmount = gstEnabled
-      ? Math.round((computedSubtotal * sgstPercentage) / 100 * 100) / 100
+    const computedSgstAmount = latestTaxConfig.gstEnabled
+      ? Math.round((computedSubtotal * latestTaxConfig.sgstPercentage) / 100 * 100) / 100
       : 0;
     const computedTotal = roundCurrency(computedSubtotal + computedTaxAmount);
     const computedOfferDiscount = roundCurrency(
@@ -6123,6 +7102,12 @@ export default function QrOrderingExperience({
       client_id: clientId,
       table_id: tableInfo.id,
       order_number: orderNumber,
+      session_id: activeOrderSession.sessionId,
+      bill_id: activeOrderSession.billId,
+      table_number: tableInfo.tableNo || tableLabel,
+      order_round: orderRound,
+      is_add_more: isAddMore,
+      kot_status: "pending",
       status: "PLACED",
       payment_status: "UNPAID",
       subtotal: computedSubtotal,
@@ -6186,6 +7171,35 @@ export default function QrOrderingExperience({
         appwriteConfig.collections.orders,
         orderPayloadCandidates,
       );
+      const tableNumberForPrint = tableInfo.tableNo || tableLabel;
+      const kotLabel =
+        orderRound > 1 || isAddMore
+          ? `RUNNING ORDER TABLE ${tableNumberForPrint}`
+          : `NEW ORDER TABLE ${tableNumberForPrint}`;
+      const printJobPayload = {
+        client_id: clientId,
+        table_id: tableInfo.id,
+        table_number: tableNumberForPrint,
+        session_id: activeOrderSession.sessionId,
+        bill_id: activeOrderSession.billId,
+        order_id: createdOrder.$id,
+        job_type: "KOT",
+        label: kotLabel,
+        items_json: orderItemsSnapshot,
+        total_amount: computedPayableTotal,
+        status: "pending",
+        printer_type: "KITCHEN",
+        created_at_custom: nowIso,
+      } satisfies Record<string, unknown>;
+
+      try {
+        await createDocumentWithFallback(appwriteConfig.collections.printJobs, [
+          printJobPayload,
+        ]);
+      } catch (printJobError) {
+        devWarn("KOT print job could not be created, but order was placed.", printJobError);
+        setNoticeMessage("KOT print job could not be created, but order was placed.");
+      }
 
       if (paymentMethod === "UPI") {
         const paymentPayloadCandidates: Record<string, unknown>[] = [
@@ -6226,6 +7240,9 @@ export default function QrOrderingExperience({
       const placedOrderRecord = buildTableOrderRecordFromCart(
         createdOrder.$id,
         orderNumber,
+        activeOrderSession.sessionId,
+        activeOrderSession.billId,
+        orderRound,
         tableInfo.tableNo,
         paymentMethod,
         computedSubtotal,
@@ -6239,9 +7256,38 @@ export default function QrOrderingExperience({
         resolvedSelectedAddonsByItem,
         trimmedInstructions,
       );
-      const mergedLocalOrders = mergeTableOrderRecords(tableOrdersRef.current, [placedOrderRecord]);
+      const mergedLocalOrders = mergeTableOrderRecords(currentBillOrders, [placedOrderRecord]);
+      const nextSessionTotal = roundCurrency(sumTableOrderPayableAmount(mergedLocalOrders));
       setTableOrders(mergedLocalOrders);
       tableOrdersRef.current = mergedLocalOrders;
+      setTableSession((current) =>
+        current
+          ? {
+              ...current,
+              heartbeatAt: nowIso,
+              totalAmount: nextSessionTotal,
+            }
+          : current,
+      );
+      void updateDocumentWithFallback(
+        appwriteConfig.collections.tableSessions,
+        activeOrderSession.documentId,
+        [
+          {
+            heartbeat_at: nowIso,
+            total_amount: nextSessionTotal,
+          },
+        ],
+        {
+          scope: {
+            clientId,
+            tableId: tableInfo.id,
+            lockedBy: activeOrderSession.lockedBy || browserIdForOrder,
+          },
+        },
+      ).catch((sessionUpdateError) => {
+        devWarn("Table session total update failed:", sessionUpdateError);
+      });
       persistOwnedOrderIds(
         mergedLocalOrders.map((record) => record.orderId),
         browserIdForOrder,
@@ -6975,7 +8021,7 @@ export default function QrOrderingExperience({
                 {normalizedCurrency}
               </p>
               <p className={clsx("text-xs", isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>
-                GST: {gstEnabled ? `${taxPercentage}%` : "Off"}
+                GST: {gstEnabled ? `On (${taxPercentage}%)` : "Off"}
               </p>
             </div>
           </div>
@@ -7312,6 +8358,14 @@ export default function QrOrderingExperience({
                           Math.max(subtotal, previewLineTotal),
                         );
                         const handleCardAdd = () => {
+                          if (sessionBlocked) {
+                            setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
+                            return;
+                          }
+                          if (sessionInitFailed) {
+                            setErrorMessage("Unable to initialize table session. Please refresh the QR and try again.");
+                            return;
+                          }
                           if (!item.isAvailable) {
                             return;
                           }
@@ -7547,7 +8601,8 @@ export default function QrOrderingExperience({
                             backgroundColor: LUXURY_GOLD,
                             borderColor: withAlpha(LUXURY_GOLD, 0.55),
                           }}
-                          onClick={() => {
+                          onClick={(event) => {
+                            event.stopPropagation();
                             handleCardAdd();
                           }}
                         >
@@ -7578,7 +8633,10 @@ export default function QrOrderingExperience({
                               contentTextClass,
                               isLightTheme ? "hover:bg-[#C6A57B]" : "hover:bg-zinc-800",
                             )}
-                            onClick={() => updateItemQuantity(item.id, -1)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              updateItemQuantity(item.id, -1);
+                            }}
                             aria-label={`Remove one ${item.name}`}
                           >
                             <Minus className="h-4 w-4" />
@@ -7594,7 +8652,8 @@ export default function QrOrderingExperience({
                               contentTextClass,
                               isLightTheme ? "hover:bg-[#C6A57B]" : "hover:bg-zinc-800",
                             )}
-                            onClick={() => {
+                            onClick={(event) => {
+                              event.stopPropagation();
                               updateItemQuantity(item.id, 1);
                               triggerAddFeedback(item.id);
                             }}
@@ -7628,7 +8687,14 @@ export default function QrOrderingExperience({
                               ? withAlpha(PALETTE_SURFACE, 0.95)
                               : withAlpha(SOFT_DARK_SURFACE, 0.7),
                           }}
-                          onClick={() => openAddonPickerForItem(item, "edit")}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (sessionBlocked) {
+                              setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
+                              return;
+                            }
+                            openAddonPickerForItem(item, "edit");
+                          }}
                         >
                           {selectedAddons.length > 0 ? "Edit Add-ons" : "Choose Add-ons"}
                         </button>
@@ -7665,7 +8731,16 @@ export default function QrOrderingExperience({
                                         : withAlpha(SOFT_DARK_SURFACE, 0.7),
                                     }
                               }
-                              onClick={() => {
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (sessionBlocked) {
+                                  setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
+                                  return;
+                                }
+                                if (sessionInitFailed) {
+                                  setErrorMessage("Unable to initialize table session. Please refresh the QR and try again.");
+                                  return;
+                                }
                                 if (!item.isAvailable) {
                                   return;
                                 }
@@ -7763,7 +8838,7 @@ export default function QrOrderingExperience({
                 borderColor: withAlpha(LUXURY_GOLD, 0.42),
                 background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
               }}
-              onClick={openCartPage}
+              onClick={() => void openCartPage()}
             >
               <span className="inline-flex items-center gap-2 text-sm font-semibold">
                 <ShoppingBag className="h-5 w-5" />
@@ -8415,6 +9490,32 @@ export default function QrOrderingExperience({
                   <Plus className="h-4 w-4" />
                   {"Add More Items"}
                 </button>
+
+                {unpaidOrders.length > 0 ? (
+                  <button
+                    type="button"
+                    className={clsx(
+                      "cafe-luxe-chip inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
+                      isLightTheme
+                        ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
+                        : "border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800",
+                    )}
+                    onClick={requestCloseBill}
+                    disabled={billActionOrderId.length > 0}
+                  >
+                    {billActionOrderId === "__close_bill__" ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {"Requesting..."}
+                      </>
+                    ) : (
+                      <>
+                        <HandCoins className="h-4 w-4" />
+                        {"Close Bill"}
+                      </>
+                    )}
+                  </button>
+                ) : null}
 
                 <button
                   type="button"
@@ -9274,7 +10375,7 @@ export default function QrOrderingExperience({
                       background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
                     }}
                     onClick={() => void handlePlaceOrder()}
-                    disabled={cartCount === 0 || placingOrder}
+                    disabled={placeOrderDisabled}
                   >
                     {placingOrder ? (
                       <>
@@ -9297,7 +10398,7 @@ export default function QrOrderingExperience({
                         background: `linear-gradient(180deg, ${PALETTE_SURFACE} 0%, ${WARM_HIGHLIGHT} 100%)`,
                       }}
                       onClick={() => void handlePlaceOrder({ redirectToMenuAfterSuccess: true })}
-                      disabled={cartCount === 0 || placingOrder}
+                      disabled={placeOrderDisabled}
                     >
                       {placingOrder ? "Placing Order..." : "Payment Done"}
                     </button>

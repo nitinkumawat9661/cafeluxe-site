@@ -50,7 +50,7 @@ export default function PrivacyPolicyPage() {
             className="text-base sm:text-lg leading-relaxed mb-4"
             style={{ color: "#2E2A26" }}
           >
-            CafeLuxe ("we," "us," "our," or "Company") is committed to protecting your privacy. This Privacy Policy
+            CafeLuxe (&quot;we,&quot; &quot;us,&quot; &quot;our,&quot; or &quot;Company&quot;) is committed to protecting your privacy. This Privacy Policy
             explains how we collect, use, disclose, and safeguard your information when you visit our platform and use
             our services.
           </p>
@@ -264,7 +264,7 @@ export default function PrivacyPolicyPage() {
                   className="underline font-semibold hover:opacity-75 transition-opacity"
                   style={{ color: "#C6A57B" }}
                 >
-                  Google's Privacy Policy
+                  Google&apos;s Privacy Policy
                 </a>
                 . Your data is encrypted in transit and at rest.
               </p>
@@ -281,7 +281,7 @@ export default function PrivacyPolicyPage() {
                 className="text-base leading-relaxed"
                 style={{ color: "#2E2A26" }}
               >
-                Our platform is hosted on Netlify, which may collect usage and analytics data. Review Netlify's privacy
+                Our platform is hosted on Netlify, which may collect usage and analytics data. Review Netlify&apos;s privacy
                 practices at their{" "}
                 <a
                   href="https://www.netlify.com/privacy/"
@@ -436,7 +436,7 @@ export default function PrivacyPolicyPage() {
             className="text-2xl sm:text-3xl font-semibold mb-6 tracking-tight"
             style={{ color: "#2E2A26" }}
           >
-            8. Children's Privacy
+            8. Children&apos;s Privacy
           </h2>
 
           <p
@@ -445,7 +445,7 @@ export default function PrivacyPolicyPage() {
           >
             CafeLuxe is not intended for individuals under 18 years of age. We do not knowingly collect personal
             information from children. If we become aware that a child has provided us with information, we will
-            promptly delete it and terminate the child's account.
+            promptly delete it and terminate the child&apos;s account.
           </p>
         </section>
 
@@ -464,7 +464,7 @@ export default function PrivacyPolicyPage() {
           >
             We may update this Privacy Policy from time to time to reflect changes in our practices, technology, legal
             requirements, and other factors. We will notify you of material changes by posting the updated policy on
-            our platform and updating the "Last updated" date.
+            our platform and updating the &quot;Last updated&quot; date.
           </p>
         </section>
 
