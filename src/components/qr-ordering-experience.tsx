@@ -4,8 +4,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import clsx from "clsx";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { Swiper, SwiperSlide } from "swiper/react";
-import { A11y, EffectCoverflow } from "swiper/modules";
+
 import {
   AlertCircle,
   CheckCircle2,
@@ -6057,8 +6056,7 @@ export default function QrOrderingExperience({
     cartCount === 0 ||
     placingOrder ||
     sessionBlocked ||
-    sessionOrderLocked ||
-    sessionInitFailed;
+    sessionOrderLocked;
 
   function triggerAddFeedback(itemId: string) {
     if (prefersReducedMotion || typeof window === "undefined") {
@@ -6078,46 +6076,26 @@ export default function QrOrderingExperience({
   async function addToCart(item: MenuItem) {
     const itemId = item.id;
     const itemName = item.name;
-    const sessionStatus = tableSession?.status.trim().toLowerCase() ?? "";
-    const tableActive = sessionStatus === "active";
     const outOfStock = !item.isAvailable;
-    const blocked = sessionBlocked;
+
+    if (!itemId) {
+      console.error("ADD BLOCKED: Item ID missing", { item });
+      setErrorMessage("Error: Item ID is missing. Please refresh and try again.");
+      return;
+    }
 
     console.log("ADD_TO_CART_ENTERED", {
       itemId,
       name: itemName,
-      sessionStatus,
-      sessionBlocked: blocked,
-      tableActive,
       outOfStock,
     });
-    console.log("ADD_ITEM_BLOCK_REASON", {
-      itemId,
-      itemName,
-      sessionStatus,
-      sessionBlocked: blocked,
-      tableActive,
-      outOfStock,
-    });
-
-    if (blocked) {
-      setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
-      return;
-    }
 
     if (outOfStock) {
+      console.log("ADD BLOCKED: item out of stock", { itemId, name: itemName });
       return;
     }
 
-    const resolvedSession = await ensureTableSessionForOrder();
-    if (!resolvedSession) {
-      return;
-    }
-
-    if (resolvedSession.status.trim().toLowerCase() !== "active") {
-      setErrorMessage(TABLE_SESSION_PAYMENT_PENDING_MESSAGE);
-      return;
-    }
+    console.log("ADD_TO_CART_ALLOWED", { itemId, name: itemName });
 
     const addonGroups = itemAddonGroupsByItem[item.id] ?? [];
     if (addonGroups.length > 0) {
@@ -6125,45 +6103,17 @@ export default function QrOrderingExperience({
       return;
     }
 
-    await updateItemQuantity(item.id, 1);
-    triggerAddFeedback(item.id);
+    await updateItemQuantity(itemId, 1);
+    triggerAddFeedback(itemId);
   }
 
   async function updateItemQuantity(itemId: string, delta: number) {
-    if (sessionBlocked) {
-      setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
+    const menuItem = menuItems.find((item) => item.id === itemId);
+    const menuItemName = menuItem?.name ?? itemId;
+
+    if (delta > 0 && menuItem && !menuItem.isAvailable) {
+      console.log("ADD BLOCKED: item out of stock", { itemId, name: menuItemName });
       return;
-    }
-
-    if (delta > 0) {
-      if (sessionInitFailed) {
-        setErrorMessage("Unable to initialize table session. Please refresh the QR and try again.");
-        return;
-      }
-
-      const menuItem = menuItems.find((item) => item.id === itemId);
-      const menuItemName = menuItem?.name ?? itemId;
-      const sessionStatus = tableSession?.status.trim().toLowerCase() ?? "";
-      const tableActive = sessionStatus === "active";
-      const outOfStock = menuItem ? !menuItem.isAvailable : false;
-      console.log("ADD_TO_CART_ENTERED", {
-        itemId,
-        name: menuItemName,
-        sessionStatus,
-        sessionBlocked,
-        tableActive,
-        outOfStock,
-        delta,
-      });
-
-      if (menuItem && !menuItem.isAvailable) {
-        return;
-      }
-
-      const resolvedSession = await ensureTableSessionForOrder();
-      if (!resolvedSession) {
-        return;
-      }
     }
 
     setCart((current) => {
@@ -6940,24 +6890,29 @@ export default function QrOrderingExperience({
 
   async function ensureTableSessionForOrder() {
     if (sessionBlocked) {
+      console.log("SESSION BLOCKED: Table locked on another device");
       setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
       return null;
     }
 
     if (tableSession?.sessionId && tableSession.billId) {
       if (isTableSessionOrderLocked(tableSession)) {
+        console.log("SESSION BLOCKED: Current session is payment_pending or closing_requested");
         setErrorMessage(TABLE_SESSION_PAYMENT_PENDING_MESSAGE);
         return null;
       }
 
       if (isTableSessionClosedOrPaid(tableSession)) {
+        console.log("SESSION: Closed/paid session detected - will create fresh session");
         // A closed/paid session must not be reused for a new order.
       } else if (tableSession.status.trim().toLowerCase() === "active") {
+        console.log("SESSION: Reusing active session");
         return tableSession;
       }
     }
 
     if (!tableInfo?.id) {
+      console.error("SESSION ERROR: Table mapping missing");
       setTableSessionState("error");
       setErrorMessage("Table session could not start because table mapping is missing.");
       return null;
@@ -6970,6 +6925,7 @@ export default function QrOrderingExperience({
     }
 
     setTableSessionState("checking");
+    console.log("SESSION: Creating/recovering session for browser...");
     try {
       const recoveredSession = await withTimeout(
         resolveTableSessionForBrowser(
@@ -6982,7 +6938,12 @@ export default function QrOrderingExperience({
       );
       setTableSession(recoveredSession);
       setTableSessionState("ready");
+      console.log("SESSION RECOVERED", {
+        sessionId: recoveredSession.sessionId,
+        status: recoveredSession.status,
+      });
       if (isTableSessionOrderLocked(recoveredSession)) {
+        console.log("SESSION BLOCKED: Recovered session is locked");
         setErrorMessage(TABLE_SESSION_PAYMENT_PENDING_MESSAGE);
         return null;
       }
@@ -6996,9 +6957,11 @@ export default function QrOrderingExperience({
     } catch (error) {
       const message = getErrorMessage(error);
       if (message === TABLE_SESSION_LOCKED_MESSAGE) {
+        console.log("SESSION ERROR: Locked", { message });
         setTableSessionState("blocked");
         setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
       } else {
+        console.error("SESSION ERROR", { message, error });
         devError(error);
         setTableSessionState("error");
         setErrorMessage("Unable to initialize table session. Please refresh the QR and try again.");
@@ -7100,6 +7063,11 @@ export default function QrOrderingExperience({
     const latestTaxConfig = resolveClientTaxConfig(latestSettings);
 
     const activeOrderSession = await ensureTableSessionForOrder();
+    console.log("PLACE_ORDER_SESSION_CHECK", {
+      sessionId: activeOrderSession?.sessionId,
+      billId: activeOrderSession?.billId,
+      sessionStatus: activeOrderSession?.status,
+    });
     if (!activeOrderSession?.sessionId || !activeOrderSession.billId) {
       setPlacingOrder(false);
       placeOrderLockRef.current = false;
@@ -8379,78 +8347,48 @@ export default function QrOrderingExperience({
                   </div>
 
                   <div className="cafeluxe-coverflow-shell">
-                    <Swiper
-                      modules={[EffectCoverflow, A11y]}
-                      effect="coverflow"
-                      grabCursor
-                      centeredSlides
-                      centerInsufficientSlides
-                      slideToClickedSlide
-                      watchSlidesProgress
-                      watchOverflow
-                      slidesPerView="auto"
-                      resistanceRatio={0.6}
-                      touchRatio={1}
-                      threshold={5}
-                      longSwipes
-                      longSwipesRatio={0.28}
-                      speed={420}
-                      roundLengths
-                      preventClicks={false}
-                      preventClicksPropagation={false}
-                      touchStartPreventDefault={false}
-                      spaceBetween={12}
-                      loop={false}
-                      coverflowEffect={{
-                        rotate: 22,
-                        stretch: 0,
-                        depth: 92,
-                        modifier: 0.76,
-                        slideShadows: false,
-                      }}
-                      breakpoints={{
-                        640: { spaceBetween: 16 },
-                        1024: { spaceBetween: 18 },
-                      }}
-                      className="cafeluxe-menu-coverflow"
-                    >
-                      {section.items.map((item) => {
-                        const quantity = cart[item.id] ?? 0;
-                        const parsedImageSrc = item.image.trim();
-                        const hasImage = parsedImageSrc.length > 0;
-                        const selectedModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
-                        const selectedAddons = resolvedSelectedAddonsByItem[item.id] ?? [];
-                        const modifierTotal = getSelectedModifierTotal(selectedModifiers);
-                        const addonTotal = getSelectedAddonTotal(selectedAddons);
-                        const displayPrice = item.price + modifierTotal + addonTotal;
-                        const itemModifierOptions = modifierOptionsByItem[item.id] ?? [];
-                        const itemAddonGroups = itemAddonGroupsByItem[item.id] ?? [];
-                        const hasMappedAddons = itemAddonGroups.length > 0;
-                        const previewQuantity = Math.max(1, quantity);
-                        const previewLineTotal = displayPrice * previewQuantity;
-                        const itemOfferPreview = pickBestItemWiseOfferForLine(
-                          {
-                            itemId: item.id,
-                            name: item.name,
-                            quantity: previewQuantity,
-                            unitPrice: displayPrice,
-                            lineTotal: previewLineTotal,
-                            categoryRefs: item.categoryRefs,
-                          },
-                          autoPromotions,
-                          Math.max(subtotal, previewLineTotal),
-                        );
-                        const handleCardAdd = () => {
-                          console.log("PRODUCT_CARD_CLICKED", item);
-                          void addToCart(item);
-                        };
+                    <div className="native-menu-coverflow">
+                       {section.items.map((item, index) => {
+                         const quantity = cart[item.id] ?? 0;
+                         const parsedImageSrc = item.image.trim();
+                         const hasImage = parsedImageSrc.length > 0;
+                         const selectedModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
+                         const selectedAddons = resolvedSelectedAddonsByItem[item.id] ?? [];
+                         const modifierTotal = getSelectedModifierTotal(selectedModifiers);
+                         const addonTotal = getSelectedAddonTotal(selectedAddons);
+                         const displayPrice = item.price + modifierTotal + addonTotal;
+                         const itemModifierOptions = modifierOptionsByItem[item.id] ?? [];
+                         const itemAddonGroups = itemAddonGroupsByItem[item.id] ?? [];
+                         const hasMappedAddons = itemAddonGroups.length > 0;
+                         const previewQuantity = Math.max(1, quantity);
+                         const previewLineTotal = displayPrice * previewQuantity;
+                         const itemOfferPreview = pickBestItemWiseOfferForLine(
+                           {
+                             itemId: item.id,
+                             name: item.name,
+                             quantity: previewQuantity,
+                             unitPrice: displayPrice,
+                             lineTotal: previewLineTotal,
+                             categoryRefs: item.categoryRefs,
+                           },
+                           autoPromotions,
+                           Math.max(subtotal, previewLineTotal),
+                         );
+                         const handleCardAdd = () => {
+                           console.log("CARD_CLICK", {
+                             categoryName: section.category.name,
+                             index,
+                             itemId: item.id,
+                             itemName: item.name
+                           });
+                           void addToCart(item);
+                         };
+
+
 
                         return (
-                          <SwiperSlide
-                            key={`${section.category.id}_${item.id}`}
-                            className="cafeluxe-menu-coverflow-slide"
-                          >
                 <article
+                  key={item.id}
                   data-menu-item-id={item.id}
                   role="button"
                   tabIndex={item.isAvailable ? 0 : -1}
@@ -8828,10 +8766,10 @@ export default function QrOrderingExperience({
                     ) : null}
                   </div>
                 </article>
-                          </SwiperSlide>
+
                         );
                       })}
-                    </Swiper>
+                    </div>
                   </div>
                 </motion.section>
               );
