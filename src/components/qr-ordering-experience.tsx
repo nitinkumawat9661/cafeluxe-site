@@ -4132,6 +4132,8 @@ export default function QrOrderingExperience({
   const [upiQrUri, setUpiQrUri] = useState("");
   const [upiQrAmount, setUpiQrAmount] = useState("");
   const [upiQrOpen, setUpiQrOpen] = useState(false);
+  const [paymentMethodSelectionOpen, setPaymentMethodSelectionOpen] = useState(false);
+  const [selectedPaymentMode, setSelectedPaymentMode] = useState<"counter" | "online" | null>(null);
   const [placingOrder, setPlacingOrder] = useState(false);
   const [billSyncing, setBillSyncing] = useState(false);
   const [billSyncMessage, setBillSyncMessage] = useState("");
@@ -5591,6 +5593,9 @@ export default function QrOrderingExperience({
     [cartItems],
   );
 
+  const cartVisible = useMemo(() => cartItems.length > 0 && !placingOrder, [cartItems, placingOrder]);
+  const billVisible = useMemo(() => tableOrders.length > 0, [tableOrders]);
+
   useEffect(() => {
     setSelectedModifiersByItem((current) => {
       const next: Record<string, SelectedModifier[]> = {};
@@ -6842,7 +6847,7 @@ export default function QrOrderingExperience({
     const confirmed =
       typeof window === "undefined"
         ? true
-        : window.confirm("Request final bill for this table?");
+        : window.confirm("Are you sure you want to request bill payment?");
     if (!confirmed) {
       return;
     }
@@ -7408,6 +7413,7 @@ export default function QrOrderingExperience({
       setSelectedAddonsByItem({});
       setKitchenInstructions("");
       setCartOpen(false);
+      setBillOpen(true);
 
       if (options?.redirectToMenuAfterSuccess) {
         setNoticeMessage("Order placed successfully.");
@@ -7536,14 +7542,12 @@ export default function QrOrderingExperience({
     clientSettings.upiName.trim() || DEFAULT_UPI_NAME,
     60,
   );
-  const cartUpiLink =
-    paymentMethod === "UPI"
-      ? buildUpiPaymentLink({
-          upiId: configuredUpiId,
-          upiName: configuredUpiName,
-          amount: finalTotal,
-        })
-      : "";
+  const billUpiLink = buildUpiPaymentLink({
+    upiId: configuredUpiId,
+    upiName: configuredUpiName,
+    amount: unpaidTotal,
+  });
+
   const currentBillUpiLink =
     currentBillPaymentMethod === "UPI" && !isOrderClosed(currentBillStatus, currentBillPaymentStatus)
       ? buildUpiPaymentLink({
@@ -8793,78 +8797,82 @@ export default function QrOrderingExperience({
             background: bottomBarGradient,
           }}
         >
-          <div className="grid grid-cols-2 gap-2">
-            <motion.button
-              type="button"
-              whileHover={hoverLiftMotion}
-              whileTap={pressMotion}
-              className="cafeluxe-dock-action cafeluxe-dock-bill cafe-luxe-cta flex items-center justify-between rounded-xl border px-4 py-3 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)] transition active:translate-y-px"
-              style={{
-                borderColor: withAlpha(ROYAL_NAVY, 0.34),
-                background: isLightTheme
-                  ? "linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_SURFACE} 100%)"
-                  : `linear-gradient(180deg, ${PALETTE_TEXT} 0%, ${PALETTE_SECONDARY} 100%)`,
-                color: isLightTheme ? PALETTE_TEXT : undefined,
-              }}
-              onClick={openBillDrawer}
-            >
-              <span className="inline-flex items-center gap-2 text-sm font-semibold">
-                <ReceiptText className="h-5 w-5" />
-                {"My Bill"}
-              </span>
-              <span
-                className={clsx(
-                  "rounded-lg px-2 py-1 text-xs font-semibold",
-                  isLightTheme ? "bg-[#C6A57B] text-brand-dark" : "bg-black/20",
-                )}
+          <div className="flex gap-2">
+            {billVisible && !cartVisible && (
+              <motion.button
+                type="button"
+                whileHover={hoverLiftMotion}
+                whileTap={pressMotion}
+                className="cafeluxe-dock-action cafeluxe-dock-bill cafe-luxe-cta flex w-full items-center justify-between rounded-xl border px-4 py-3 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)] transition active:translate-y-px"
+                style={{
+                  borderColor: withAlpha(ROYAL_NAVY, 0.34),
+                  background: isLightTheme
+                    ? "linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_SURFACE} 100%)"
+                    : `linear-gradient(180deg, ${PALETTE_TEXT} 0%, ${PALETTE_SECONDARY} 100%)`,
+                  color: isLightTheme ? PALETTE_TEXT : undefined,
+                }}
+                onClick={openBillDrawer}
               >
-                <AnimatePresence mode="popLayout" initial={false}>
-                  <motion.span
-                    key={`bill_total_${unpaidTotal.toFixed(2)}`}
-                    initial={prefersReducedMotion ? false : { opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -5 }}
-                    transition={gentleSpring}
-                    className="block"
-                  >
-                    {formatMoney(unpaidTotal)}
-                  </motion.span>
-                </AnimatePresence>
-              </span>
-            </motion.button>
+                <span className="inline-flex items-center gap-2 text-sm font-semibold">
+                  <ReceiptText className="h-5 w-5" />
+                  {"My Bill"}
+                </span>
+                <span
+                  className={clsx(
+                    "rounded-lg px-2 py-1 text-xs font-semibold",
+                    isLightTheme ? "bg-[#C6A57B] text-brand-dark" : "bg-black/20",
+                  )}
+                >
+                  <AnimatePresence mode="popLayout" initial={false}>
+                    <motion.span
+                      key={`bill_total_${unpaidTotal.toFixed(2)}`}
+                      initial={prefersReducedMotion ? false : { opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -5 }}
+                      transition={gentleSpring}
+                      className="block"
+                    >
+                      {formatMoney(unpaidTotal)}
+                    </motion.span>
+                  </AnimatePresence>
+                </span>
+              </motion.button>
+            )}
 
-            <motion.button
-              type="button"
-              whileHover={hoverLiftMotion}
-              whileTap={pressMotion}
-              animate={addFeedbackPulse}
-              transition={{ duration: prefersReducedMotion ? 0 : 0.42, ease: softEase }}
-              className="cafeluxe-dock-action cafeluxe-dock-cart cafe-luxe-cta flex items-center justify-between rounded-xl border px-4 py-3 text-brand-dark shadow-[0_16px_36px_-24px_rgba(0,0,0,0.95)] transition disabled:cursor-not-allowed disabled:opacity-60 active:translate-y-px"
-              style={{
-                borderColor: withAlpha(LUXURY_GOLD, 0.42),
-                background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
-              }}
-              onClick={() => void openCartPage()}
-            >
-              <span className="inline-flex items-center gap-2 text-sm font-semibold">
-                <ShoppingBag className="h-5 w-5" />
-                {"Cart"} {cartCount > 0 ? `(${cartCount})` : ""}
-              </span>
-              <span className="rounded-lg bg-black/10 px-2 py-1 text-xs font-semibold">
-                <AnimatePresence mode="popLayout" initial={false}>
-                  <motion.span
-                    key={`cart_total_${finalTotal.toFixed(2)}`}
-                    initial={prefersReducedMotion ? false : { opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -5 }}
-                    transition={gentleSpring}
-                    className="block"
-                  >
-                    {formatMoney(finalTotal)}
-                  </motion.span>
-                </AnimatePresence>
-              </span>
-            </motion.button>
+            {cartVisible && (
+              <motion.button
+                type="button"
+                whileHover={hoverLiftMotion}
+                whileTap={pressMotion}
+                animate={addFeedbackPulse}
+                transition={{ duration: prefersReducedMotion ? 0 : 0.42, ease: softEase }}
+                className="cafeluxe-dock-action cafeluxe-dock-cart cafe-luxe-cta flex w-full items-center justify-between rounded-xl border px-4 py-3 text-brand-dark shadow-[0_16px_36px_-24px_rgba(0,0,0,0.95)] transition disabled:cursor-not-allowed disabled:opacity-60 active:translate-y-px"
+                style={{
+                  borderColor: withAlpha(LUXURY_GOLD, 0.42),
+                  background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
+                }}
+                onClick={() => void openCartPage()}
+              >
+                <span className="inline-flex items-center gap-2 text-sm font-semibold">
+                  <ShoppingBag className="h-5 w-5" />
+                  {"Cart"} {cartCount > 0 ? `(${cartCount})` : ""}
+                </span>
+                <span className="rounded-lg bg-black/10 px-2 py-1 text-xs font-semibold">
+                  <AnimatePresence mode="popLayout" initial={false}>
+                    <motion.span
+                      key={`cart_total_${finalTotal.toFixed(2)}`}
+                      initial={prefersReducedMotion ? false : { opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -5 }}
+                      transition={gentleSpring}
+                      className="block"
+                    >
+                      {formatMoney(finalTotal)}
+                    </motion.span>
+                  </AnimatePresence>
+                </span>
+              </motion.button>
+            )}
           </div>
           <p className={clsx("mt-2 text-center text-[11px] font-medium tracking-[0.08em]", isLightTheme ? "text-brand-dark/72" : "text-zinc-400")}>
             Developed by TrustFirst Solutions
@@ -9506,7 +9514,7 @@ export default function QrOrderingExperience({
                         ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
                         : "border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800",
                     )}
-                    onClick={requestCloseBill}
+                    onClick={() => setPaymentMethodSelectionOpen(true)}
                     disabled={billActionOrderId.length > 0}
                   >
                     {billActionOrderId === "__close_bill__" ? (
@@ -9517,7 +9525,7 @@ export default function QrOrderingExperience({
                     ) : (
                       <>
                         <HandCoins className="h-4 w-4" />
-                        {"Pay Bill"}
+                        {"Pay Bill Now"}
                       </>
                     )}
                   </button>
@@ -10121,200 +10129,7 @@ export default function QrOrderingExperience({
                   </section>
                 ) : null}
 
-                <section
-                  className={clsx(
-                    "cafe-luxe-card space-y-3 rounded-2xl border p-3.5",
-                    isLightTheme
-                      ? "border-[#C6A57B] bg-[#E8D9C5]"
-                      : "border-zinc-800 bg-zinc-900/55",
-                  )}
-                >
-                  <p className={clsx("cafe-luxe-section-title mb-2 text-sm font-medium", isLightTheme ? "text-brand-dark/75" : "text-zinc-300")}>
-                    {"Payment Method"}
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(["COUNTER", "UPI"] as const).map((method) => (
-                      <button
-                        key={method}
-                        type="button"
-                        className={clsx(
-                          "cafe-luxe-control inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition",
-                          paymentMethod === method
-                            ? "text-zinc-950"
-                            : isLightTheme
-                              ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
-                              : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800",
-                        )}
-                        style={
-                          paymentMethod === method
-                            ? { borderColor: accentBorder, backgroundColor: accentColor }
-                            : undefined
-                        }
-                        onClick={() => setPaymentMethod(method)}
-                      >
-                        {method === "UPI" ? (
-                          <Sparkles className="h-4 w-4" />
-                        ) : (
-                          <HandCoins className="h-4 w-4" />
-                        )}
-                        {method === "UPI" ? "UPI" : "Pay At Counter"}
-                      </button>
-                    ))}
-                  </div>
-                </section>
 
-                {paymentMethod === "UPI" ? (
-                  <motion.section
-                    initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={gentleSpring}
-                    className={clsx(
-                      "cafeluxe-payment-panel cafe-luxe-card rounded-2xl border p-3.5 text-sm",
-                      contentTextClass,
-                      isLightTheme
-                        ? "border-[#C6A57B] bg-[#E8D9C5]"
-                        : "border-zinc-800/30 bg-[#F8F5F0]/10",
-                    )}
-                  >
-                    <p className="text-[10px] uppercase tracking-[0.14em] opacity-70">UPI Payment</p>
-                    <p className="mt-1 text-sm font-semibold">{configuredUpiName}</p>
-                    <p className="mt-0.5 text-xs opacity-70">{configuredUpiId}</p>
-                    <div
-                      className={clsx(
-                        "cafe-luxe-summary mt-3 flex items-center justify-between rounded-xl border px-3 py-2",
-                        isLightTheme
-                          ? "border-[#C6A57B] bg-[#E8D9C5]"
-                          : "border-zinc-800/20 bg-black/10",
-                      )}
-                    >
-                      <span className="text-xs opacity-70">Payable Amount</span>
-                      <span className="text-sm font-semibold">{formatMoney(finalTotal)}</span>
-                    </div>
-                    {cartUpiLink ? (
-                      <>
-                        <button
-                          type="button"
-                          className="cafe-luxe-cta mt-3 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold text-zinc-950 transition active:translate-y-px"
-                          style={{
-                            borderColor: withAlpha(WARM_HIGHLIGHT, 0.45),
-                            background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
-                          }}
-                          onClick={() => handleUpiPayClick(cartUpiLink)}
-                        >
-                          {"Pay With Any UPI App"}
-                        </button>
-                        <button
-                          type="button"
-                          className={clsx(
-                            "mt-2 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold transition",
-                            isLightTheme
-                              ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
-                              : "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800",
-                          )}
-                          onClick={() => handleShowUpiQr(cartUpiLink, finalTotal)}
-                        >
-                          {"Pay By QR (Recommended)"}
-                        </button>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            className={clsx(
-                              "cafe-luxe-chip rounded-lg border px-2 py-1 text-[11px] font-medium transition",
-                              isLightTheme
-                                ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
-                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                            )}
-                            onClick={() => copyTextWithNotice(configuredUpiId, "UPI ID copied.")}
-                          >
-                            {"Copy UPI ID"}
-                          </button>
-                          <button
-                            type="button"
-                            className={clsx(
-                              "cafe-luxe-chip rounded-lg border px-2 py-1 text-[11px] font-medium transition",
-                              isLightTheme
-                                ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
-                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                            )}
-                            onClick={() => copyTextWithNotice(Number(finalTotal).toFixed(2), "Amount copied.")}
-                          >
-                            {"Copy Amount"}
-                          </button>
-                        </div>
-                      </>
-                    ) : null}
-                    {!canLaunchUpiDeepLink ? (
-                      <div
-                        className={clsx(
-                          "mt-3 rounded-lg border p-2 text-[11px]",
-                          isLightTheme
-                            ? "border-[#C6A57B] bg-[#E8D9C5] text-brand-dark/75"
-                            : "border-zinc-800 bg-zinc-950/70 text-zinc-400",
-                        )}
-                      >
-                        <p>
-                          {"Open this page on your phone to pay with any UPI app."}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            className={clsx(
-                              "cafe-luxe-chip rounded-lg border px-2 py-1 font-medium transition",
-                              isLightTheme
-                                ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
-                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                            )}
-                            onClick={() =>
-                              copyTextWithNotice(
-                                configuredUpiId,
-                                "UPI ID copied.",
-                              )
-                            }
-                          >
-                            {"Copy UPI ID"}
-                          </button>
-                          <button
-                            type="button"
-                            className={clsx(
-                              "cafe-luxe-chip rounded-lg border px-2 py-1 font-medium transition",
-                              isLightTheme
-                                ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
-                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                            )}
-                            onClick={() =>
-                              copyTextWithNotice(
-                                cartUpiLink,
-                                "Payment link copied.",
-                              )
-                            }
-                          >
-                            {"Copy Payment Link"}
-                          </button>
-                          <button
-                            type="button"
-                            className={clsx(
-                              "cafe-luxe-chip rounded-lg border px-2 py-1 font-medium transition",
-                              isLightTheme
-                                ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
-                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                            )}
-                            onClick={() =>
-                              copyTextWithNotice(
-                                Number(finalTotal).toFixed(2),
-                                "Amount copied.",
-                              )
-                            }
-                          >
-                            {"Copy Amount"}
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-                    <p className={clsx("mt-2 text-[11px] leading-relaxed", isLightTheme ? "text-brand-dark/70" : "text-zinc-500")}>
-                      {"After payment, your status stays pending until cashier confirms."}
-                    </p>
-                  </motion.section>
-                ) : null}
                 </div>
               </motion.div>
 
@@ -10731,6 +10546,191 @@ export default function QrOrderingExperience({
           </aside>
         </div>
       ) : null}
+
+      <AnimatePresence>
+        {paymentMethodSelectionOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[75] backdrop-blur-sm"
+            style={{ backgroundColor: overlayShade }}
+            onClick={() => { setPaymentMethodSelectionOpen(false); setSelectedPaymentMode(null); }}
+          >
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className={clsx(
+                "cafe-luxe-card-strong absolute inset-x-0 bottom-0 mx-auto w-full max-w-md rounded-t-3xl border-x-0 border-b-0 p-6 shadow-[0_28px_80px_-40px_rgba(0,0,0,0.98)] md:inset-y-0 md:my-auto md:h-fit md:max-w-lg md:rounded-3xl",
+                isLightTheme
+                  ? "border-[#C6A57B] bg-[#E8D9C5]/95 text-brand-dark"
+                  : "border-zinc-800 bg-zinc-950/95 text-zinc-100",
+              )}
+              style={{ borderColor: accentSubtle }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">Choose Payment Method</h3>
+                <button
+                  type="button"
+                  className={clsx(
+                    "rounded-lg border p-1 transition",
+                    isLightTheme
+                      ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
+                      : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                  )}
+                  onClick={() => { setPaymentMethodSelectionOpen(false); setSelectedPaymentMode(null); }}
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {tableSession?.paymentStatus === "payment_pending" ? (
+                <div className="mt-6 text-center">
+                  <p className="text-sm opacity-80">Payment verification is already pending at counter.</p>
+                </div>
+              ) : selectedPaymentMode === "online" ? (
+                <div className="mt-6 space-y-4">
+                  <p className="text-[10px] uppercase tracking-[0.16em] opacity-70">UPI Payment</p>
+                  <p className="text-sm font-semibold">{configuredUpiName}</p>
+                  <p className="text-xs opacity-70">{configuredUpiId}</p>
+                  <div
+                    className={clsx(
+                      "flex items-center justify-between rounded-xl border px-3 py-2",
+                      isLightTheme
+                        ? "border-[#C6A57B] bg-[#F8F5F0]"
+                        : "border-zinc-800 bg-black/10",
+                    )}
+                  >
+                    <span className="text-xs opacity-70">Payable Amount</span>
+                    <span className="text-sm font-semibold">{formatMoney(unpaidTotal)}</span>
+                  </div>
+                  {billUpiLink ? (
+                    <>
+                      <button
+                        type="button"
+                        className="cafe-luxe-cta inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold text-zinc-950 transition active:translate-y-px"
+                        style={{
+                          borderColor: withAlpha(WARM_HIGHLIGHT, 0.45),
+                          background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
+                        }}
+                        onClick={() => handleUpiPayClick(billUpiLink)}
+                      >
+                        Pay With Any UPI App
+                      </button>
+                      <button
+                        type="button"
+                        className={clsx(
+                          "inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold transition",
+                          isLightTheme
+                            ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
+                            : "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800",
+                        )}
+                        onClick={() => handleShowUpiQr(billUpiLink, unpaidTotal)}
+                      >
+                        Pay By QR (Recommended)
+                      </button>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          className={clsx(
+                            "rounded-lg border px-2 py-1 text-[11px] font-medium transition",
+                            isLightTheme
+                              ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
+                              : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                          )}
+                          onClick={() => copyTextWithNotice(configuredUpiId, "UPI ID copied.")}
+                        >
+                          Copy UPI ID
+                        </button>
+                        <button
+                          type="button"
+                          className={clsx(
+                            "rounded-lg border px-2 py-1 text-[11px] font-medium transition",
+                            isLightTheme
+                              ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
+                              : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                          )}
+                          onClick={() => copyTextWithNotice(Number(unpaidTotal).toFixed(2), "Amount copied.")}
+                        >
+                          Copy Amount
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="cafe-luxe-cta inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold text-zinc-950 transition active:translate-y-px"
+                    style={{
+                      borderColor: withAlpha(ROYAL_NAVY, 0.4),
+                      background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
+                    }}
+                    onClick={() => {
+                      requestCloseBill();
+                      setPaymentMethodSelectionOpen(false);
+                      setSelectedPaymentMode(null);
+                    }}
+                  >
+                    Payment Done
+                  </button>
+                  <p className="text-[11px] leading-relaxed opacity-70">
+                    After payment, your status stays pending until cashier confirms.
+                  </p>
+                </div>
+              ) : (
+                <div className="mt-6 grid grid-cols-1 gap-4">
+                  <motion.button
+                    type="button"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="cafe-luxe-card-strong flex items-center gap-4 rounded-2xl border p-4 text-left transition shadow-lg"
+                    style={{
+                      borderColor: withAlpha(ROYAL_NAVY, 0.3),
+                      background: isLightTheme
+                        ? "linear-gradient(135deg, rgba(232,217,197,0.96) 0%, rgba(232,217,197,0.28) 100%)"
+                        : "linear-gradient(135deg, rgb(39 39 42) 0%, rgb(9 9 11) 100%)",
+                    }}
+                    onClick={() => {
+                      const confirmed = window.confirm("Are you sure you want to request counter payment?");
+                      if (confirmed) {
+                        requestCloseBill();
+                        setPaymentMethodSelectionOpen(false);
+                      }
+                    }}
+                  >
+                    <HandCoins className="h-8 w-8 text-luxury-gold" />
+                    <div>
+                      <h4 className="font-semibold">Pay at Counter</h4>
+                      <p className="text-sm opacity-70">Pay directly to staff</p>
+                    </div>
+                  </motion.button>
+                  <motion.button
+                    type="button"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="cafe-luxe-card-strong flex items-center gap-4 rounded-2xl border p-4 text-left transition shadow-lg"
+                    style={{
+                      borderColor: withAlpha(LUXURY_GOLD, 0.3),
+                      background: isLightTheme
+                        ? "linear-gradient(135deg, rgba(232,217,197,0.96) 0%, rgba(232,217,197,0.28) 100%)"
+                        : "linear-gradient(135deg, rgb(39 39 42) 0%, rgb(9 9 11) 100%)",
+                    }}
+                    onClick={() => setSelectedPaymentMode("online")}
+                  >
+                    <Sparkles className="h-8 w-8 text-luxury-gold" />
+                    <div>
+                      <h4 className="font-semibold">Pay Online</h4>
+                      <p className="text-sm opacity-70">UPI, QR, or app payment</p>
+                    </div>
+                  </motion.button>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
