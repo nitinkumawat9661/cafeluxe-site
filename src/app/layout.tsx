@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "CafeLuxe QR Ordering",
-  description: "Premium mobile-first QR restaurant ordering with Appwrite backend.",
+  description: "Premium mobile-first QR restaurant ordering.",
 };
 
 export default function RootLayout({

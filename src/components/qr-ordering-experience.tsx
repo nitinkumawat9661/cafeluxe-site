@@ -9517,7 +9517,7 @@ export default function QrOrderingExperience({
                     ) : (
                       <>
                         <HandCoins className="h-4 w-4" />
-                        {"Close Bill"}
+                        {"Pay Bill"}
                       </>
                     )}
                   </button>
