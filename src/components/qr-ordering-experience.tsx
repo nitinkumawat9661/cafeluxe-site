@@ -3918,7 +3918,7 @@ async function resolveTableSessionForBrowser(
     }
   }
 
-  const created = await createDocumentWithFallback(appwriteConfig.collections.tableSessions, [
+  const created = createDocumentWithFallback(appwriteConfig.collections.tableSessions, [
     {
       client_id: clientId,
       table_id: tableInfo!.id,
@@ -4127,7 +4127,7 @@ export default function QrOrderingExperience({
         ];
 
         try {
-          await createDocumentWithFallback(
+          createDocumentWithFallback(
             appwriteConfig.collections.payments,
             paymentPayloadCandidates,
           );
@@ -4284,8 +4284,8 @@ export default function QrOrderingExperience({
     });
     if (!activeOrderSession?.sessionId || !activeOrderSession!.billId) {
       setPlacingOrder(false);
-      placeOrderLockRef.current = false;
-      return;
+placeOrderLockRef.current = false;
+;
     }
 
     const nowIso = new Date().toISOString();
@@ -4359,8 +4359,8 @@ export default function QrOrderingExperience({
     if (computedSubtotal <= 0 || computedPayableTotal <= 0) {
       setErrorMessage("Cart total is invalid. Please refresh menu and try again.");
       setPlacingOrder(false);
-      placeOrderLockRef.current = false;
-      return;
+placeOrderLockRef.current = false;
+;
     }
 
     // Convert money fields to integers for Appwrite INTEGER schema
@@ -4442,7 +4442,7 @@ export default function QrOrderingExperience({
     ];
 
     try {
-      const createdOrder = await createDocumentWithFallback(
+      const createdOrder = createDocumentWithFallback(
         appwriteConfig.collections.orders,
         orderPayloadCandidates,
       );
@@ -4467,7 +4467,7 @@ export default function QrOrderingExperience({
       });
 
       try {
-        const createdOrder = await createDocumentWithFallback(
+        const createdOrder = createDocumentWithFallback(
           appwriteConfig.collections.orders,
           newOrderPayloadCandidates,
         );
@@ -4514,7 +4514,7 @@ export default function QrOrderingExperience({
         ];
 
         try {
-          await createDocumentWithFallback(
+          createDocumentWithFallback(
             appwriteConfig.collections.payments,
             paymentPayloadCandidates,
           );
@@ -4689,7 +4689,7 @@ export default function QrOrderingExperience({
       });
 
       try {
-        const createdOrder = await createDocumentWithFallback(
+        const createdOrder = createDocumentWithFallback(
           appwriteConfig.collections.orders,
           newOrderPayloadCandidates,
         );
