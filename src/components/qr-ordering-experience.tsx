@@ -4103,46 +4103,167 @@ export default function QrOrderingExperience({
     tagline: "",
     rawDocs: [],
       });
-      const createdOrder = databases.createDocument(
-        appwriteConfig.collections.orders,
-        'unique()',
-        newOrderPayloadCandidates[0],
-      );
-      handleOrderSuccess(createdOrder);
 
+      const handleOrderSuccess = (createdOrder) => {
+        if (paymentMethod === "UPI") {
+          const paymentPayloadCandidates: Record<string, unknown>[] = [
+            {
+              client_id: clientId,
+              order_id: createdOrder.$id,
+              amount: computedPayableTotal,
+              payment_method: "UPI",
+              payment_status: "PENDING",
+              customer_marked_paid: false,
+              verified_by: "PENDING_CASHIER_CONFIRMATION",
+            },
+          ];
 
-      if (paymentMethod === "UPI") {
-        const paymentPayloadCandidates: Record<string, unknown>[] = [
+          try {
+            createDocumentWithFallback(
+              appwriteConfig.collections.payments,
+              paymentPayloadCandidates,
+            );
+          } catch (paymentError) {
+            devError(paymentError);
+            setNoticeMessage(
+              "Order placed. UPI confirmation is pending and will be verified by cashier.",
+            );
+          }
+        }
+
+        setOrderPlacedId(createdOrder.$id);
+        const nextActiveOrderContext: ActiveOrderContext = {
+          id: createdOrder.$id,
+          status: "PLACED",
+          paymentStatus: "UNPAID",
+          updatedAt: nowIso,
+        };
+        setActiveOrderContext(nextActiveOrderContext);
+        activeOrderContextRef.current = nextActiveOrderContext;
+        trackOwnedOrderId(createdOrder.$id, browserIdForOrder);
+        const placedOrderRecord = buildTableOrderRecordFromCart(
+          createdOrder.$id,
+          orderNumber,
+          activeOrderSession!.sessionId,
+          activeOrderSession!.billId,
+          orderRound,
+          tableInfo!.tableNo,
+          paymentMethod,
+          computedSubtotal,
+          computedTaxAmount,
+          computedCgstAmount,
+          computedSgstAmount,
+          computedPayableTotal,
+          nowIso,
+          cartItems,
+          resolvedSelectedModifiersByItem,
+          resolvedSelectedAddonsByItem,
+          trimmedInstructions,
+        );
+        const mergedLocalOrders = mergeTableOrderRecords(currentBillOrders, [placedOrderRecord]);
+        const nextSessionTotal = roundCurrency(sumTableOrderPayableAmount(mergedLocalOrders));
+        setTableOrders(mergedLocalOrders);
+        tableOrdersRef.current = mergedLocalOrders;
+        setTableSession((current) =>
+          current
+            ? {
+                ...current,
+                heartbeatAt: nowIso,
+                totalAmount: nextSessionTotal,
+              }
+            : current,
+        );
+        void updateDocumentWithFallback(
+          appwriteConfig.collections.tableSessions,
+          activeOrderSession!.documentId,
+          [
+            {
+              heartbeat_at: nowIso,
+              total_amount: nextSessionTotal,
+            },
+          ],
           {
-            client_id: clientId,
-            order_id: createdOrder.$id,
-            amount: computedPayableTotal,
-            payment_method: "UPI",
-            payment_status: "PENDING",
-            customer_marked_paid: false,
-            verified_by: "PENDING_CASHIER_CONFIRMATION",
+            scope: {
+              clientId,
+              tableId: tableInfo!.id,
+              lockedBy: activeOrderSession!.lockedBy || browserIdForOrder,
+            },
           },
-        ];
+        ).catch((sessionUpdateError) => {
+          devWarn("Table session total update failed:", sessionUpdateError);
+        });
+        persistOwnedOrderIds(
+          mergedLocalOrders.map((record) => record.orderId),
+          browserIdForOrder,
+        );
+        syncOrderSnapshot(mergedLocalOrders);
+        setBillSyncMessage("Order added to your bill.");
+        touchBillActivity(nowIso);
+        showStatusPopup({
+          title: "Order Placed",
+          description: `${orderNumber} has been sent to the kitchen.`,
+          tone: "success",
+        });
 
-        try {
-          createDocumentWithFallback(
-            appwriteConfig.collections.payments,
-            paymentPayloadCandidates,
+        if (typeof window !== "undefined") {
+          const resolvedBrowserId = browserIdForOrder || ensureBrowserCustomerId();
+          const resolvedHistoryStorageKey =
+            customerHistoryStorageKey ||
+            buildCustomerHistoryStorageKey(routeClient, resolvedBrowserId);
+          const orderSummary: CustomerOrderSummary = {
+            orderId: createdOrder.$id,
+            client: clientId,
+            table: tableInfo!.tableNo,
+            totalAmount: computedPayableTotal,
+            itemCount: cartCount,
+            paymentMethod,
+            status: "PLACED",
+            placedAt: nowIso,
+            items: cartItems.map((cartItem) => ({
+              id: cartItem.item.id,
+              qty: cartItem.quantity,
+            })),
+          };
+
+          const currentProfile =
+            customerProfile ??
+            parseCustomerProfile(
+              window.localStorage.getItem(CUSTOMER_PROFILE_KEY),
+              resolvedBrowserId,
+            );
+          const nextProfile = buildNextCustomerProfile(
+            currentProfile,
+            orderSummary,
+            cartItems,
+            resolvedBrowserId,
           );
-        } catch (paymentError) {
-          devError(paymentError);
-          setNoticeMessage(
-            "Order placed. UPI confirmation is pending and will be verified by cashier.",
+          setCustomerProfile(nextProfile);
+          window.localStorage.setItem(CUSTOMER_PROFILE_KEY, JSON.stringify(nextProfile));
+
+          const currentHistory =
+            parseCustomerOrderHistory(
+              window.localStorage.getItem(resolvedHistoryStorageKey),
+              resolvedBrowserId,
+            );
+          const nextHistory = buildNextCustomerHistory(
+            currentHistory,
+            orderSummary,
+            resolvedBrowserId,
+          );
+          window.localStorage.setItem(
+            resolvedHistoryStorageKey,
+            JSON.stringify(nextHistory),
           );
         }
-      }
 
-      setOrderPlacedId(createdOrder.$id);
-      const nextActiveOrderContext: ActiveOrderContext = {
-        id: createdOrder.$id,
-        status: "PLACED",
-        paymentStatus: "UNPAID",
-        updatedAt: nowIso,
+        setCart({});
+        setSelectedModifiersByItem({});
+        setSelectedAddonsByItem({});
+        setKitchenInstructions("");
+        setCartOpen(false);
+        setBillOpen(true);
+
+
       };
       setActiveOrderContext(nextActiveOrderContext);
       activeOrderContextRef.current = nextActiveOrderContext;
@@ -4274,7 +4395,8 @@ export default function QrOrderingExperience({
       }
     };
 
-    const activeOrderSession = await ensureTableSessionForOrder();
+    const handlePlaceOrder = async (options?: { redirectToMenuAfterSuccess?: boolean }) => {
+      const activeOrderSession = await ensureTableSessionForOrder();
     console.log("PLACE_ORDER_SESSION_CHECK", {
       sessionId: activeOrderSession?.sessionId,
       billId: activeOrderSession?.billId,
@@ -4282,8 +4404,7 @@ export default function QrOrderingExperience({
     });
     if (!activeOrderSession?.sessionId || !activeOrderSession!.billId) {
       setPlacingOrder(false);
-placeOrderLockRef.current = false;
-;
+      placeOrderLockRef.current = false;
     }
 
     const nowIso = new Date().toISOString();
@@ -4439,12 +4560,12 @@ placeOrderLockRef.current = false;
       },
     ];
 
-    try {
-      const createdOrder = createDocumentWithFallback(
-        appwriteConfig.collections.orders,
-        orderPayloadCandidates,
-      );
-      handleOrderSuccess(createdOrder);
+      try {
+        const createdOrder = await createDocumentWithFallback(
+          appwriteConfig.collections.orders,
+          newOrderPayloadCandidates,
+        );
+        handleOrderSuccess(createdOrder);
     } catch (orderError: any) {
       console.error("ORDER_CREATE_FAILED_FULL", {
         message: orderError?.message,
@@ -4660,6 +4781,9 @@ placeOrderLockRef.current = false;
         setNoticeMessage("Order placed successfully.");
         navigateToMenuAfterOrder();
       }
+
+
+
     try {
       const createdOrder = await databases.createDocument(
         appwriteConfig.collections.orders,
@@ -4717,12 +4841,56 @@ placeOrderLockRef.current = false;
             "Unable to place order right now. Please retry in a moment or inform staff.",
           );
         }
+      } finally {
+        setPlacingOrder(false);
+        placeOrderLockRef.current = false;
       }
-    } finally {
-      setPlacingOrder(false);
-      placeOrderLockRef.current = false;
-    }
-  }
+    };
+
+  const upiQrImageSrc = useMemo(() => buildUpiQrImageUrl(upiQrUri), [upiQrUri]);
+  const upiQrAmountNumber = useMemo(() => {
+    const parsed = Number(upiQrAmount);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }, [upiQrAmount]);
+  const appBackground = isLightTheme
+    ? `linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_BACKGROUND} 56%, ${PALETTE_SURFACE} 100%)`
+    : `linear-gradient(180deg, ${PALETTE_TEXT} 0%, ${PALETTE_SECONDARY} 36%, ${PALETTE_TEXT} 100%)`;
+  const panelGradient = isLightTheme
+    ? `linear-gradient(165deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 64%, rgba(232,217,197,0.18) 100%)`
+    : `linear-gradient(165deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
+  const sectionGradient = isLightTheme
+    ? `linear-gradient(160deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
+    : `linear-gradient(160deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
+  const sheetGradient = isLightTheme
+    ? `linear-gradient(176deg, rgba(232,217,197,0.99) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
+    : `linear-gradient(176deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
+  const bottomBarGradient = isLightTheme
+    ? `linear-gradient(170deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
+    : `linear-gradient(170deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
+  const overlayShade = isLightTheme ? "rgba(122,109,96,0.2)" : "rgba(0, 0, 0, 0.72)";
+  const contentTextClass = isLightTheme ? "text-brand-dark" : "text-white";
+  const secondaryTextClass = isLightTheme ? "text-brand-accent" : "text-zinc-300";
+  const mutedTextClass = isLightTheme ? "text-zinc-500" : "text-zinc-400";
+  const themeScopeClass = isLightTheme ? "cafe-theme-light" : "";
+  const shouldShowCartPanel = cartOpen || isStandaloneCartRoute;
+  const luxurySpring = prefersReducedMotion
+    ? { duration: 0 }
+    : { type: "spring" as const, stiffness: 300, damping: 32, mass: 0.82 };
+  const gentleSpring = prefersReducedMotion
+    ? { duration: 0 }
+    : { type: "spring" as const, stiffness: 240, damping: 30, mass: 0.9 };
+  const dockSpring = prefersReducedMotion
+    ? { duration: 0 }
+    : { type: "spring" as const, stiffness: 360, damping: 38, mass: 0.72 };
+  const softEase = [0.22, 1, 0.36, 1] as const;
+  const overlayTransition = prefersReducedMotion ? { duration: 0 } : { duration: 0.22, ease: softEase };
+  const motionInitial = prefersReducedMotion ? false : { opacity: 0, y: 14, scale: 0.985 };
+  const motionVisible = { opacity: 1, y: 0, scale: 1 };
+  const motionTransition = luxurySpring;
+  const pressMotion = prefersReducedMotion ? undefined : { scale: 0.985, y: 1 };
+  const hoverLiftMotion = prefersReducedMotion ? undefined : { y: -2, scale: 1.01 };
+  const addFeedbackPulse =
+    recentlyAddedItemId && !prefersReducedMotion
 
   async function copyTextWithNotice(value: string, successMessage: string) {
     const text = value.trim();
@@ -4830,66 +4998,32 @@ placeOrderLockRef.current = false;
           amount: billPayableTotal,
         })
       : "";
-  const upiQrImageSrc = useMemo(() => buildUpiQrImageUrl(upiQrUri), [upiQrUri]);
-  const upiQrAmountNumber = useMemo(() => {
-    const parsed = Number(upiQrAmount);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-  }, [upiQrAmount]);
-  const appBackground = isLightTheme
-    ? `linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_BACKGROUND} 56%, ${PALETTE_SURFACE} 100%)`
-    : `linear-gradient(180deg, ${PALETTE_TEXT} 0%, ${PALETTE_SECONDARY} 36%, ${PALETTE_TEXT} 100%)`;
-  const panelGradient = isLightTheme
-    ? `linear-gradient(165deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 64%, rgba(232,217,197,0.18) 100%)`
-    : `linear-gradient(165deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
-  const sectionGradient = isLightTheme
-    ? `linear-gradient(160deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
-    : `linear-gradient(160deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
-  const sheetGradient = isLightTheme
-    ? `linear-gradient(176deg, rgba(232,217,197,0.99) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
-    : `linear-gradient(176deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
-  const bottomBarGradient = isLightTheme
-    ? `linear-gradient(170deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
-    : `linear-gradient(170deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
-  const overlayShade = isLightTheme ? "rgba(122,109,96,0.2)" : "rgba(0, 0, 0, 0.72)";
-  const contentTextClass = isLightTheme ? "text-brand-dark" : "text-white";
-  const secondaryTextClass = isLightTheme ? "text-brand-accent" : "text-zinc-300";
-  const mutedTextClass = isLightTheme ? "text-zinc-500" : "text-zinc-400";
-  const themeScopeClass = isLightTheme ? "cafe-theme-light" : "";
-  const shouldShowCartPanel = cartOpen || isStandaloneCartRoute;
-  const luxurySpring = prefersReducedMotion
-    ? { duration: 0 }
-    : { type: "spring" as const, stiffness: 300, damping: 32, mass: 0.82 };
-  const gentleSpring = prefersReducedMotion
-    ? { duration: 0 }
-    : { type: "spring" as const, stiffness: 240, damping: 30, mass: 0.9 };
-  const dockSpring = prefersReducedMotion
-    ? { duration: 0 }
-    : { type: "spring" as const, stiffness: 360, damping: 38, mass: 0.72 };
-  const softEase = [0.22, 1, 0.36, 1] as const;
-  const overlayTransition = prefersReducedMotion ? { duration: 0 } : { duration: 0.22, ease: softEase };
-  const motionInitial = prefersReducedMotion ? false : { opacity: 0, y: 14, scale: 0.985 };
-  const motionVisible = { opacity: 1, y: 0, scale: 1 };
-  const motionTransition = luxurySpring;
-  const pressMotion = prefersReducedMotion ? undefined : { scale: 0.985, y: 1 };
-  const hoverLiftMotion = prefersReducedMotion ? undefined : { y: -2, scale: 1.01 };
-  const addFeedbackPulse =
-    recentlyAddedItemId && !prefersReducedMotion
-      ? { scale: [1, 1.012, 1], y: [0, -1, 0] }
-      : undefined;
-  const cartContentVariants = {
-    hidden: prefersReducedMotion ? { opacity: 1 } : { opacity: 1 },
-    show: {
-      opacity: 1,
-      transition: {
-        staggerChildren: prefersReducedMotion ? 0 : 0.045,
-        delayChildren: prefersReducedMotion ? 0 : 0.08,
-      },
-    },
-  };
-  const cartContentItemVariants = {
-    hidden: prefersReducedMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 },
-    show: { opacity: 1, y: 0, transition: gentleSpring },
-  };
+
+  async function copyTextWithNotice(value: string, successMessage: string) {
+    const text = value.trim();
+    if (!text || typeof navigator === "undefined") {
+      return;
+    }
+
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard API unavailable");
+      }
+      await navigator.clipboard.writeText(text);
+      setNoticeMessage(successMessage);
+    } catch {
+      setNoticeMessage(
+        "Unable to copy automatically. Please copy manually from the details shown.",
+      );
+    }
+  }
+
+  function closeUpiQrSheet() {
+    setUpiQrOpen(false);
+  }
+
+  const tableLabel = tableInfo ? tableInfo.displayLabel : formatTableLabel(routeTable);
+  const accentColor = normalizeThemeColor(LUXURY_GOLD, LUXURY_GOLD);
 
   useEffect(() => {
     if (!shouldShowCartPanel || isStandaloneCartRoute || typeof document === "undefined") {
