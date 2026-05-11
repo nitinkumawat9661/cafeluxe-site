@@ -3741,6 +3741,8 @@ export default function QrOrderingExperience({
   const [statusPopup, setStatusPopup] = useState<StatusPopupState | null>(null);
   const [orderPlacedId, setOrderPlacedId] = useState("");
   const [billActionOrderId, setBillActionOrderId] = useState("");
+  const [billPaymentModalOpen, setBillPaymentModalOpen] = useState(false);
+  const [billPaymentMethod, setBillPaymentMethod] = useState<PaymentMethod>("COUNTER");
   const [activeOrderContext, setActiveOrderContext] = useState<ActiveOrderContext | null>(
     null,
   );
@@ -6166,7 +6168,7 @@ export default function QrOrderingExperience({
       {
         ...orderBasePayload,
         ...orderDiscountPayload,
-        payment_method: paymentMethod,
+        payment_method: "COUNTER",
         created_at_custom: nowIso,
         items_json: orderItemsSnapshot,
         kitchen_instructions: trimmedInstructions,
@@ -6174,7 +6176,7 @@ export default function QrOrderingExperience({
       {
         ...orderBasePayload,
         ...orderDiscountPayload,
-        payment_method: paymentMethod,
+        payment_method: "COUNTER",
         created_at_custom: nowIso,
         order_items: orderItemsSnapshot,
         kitchen_instructions: trimmedInstructions,
@@ -6182,7 +6184,7 @@ export default function QrOrderingExperience({
       {
         ...orderBasePayload,
         ...orderDiscountPayload,
-        payment_method: paymentMethod,
+        payment_method: "COUNTER",
         created_at_custom: nowIso,
         items_json: orderItemsSnapshot,
         notes: trimmedInstructions,
@@ -6190,7 +6192,7 @@ export default function QrOrderingExperience({
       {
         ...orderBasePayload,
         ...orderDiscountPayload,
-        payment_method: paymentMethod,
+        payment_method: "COUNTER",
         created_at_custom: nowIso,
         order_items: orderItemsSnapshot,
         notes: trimmedInstructions,
@@ -6198,14 +6200,14 @@ export default function QrOrderingExperience({
       {
         ...orderBasePayload,
         ...orderDiscountPayload,
-        payment_method: paymentMethod,
+        payment_method: "COUNTER",
         created_at_custom: nowIso,
         items: compactItems,
         instructions: trimmedInstructions,
       },
       {
         ...orderBasePayload,
-        payment_method: paymentMethod,
+        payment_method: "COUNTER",
         created_at_custom: nowIso,
       },
     ];
@@ -6216,31 +6218,7 @@ export default function QrOrderingExperience({
         orderPayloadCandidates,
       );
 
-      if (paymentMethod === "UPI") {
-        const paymentPayloadCandidates: Record<string, unknown>[] = [
-          {
-            client_id: clientId,
-            order_id: createdOrder.$id,
-            amount: computedPayableTotal,
-            payment_method: "UPI",
-            payment_status: "PENDING",
-            customer_marked_paid: false,
-            verified_by: "PENDING_CASHIER_CONFIRMATION",
-          },
-        ];
 
-        try {
-          await createDocumentWithFallback(
-            appwriteConfig.collections.payments,
-            paymentPayloadCandidates,
-          );
-        } catch (paymentError) {
-          devError(paymentError);
-          setNoticeMessage(
-            "Order placed. UPI confirmation is pending and will be verified by cashier.",
-          );
-        }
-      }
 
       setOrderPlacedId(createdOrder.$id);
       const nextActiveOrderContext: ActiveOrderContext = {
@@ -6447,6 +6425,45 @@ export default function QrOrderingExperience({
 
   function closeUpiQrSheet() {
     setUpiQrOpen(false);
+  }
+
+  function handlePayBill() {
+    setBillPaymentModalOpen(true);
+  }
+
+  async function handleBillPaymentConfirm() {
+    setBillPaymentModalOpen(false);
+    const billPayableTotal = sumTableOrderPayableAmount(unpaidOrders);
+    const paymentPayloadCandidates: Record<string, unknown>[] = [
+      {
+        client_id: routeClient,
+        order_id: unpaidOrders.map(o => o.orderId).join(','), // Aggregate for bill
+        amount: billPayableTotal,
+        payment_method: billPaymentMethod,
+        payment_status: "PENDING",
+        customer_marked_paid: false,
+        verified_by: "PENDING_CASHIER_CONFIRMATION",
+      },
+    ];
+    try {
+      await createDocumentWithFallback(
+        appwriteConfig.collections.payments,
+        paymentPayloadCandidates,
+      );
+      if (billPaymentMethod === "UPI") {
+        // Show UPI QR
+        const billUpiLink = buildUpiPaymentLink({
+          upiId: configuredUpiId,
+          upiName: configuredUpiName,
+          amount: billPayableTotal,
+        });
+        handleShowUpiQr(billUpiLink, billPayableTotal);
+      } else {
+        setNoticeMessage("Payment marked as pending. Please pay at the counter.");
+      }
+    } catch (error) {
+      setNoticeMessage("Failed to initiate payment. Please try again.");
+    }
   }
 
   const tableLabel = tableInfo ? tableInfo.displayLabel : formatTableLabel(routeTable);
@@ -8242,6 +8259,21 @@ export default function QrOrderingExperience({
                       ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
                       : "border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800",
                   )}
+                  onClick={handlePayBill}
+                  disabled={billSyncing}
+                >
+                  <HandCoins className="h-4 w-4" />
+                  {"Pay Bill"}
+                </button>
+
+                <button
+                  type="button"
+                  className={clsx(
+                    "cafe-luxe-chip inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
+                    isLightTheme
+                      ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
+                      : "border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800",
+                  )}
                   onClick={refreshBillFromBackend}
                   disabled={billSyncing}
                 >
@@ -8798,197 +8830,7 @@ export default function QrOrderingExperience({
                   </section>
                 ) : null}
 
-                <section
-                  className={clsx(
-                    "cafe-luxe-card space-y-3 rounded-2xl border p-3.5",
-                    isLightTheme
-                      ? "border-[#C6A57B] bg-[#E8D9C5]"
-                      : "border-zinc-800 bg-zinc-900/55",
-                  )}
-                >
-                  <p className={clsx("cafe-luxe-section-title mb-2 text-sm font-medium", isLightTheme ? "text-brand-dark/75" : "text-zinc-300")}>
-                    {"Payment Method"}
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(["COUNTER", "UPI"] as const).map((method) => (
-                      <button
-                        key={method}
-                        type="button"
-                        className={clsx(
-                          "cafe-luxe-control inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition",
-                          paymentMethod === method
-                            ? "text-zinc-950"
-                            : isLightTheme
-                              ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
-                              : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800",
-                        )}
-                        style={
-                          paymentMethod === method
-                            ? { borderColor: accentBorder, backgroundColor: accentColor }
-                            : undefined
-                        }
-                        onClick={() => setPaymentMethod(method)}
-                      >
-                        {method === "UPI" ? (
-                          <Sparkles className="h-4 w-4" />
-                        ) : (
-                          <HandCoins className="h-4 w-4" />
-                        )}
-                        {method === "UPI" ? "UPI" : "Pay At Counter"}
-                      </button>
-                    ))}
-                  </div>
-                </section>
 
-                {paymentMethod === "UPI" ? (
-                  <section
-                    className={clsx(
-                      "cafe-luxe-card rounded-2xl border p-3.5 text-sm",
-                      contentTextClass,
-                      isLightTheme
-                        ? "border-[#C6A57B] bg-[#E8D9C5]"
-                        : "border-zinc-800/30 bg-[#F8F5F0]/10",
-                    )}
-                  >
-                    <p className="text-[10px] uppercase tracking-[0.14em] opacity-70">UPI Payment</p>
-                    <p className="mt-1 text-sm font-semibold">{configuredUpiName}</p>
-                    <p className="mt-0.5 text-xs opacity-70">{configuredUpiId}</p>
-                    <div
-                      className={clsx(
-                        "cafe-luxe-summary mt-3 flex items-center justify-between rounded-xl border px-3 py-2",
-                        isLightTheme
-                          ? "border-[#C6A57B] bg-[#E8D9C5]"
-                          : "border-zinc-800/20 bg-black/10",
-                      )}
-                    >
-                      <span className="text-xs opacity-70">Payable Amount</span>
-                      <span className="text-sm font-semibold">{formatMoney(finalTotal)}</span>
-                    </div>
-                    {cartUpiLink ? (
-                      <>
-                        <button
-                          type="button"
-                          className="cafe-luxe-cta mt-3 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold text-zinc-950 transition active:translate-y-px"
-                          style={{
-                            borderColor: withAlpha(WARM_HIGHLIGHT, 0.45),
-                            background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
-                          }}
-                          onClick={() => handleUpiPayClick(cartUpiLink)}
-                        >
-                          {"Pay With Any UPI App"}
-                        </button>
-                        <button
-                          type="button"
-                          className={clsx(
-                            "mt-2 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold transition",
-                            isLightTheme
-                              ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
-                              : "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800",
-                          )}
-                          onClick={() => handleShowUpiQr(cartUpiLink, finalTotal)}
-                        >
-                          {"Pay By QR (Recommended)"}
-                        </button>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            className={clsx(
-                              "cafe-luxe-chip rounded-lg border px-2 py-1 text-[11px] font-medium transition",
-                              isLightTheme
-                                ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
-                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                            )}
-                            onClick={() => copyTextWithNotice(configuredUpiId, "UPI ID copied.")}
-                          >
-                            {"Copy UPI ID"}
-                          </button>
-                          <button
-                            type="button"
-                            className={clsx(
-                              "cafe-luxe-chip rounded-lg border px-2 py-1 text-[11px] font-medium transition",
-                              isLightTheme
-                                ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
-                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                            )}
-                            onClick={() => copyTextWithNotice(Number(finalTotal).toFixed(2), "Amount copied.")}
-                          >
-                            {"Copy Amount"}
-                          </button>
-                        </div>
-                      </>
-                    ) : null}
-                    {!canLaunchUpiDeepLink ? (
-                      <div
-                        className={clsx(
-                          "mt-3 rounded-lg border p-2 text-[11px]",
-                          isLightTheme
-                            ? "border-[#C6A57B] bg-[#E8D9C5] text-brand-dark/75"
-                            : "border-zinc-800 bg-zinc-950/70 text-zinc-400",
-                        )}
-                      >
-                        <p>
-                          {"Open this page on your phone to pay with any UPI app."}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            className={clsx(
-                              "cafe-luxe-chip rounded-lg border px-2 py-1 font-medium transition",
-                              isLightTheme
-                                ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
-                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                            )}
-                            onClick={() =>
-                              copyTextWithNotice(
-                                configuredUpiId,
-                                "UPI ID copied.",
-                              )
-                            }
-                          >
-                            {"Copy UPI ID"}
-                          </button>
-                          <button
-                            type="button"
-                            className={clsx(
-                              "cafe-luxe-chip rounded-lg border px-2 py-1 font-medium transition",
-                              isLightTheme
-                                ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
-                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                            )}
-                            onClick={() =>
-                              copyTextWithNotice(
-                                cartUpiLink,
-                                "Payment link copied.",
-                              )
-                            }
-                          >
-                            {"Copy Payment Link"}
-                          </button>
-                          <button
-                            type="button"
-                            className={clsx(
-                              "cafe-luxe-chip rounded-lg border px-2 py-1 font-medium transition",
-                              isLightTheme
-                                ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
-                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                            )}
-                            onClick={() =>
-                              copyTextWithNotice(
-                                Number(finalTotal).toFixed(2),
-                                "Amount copied.",
-                              )
-                            }
-                          >
-                            {"Copy Amount"}
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-                    <p className={clsx("mt-2 text-[11px] leading-relaxed", isLightTheme ? "text-brand-dark/70" : "text-zinc-500")}>
-                      {"After payment, your status stays pending until cashier confirms."}
-                    </p>
-                  </section>
-                ) : null}
 
                 <section
                   className={clsx(
@@ -9039,47 +8881,25 @@ export default function QrOrderingExperience({
                   </div>
                 </section>
 
-                {paymentMethod === "COUNTER" ? (
-                  <button
-                    type="button"
-                    className="cafe-luxe-cta inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-brand-dark transition disabled:cursor-not-allowed disabled:opacity-50"
-                    style={{
-                      borderColor: withAlpha(ROYAL_NAVY, 0.4),
-                      background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
-                    }}
-                    onClick={() => void handlePlaceOrder()}
-                    disabled={cartCount === 0 || placingOrder}
-                  >
-                    {placingOrder ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Placing Order...
-                      </>
-                    ) : (
-                      "Place Order"
-                    )}
-                  </button>
-                ) : null}
-
-                {paymentMethod === "UPI" ? (
-                  <div className="space-y-2 pt-1">
-                    <button
-                      type="button"
-                      className="cafe-luxe-cta inline-flex h-12 w-full items-center justify-center rounded-xl border px-4 text-sm font-bold text-zinc-950 transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-                      style={{
-                        borderColor: withAlpha(ROYAL_NAVY, 0.35),
-                        background: `linear-gradient(180deg, ${PALETTE_SURFACE} 0%, ${WARM_HIGHLIGHT} 100%)`,
-                      }}
-                      onClick={() => void handlePlaceOrder({ redirectToMenuAfterSuccess: true })}
-                      disabled={cartCount === 0 || placingOrder}
-                    >
-                      {placingOrder ? "Placing Order..." : "Payment Done"}
-                    </button>
-                    <p className="px-1 text-[11px] opacity-70">
-                      After paying in your UPI app, tap Payment Done to place the order and keep it pending for staff verification.
-                    </p>
-                  </div>
-                ) : null}
+                <button
+                  type="button"
+                  className="cafe-luxe-cta inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-brand-dark transition disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{
+                    borderColor: withAlpha(ROYAL_NAVY, 0.4),
+                    background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
+                  }}
+                  onClick={() => void handlePlaceOrder()}
+                  disabled={cartCount === 0 || placingOrder}
+                >
+                  {placingOrder ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Placing Order...
+                    </>
+                  ) : (
+                    "Place Order"
+                  )}
+                </button>
               </div>
             </div>
           </aside>
@@ -9392,6 +9212,96 @@ export default function QrOrderingExperience({
             <p className={clsx("mt-3 text-[11px]", isLightTheme ? "text-brand-dark/70" : "text-zinc-400")}>
               Payment status stays pending until cashier/admin confirms.
             </p>
+          </aside>
+        </div>
+      ) : null}
+
+      {billPaymentModalOpen ? (
+        <div
+          className="fixed inset-0 z-[70] backdrop-blur-sm"
+          style={{ backgroundColor: overlayShade }}
+        >
+          <button
+            type="button"
+            className="absolute inset-0 h-full w-full cursor-default"
+            onClick={() => setBillPaymentModalOpen(false)}
+            aria-label="Close bill payment modal"
+          />
+          <aside
+            className={clsx(
+              "cafe-luxe-card-strong absolute inset-x-0 bottom-0 mx-auto w-full max-w-[480px] rounded-t-3xl border px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 shadow-[0_28px_80px_-40px_rgba(0,0,0,0.98)] md:inset-y-0 md:my-auto md:h-fit md:rounded-3xl",
+              isLightTheme
+                ? "border-[#C6A57B] bg-[#E8D9C5] text-brand-dark"
+                : "border-zinc-800 bg-zinc-950/95 text-zinc-100",
+            )}
+            style={{ borderColor: accentSubtle }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className={clsx("text-[10px] uppercase tracking-[0.16em]", isLightTheme ? "text-brand-dark/65" : "text-zinc-400")}>
+                  Bill Payment
+                </p>
+                <h3 className={clsx("mt-1 text-sm font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>Choose Payment Method</h3>
+              </div>
+              <button
+                type="button"
+                className={clsx(
+                  "rounded-lg border px-2.5 py-1 text-xs font-medium transition",
+                  isLightTheme
+                    ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
+                    : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                )}
+                onClick={() => setBillPaymentModalOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <p className={clsx("text-sm", isLightTheme ? "text-brand-dark/80" : "text-zinc-300")}>
+                Total Amount: <span className="font-semibold">{formatMoney(sumTableOrderPayableAmount(unpaidOrders))}</span>
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {(["COUNTER", "UPI"] as const).map((method) => (
+                  <button
+                    key={method}
+                    type="button"
+                    className={clsx(
+                      "cafe-luxe-control inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold transition",
+                      billPaymentMethod === method
+                        ? "text-zinc-950"
+                        : isLightTheme
+                          ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
+                          : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800",
+                    )}
+                    style={
+                      billPaymentMethod === method
+                        ? { borderColor: accentBorder, backgroundColor: accentColor }
+                        : undefined
+                    }
+                    onClick={() => setBillPaymentMethod(method)}
+                  >
+                    {method === "UPI" ? (
+                      <Sparkles className="h-4 w-4" />
+                    ) : (
+                      <HandCoins className="h-4 w-4" />
+                    )}
+                    {method === "UPI" ? "UPI" : "Pay At Counter"}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="cafe-luxe-cta inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-brand-dark transition"
+                style={{
+                  borderColor: withAlpha(ROYAL_NAVY, 0.4),
+                  background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
+                }}
+                onClick={handleBillPaymentConfirm}
+              >
+                Confirm Payment
+              </button>
+            </div>
           </aside>
         </div>
       ) : null}
