@@ -4103,15 +4103,13 @@ export default function QrOrderingExperience({
     tagline: "",
     rawDocs: [],
       });
-      const createdOrder = await databases.createDocument(
+      const createdOrder = databases.createDocument(
         appwriteConfig.collections.orders,
         'unique()',
         newOrderPayloadCandidates[0],
       );
       handleOrderSuccess(createdOrder);
-/*
-        navigateToMenuAfterOrder();
-      */
+
 
       if (paymentMethod === "UPI") {
         const paymentPayloadCandidates: Record<string, unknown>[] = [
