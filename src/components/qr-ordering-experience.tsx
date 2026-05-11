@@ -7154,6 +7154,12 @@ export default function QrOrderingExperience({
       return;
     }
 
+    // Convert money fields to integers for Appwrite INTEGER schema
+    const discountAmountInt = Math.round(computedOfferDiscount || 0);
+    const taxAmountInt = Math.round(computedTaxAmount || 0);
+    const cgstAmountInt = Math.round(computedCgstAmount || 0);
+    const sgstAmountInt = Math.round(computedSgstAmount || 0);
+
     const orderBasePayload = {
       client_id: clientId,
       table_id: tableInfo.id,
@@ -7167,19 +7173,19 @@ export default function QrOrderingExperience({
       status: "PLACED",
       payment_status: "UNPAID",
       subtotal: computedSubtotal,
-      tax_amount: computedTaxAmount,
-      cgst_amount: computedCgstAmount,
-      sgst_amount: computedSgstAmount,
+      tax_amount: taxAmountInt,
+      cgst_amount: cgstAmountInt,
+      sgst_amount: sgstAmountInt,
       total_amount: computedPayableTotal,
-      discount_amount: computedOfferDiscount, // Explicit source of truth
+      discount_amount: discountAmountInt, // Explicit source of truth
     };
 
     console.log("ORDER_MONEY_DEBUG", {
       subtotal: computedSubtotal,
-      discount_amount: computedOfferDiscount,
-      tax_amount: computedTaxAmount,
-      cgst_amount: computedCgstAmount,
-      sgst_amount: computedSgstAmount,
+      discount_amount: discountAmountInt,
+      tax_amount: taxAmountInt,
+      cgst_amount: cgstAmountInt,
+      sgst_amount: sgstAmountInt,
       total_amount: computedPayableTotal
     });
 

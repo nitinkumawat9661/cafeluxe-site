@@ -1296,6 +1296,12 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
   const isAddMore = sanitizeBoolean(documentData.is_add_more);
   const kotStatus = sanitizeLowercaseEnum(documentData.kot_status, ALLOWED_KOT_STATUSES);
 
+  // Convert money fields to integers for Appwrite INTEGER schema
+  const discountAmountInt = Math.round(discountAmount);
+  const taxAmountInt = Math.round(taxAmount);
+  const cgstAmountInt = Math.round(cgstAmount);
+  const sgstAmountInt = Math.round(sgstAmount);
+
   const payload: Record<string, unknown> = {
     client_id: clientId,
     table_id: tableId,
@@ -1304,10 +1310,10 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
     payment_status: "UNPAID",
     payment_method: paymentMethod,
     subtotal,
-    discount_amount: discountAmount,
-    tax_amount: taxAmount,
-    cgst_amount: cgstAmount,
-    sgst_amount: sgstAmount,
+    discount_amount: discountAmountInt,
+    tax_amount: taxAmountInt,
+    cgst_amount: cgstAmountInt,
+    sgst_amount: sgstAmountInt,
     total_amount: totalAmount,
     created_at_custom: createdAtCustom,
   };
