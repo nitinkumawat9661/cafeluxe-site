@@ -4103,41 +4103,6 @@ export default function QrOrderingExperience({
     tagline: "",
     rawDocs: [],
       });
-
-      const handleOrderSuccess = (createdOrder) => {
-        if (paymentMethod === "UPI") {
-          const paymentPayloadCandidates: Record<string, unknown>[] = [
-            {
-              client_id: clientId,
-              order_id: createdOrder.$id,
-              amount: computedPayableTotal,
-              payment_method: "UPI",
-              payment_status: "PENDING",
-              customer_marked_paid: false,
-              verified_by: "PENDING_CASHIER_CONFIRMATION",
-            },
-          ];
-
-          try {
-            createDocumentWithFallback(
-              appwriteConfig.collections.payments,
-              paymentPayloadCandidates,
-            );
-          } catch (paymentError) {
-            devError(paymentError);
-            setNoticeMessage(
-              "Order placed. UPI confirmation is pending and will be verified by cashier.",
-            );
-          }
-        }
-
-        setOrderPlacedId(createdOrder.$id);
-        const nextActiveOrderContext: ActiveOrderContext = {
-          id: createdOrder.$id,
-          status: "PLACED",
-          paymentStatus: "UNPAID",
-          updatedAt: nowIso,
-        };
         setActiveOrderContext(nextActiveOrderContext);
         activeOrderContextRef.current = nextActiveOrderContext;
         trackOwnedOrderId(createdOrder.$id, browserIdForOrder);
@@ -4381,19 +4346,6 @@ export default function QrOrderingExperience({
 
 
       }
-
-      setCart({});
-      setSelectedModifiersByItem({});
-      setSelectedAddonsByItem({});
-      setKitchenInstructions("");
-      setCartOpen(false);
-      setBillOpen(true);
-
-      if (options?.redirectToMenuAfterSuccess) {
-        setNoticeMessage("Order placed successfully.");
-        navigateToMenuAfterOrder();
-      }
-    };
 
     const handlePlaceOrder = async (options?: { redirectToMenuAfterSuccess?: boolean }) => {
       const activeOrderSession = await ensureTableSessionForOrder();
@@ -5021,9 +4973,6 @@ placeOrderLockRef.current = false;
   function closeUpiQrSheet() {
     setUpiQrOpen(false);
   }
-
-  const tableLabel = tableInfo ? tableInfo.displayLabel : formatTableLabel(routeTable);
-  const accentColor = normalizeThemeColor(LUXURY_GOLD, LUXURY_GOLD);
 
   useEffect(() => {
     if (!shouldShowCartPanel || isStandaloneCartRoute || typeof document === "undefined") {
