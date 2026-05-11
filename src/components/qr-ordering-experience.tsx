@@ -7171,13 +7171,21 @@ export default function QrOrderingExperience({
       cgst_amount: computedCgstAmount,
       sgst_amount: computedSgstAmount,
       total_amount: computedPayableTotal,
+      discount_amount: computedOfferDiscount, // Explicit source of truth
     };
-    const orderDiscountPayload =
-      computedOfferDiscount > 0 ? { discount_amount: computedOfferDiscount } : {};
+
+    console.log("ORDER_MONEY_DEBUG", {
+      subtotal: computedSubtotal,
+      discount_amount: computedOfferDiscount,
+      tax_amount: computedTaxAmount,
+      cgst_amount: computedCgstAmount,
+      sgst_amount: computedSgstAmount,
+      total_amount: computedPayableTotal
+    });
+
     const orderPayloadCandidates: Record<string, unknown>[] = [
       {
         ...orderBasePayload,
-        ...orderDiscountPayload,
         payment_method: paymentMethod,
         created_at_custom: nowIso,
         items_json: orderItemsSnapshot,
@@ -7185,7 +7193,6 @@ export default function QrOrderingExperience({
       },
       {
         ...orderBasePayload,
-        ...orderDiscountPayload,
         payment_method: paymentMethod,
         created_at_custom: nowIso,
         order_items: orderItemsSnapshot,
@@ -7193,7 +7200,6 @@ export default function QrOrderingExperience({
       },
       {
         ...orderBasePayload,
-        ...orderDiscountPayload,
         payment_method: paymentMethod,
         created_at_custom: nowIso,
         items_json: orderItemsSnapshot,
@@ -7201,7 +7207,6 @@ export default function QrOrderingExperience({
       },
       {
         ...orderBasePayload,
-        ...orderDiscountPayload,
         payment_method: paymentMethod,
         created_at_custom: nowIso,
         order_items: orderItemsSnapshot,
@@ -7209,7 +7214,6 @@ export default function QrOrderingExperience({
       },
       {
         ...orderBasePayload,
-        ...orderDiscountPayload,
         payment_method: paymentMethod,
         created_at_custom: nowIso,
         items: compactItems,

@@ -1276,8 +1276,12 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
   const orderNumber = sanitizeIdentifier(documentData.order_number, 96);
   const subtotal = sanitizeAmount(documentData.subtotal, 0, 1_000_000);
   const totalAmount = sanitizeAmount(documentData.total_amount, 0, 1_000_000);
+  const discountAmount = sanitizeAmount(documentData.discount_amount, 0, 1_000_000);
+  const taxAmount = sanitizeAmount(documentData.tax_amount, 0, 1_000_000);
+  const cgstAmount = sanitizeAmount(documentData.cgst_amount, 0, 1_000_000);
+  const sgstAmount = sanitizeAmount(documentData.sgst_amount, 0, 1_000_000);
 
-  if (!clientId || !tableId || !orderNumber || subtotal === null || totalAmount === null) {
+  if (!clientId || !tableId || !orderNumber || subtotal === null || totalAmount === null || discountAmount === null || taxAmount === null || cgstAmount === null || sgstAmount === null) {
     return null;
   }
 
@@ -1300,6 +1304,10 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
     payment_status: "UNPAID",
     payment_method: paymentMethod,
     subtotal,
+    discount_amount: discountAmount,
+    tax_amount: taxAmount,
+    cgst_amount: cgstAmount,
+    sgst_amount: sgstAmount,
     total_amount: totalAmount,
     created_at_custom: createdAtCustom,
   };
