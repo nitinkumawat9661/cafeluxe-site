@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useRouter } from "next/navigation";
-
+import { Swiper, SwiperSlide } from "swiper/react";
+import { EffectCoverflow } from "swiper/modules";
+import "swiper/css";
+import "swiper/css/effect-coverflow";
 import {
   AlertCircle,
   CheckCircle2,
@@ -22,14 +24,12 @@ import {
   Sparkles,
   Trash2,
   WifiOff,
-  X,
 } from "lucide-react";
 
 import {
   appwriteConfig,
   createDocumentWithFallback,
   fetchAllDocuments,
-  type AppwriteDocument,
   Query,
   updateDocumentWithFallback,
 } from "@/lib/appwrite";
@@ -58,11 +58,6 @@ import {
 type PaymentMethod = "UPI" | "COUNTER";
 type LoadState = "loading" | "ready" | "invalid-table" | "error";
 type ExperienceViewMode = "menu" | "cart";
-
-type MenuCategorySection = {
-  category: Category;
-  items: MenuItem[];
-};
 
 type ModifierOption = {
   id: string;
@@ -129,9 +124,6 @@ type BillLineItem = {
 type TableOrderRecord = {
   orderId: string;
   orderNumber: string;
-  sessionId?: string;
-  billId?: string;
-  orderRound?: number;
   tableNo: string;
   status: string;
   paymentStatus: string;
@@ -148,28 +140,6 @@ type TableOrderRecord = {
   items: BillLineItem[];
   source: "local" | "backend";
 };
-
-type TableSessionRecord = {
-  documentId: string;
-  clientId: string;
-  tableId: string;
-  tableNumber: string;
-  sessionId: string;
-  billId: string;
-  status: string;
-  paymentStatus: string;
-  lockedBy: string;
-  heartbeatAt: string;
-  openedAt: string;
-  totalAmount: number;
-};
-
-type TableSessionLifecycleState =
-  | "checking"
-  | "ready"
-  | "blocked"
-  | "needs_recovery"
-  | "error";
 
 type OfferEvaluationType = "flat_discount" | "bxgy" | "combo" | "time_based";
 type OfferTargetScope = "all" | "category" | "product" | "cart";
@@ -247,11 +217,6 @@ type ActiveTableBillState = {
   ownerBrowserId?: string;
   ownerScopeKey?: string;
   ownedOrderIds?: string[];
-  tableSessionDocumentId?: string;
-  sessionId?: string;
-  billId?: string;
-  tableSessionStatus?: string;
-  tableSessionPaymentStatus?: string;
   updatedAt: string;
 };
 
@@ -265,13 +230,6 @@ type ActiveTableSessionState = {
   lastActivityAt: string;
   ownerBrowserId?: string;
   ownerScopeKey?: string;
-  tableSessionDocumentId?: string;
-  sessionId?: string;
-  billId?: string;
-  tableSessionStatus?: string;
-  tableSessionPaymentStatus?: string;
-  lockedBy?: string;
-  orderRound?: number;
   updatedAt: string;
 };
 
@@ -352,17 +310,7 @@ const ACTIVE_TABLE_STORAGE_VERSION = 1;
 const REQUEST_TIMEOUT_MS = 12000;
 const BILL_SYNC_TIMEOUT_MS = 10000;
 const ORDER_STATUS_WATCH_INTERVAL_MS = 14000;
-const TABLE_SESSION_STATUS_WATCH_INTERVAL_MS = 5000;
-const SETTINGS_REFRESH_INTERVAL_MS = 5000;
 const MAX_TABLE_ORDER_RECORDS = 60;
-const ACTIVE_TABLE_SESSION_STATUSES = ["active", "closing_requested", "payment_pending"];
-const CLOSED_TABLE_SESSION_STATUSES = ["closed", "paid"];
-const CLOSED_TABLE_SESSION_PAYMENT_STATUSES = ["paid", "settled", "completed"];
-const ORDER_LOCKED_TABLE_SESSION_STATUSES = ["closing_requested", "payment_pending"];
-const TABLE_SESSION_LOCKED_MESSAGE = "This table is already active on another device.";
-const TABLE_SESSION_PAYMENT_PENDING_MESSAGE = "Payment verification is pending at counter.";
-const TABLE_SESSION_CLOSED_MESSAGE = "Bill closed. Thank you for visiting Cafe Luxe.";
-const SESSION_MONITOR_WARNING_MESSAGE = "Bill status is reconnecting. You can keep using the menu.";
 const MAX_ROUTE_CLIENT_LENGTH = 64;
 const MAX_ROUTE_TABLE_LENGTH = 32;
 const MAX_SEARCH_INPUT_LENGTH = 64;
@@ -384,6 +332,9 @@ const LUXURY_GOLD = PALETTE_ACCENT;
 const DEEP_CHARCOAL = PALETTE_TEXT;
 const SOFT_DARK_SURFACE = PALETTE_SURFACE;
 const WARM_HIGHLIGHT = PALETTE_ACCENT;
+const LIGHT_TEXT = PALETTE_TEXT;
+const BRAND_BG = PALETTE_BACKGROUND;
+const BRAND_SURFACE = PALETTE_SURFACE;
 
 const PIZZA_FALLBACK_MODIFIER_OPTIONS: ModifierOption[] = [
   { id: "extra_cheese", label: "Extra Cheese", price: 40, kind: "paid" },
@@ -426,129 +377,6 @@ function getErrorMessage(error: unknown) {
     return String(error.message);
   }
   return "Unexpected error";
-}
-
-type SessionMonitorErrorDetails = {
-  message: string;
-  code?: string | number;
-  type?: string;
-  response?: unknown;
-  status?: string | number;
-  stack?: string;
-  raw?: string;
-};
-
-function stringifyUnknownError(value: unknown) {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  if (!value) {
-    return String(value);
-  }
-  try {
-    const serialized = JSON.stringify(value);
-    if (serialized && serialized !== "{}") {
-      return serialized;
-    }
-  } catch {
-    // Fall through to String(value).
-  }
-  return String(value);
-}
-
-function extractSessionMonitorError(error: unknown): SessionMonitorErrorDetails {
-  const base: SessionMonitorErrorDetails = {
-    message: "Unknown session monitor error",
-  };
-
-  if (error instanceof Error) {
-    const source = error as Error & {
-      code?: unknown;
-      type?: unknown;
-      response?: unknown;
-      status?: unknown;
-    };
-    return {
-      message: error.message || error.name || base.message,
-      code:
-        typeof source.code === "string" || typeof source.code === "number"
-          ? source.code
-          : undefined,
-      type: typeof source.type === "string" ? source.type : undefined,
-      response: source.response,
-      status:
-        typeof source.status === "string" || typeof source.status === "number"
-          ? source.status
-          : undefined,
-      stack: error.stack,
-      raw: error.name || undefined,
-    };
-  }
-
-  if (typeof error === "object" && error) {
-    const source = error as Record<string, unknown>;
-    const message =
-      typeof source.message === "string" && source.message.trim()
-        ? source.message
-        : typeof source.error === "string" && source.error.trim()
-          ? source.error
-          : stringifyUnknownError(error);
-
-    return {
-      message: message || base.message,
-      code:
-        typeof source.code === "string" || typeof source.code === "number"
-          ? source.code
-          : undefined,
-      type: typeof source.type === "string" ? source.type : undefined,
-      response: source.response,
-      status:
-        typeof source.status === "string" || typeof source.status === "number"
-          ? source.status
-          : undefined,
-      stack: typeof source.stack === "string" ? source.stack : undefined,
-      raw: stringifyUnknownError(error),
-    };
-  }
-
-  return {
-    message: stringifyUnknownError(error) || base.message,
-    raw: stringifyUnknownError(error),
-  };
-}
-
-function getSessionMonitorErrorSignature(details: SessionMonitorErrorDetails) {
-  return [
-    details.message,
-    details.code ?? "",
-    details.status ?? "",
-    details.type ?? "",
-  ].join("|");
-}
-
-function logSessionMonitorError(
-  error: unknown,
-  consecutiveFailureCount: number,
-  previousSignature: string,
-) {
-  const details = extractSessionMonitorError(error);
-  const signature = getSessionMonitorErrorSignature(details);
-  const shouldLog =
-    consecutiveFailureCount === 1 ||
-    signature !== previousSignature ||
-    consecutiveFailureCount % 5 === 0;
-
-  if (shouldLog) {
-    console.warn("SESSION_MONITOR_ERROR", {
-      failureCount: consecutiveFailureCount,
-      ...details,
-    });
-  }
-
-  return signature;
 }
 
 const IS_DEV_BUILD = process.env.NODE_ENV !== "production";
@@ -658,22 +486,6 @@ function parseInteger(value: unknown, fallback: number) {
 
 function roundCurrency(value: number) {
   return Math.round(value * 100) / 100;
-}
-
-function resolveClientTaxConfig(settings: RestaurantSettings) {
-  const gstIsEnabled = !!settings.gstEnabled;
-  return {
-    gstEnabled: gstIsEnabled,
-    taxPercentage: gstIsEnabled
-      ? Math.min(100, Math.max(0, settings.taxPercentage || 0))
-      : 0,
-    cgstPercentage: gstIsEnabled
-      ? Math.min(100, Math.max(0, settings.cgstPercentage || 0))
-      : 0,
-    sgstPercentage: gstIsEnabled
-      ? Math.min(100, Math.max(0, settings.sgstPercentage || 0))
-      : 0,
-  };
 }
 
 function getRecordString(source: Record<string, unknown>, keys: string[]) {
@@ -1949,6 +1761,15 @@ function pickBestApplicableOffer(
   };
 }
 
+function resolveApplicableOffersForSubtotal(
+  subtotalAmount: number,
+  lines: OfferEvaluationLine[],
+  allOffers: Offer[],
+) {
+  return evaluateApplicableOffers(allOffers, lines, subtotalAmount);
+}
+
+
 function normalizeThemeColor(value: string, fallback = PALETTE_ACCENT) {
   const candidate = value.trim();
   if (!candidate) {
@@ -2651,17 +2472,6 @@ function ensureBrowserCustomerId() {
   return generated;
 }
 
-function buildSessionToken(prefix: "session" | "bill", clientId: string, tableId: string) {
-  const clientToken = normalizeRouteToken(clientId).slice(0, 24) || "client";
-  const tableToken = normalizeRouteToken(tableId).slice(0, 24) || "table";
-  const randomToken =
-    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID().replace(/-/g, "").slice(0, 16)
-      : Math.random().toString(36).slice(2, 14);
-
-  return `${prefix}_${clientToken}_${tableToken}_${Date.now().toString(36)}_${randomToken}`;
-}
-
 function emptyCustomerProfile(browserId: string): CustomerProfile {
   return {
     version: CUSTOMER_PROFILE_VERSION,
@@ -3125,7 +2935,7 @@ function parseBillItems(value: unknown): BillLineItem[] {
   return [];
 }
 
-function parseTableOrderRecord(value: unknown): TableOrderRecord | null {
+function parseTableOrderRecord(value: unknown) {
   if (!value || typeof value !== "object") {
     return null;
   }
@@ -3160,12 +2970,6 @@ function parseTableOrderRecord(value: unknown): TableOrderRecord | null {
       toSafeString(source.orderNumber) ||
       toSafeString(source.order_number) ||
       `ORD-${orderId.slice(-6).toUpperCase()}`,
-    sessionId: toSafeString(source.sessionId) || toSafeString(source.session_id) || undefined,
-    billId: toSafeString(source.billId) || toSafeString(source.bill_id) || undefined,
-    orderRound:
-      toPositiveQuantity(source.orderRound ?? source.order_round) > 0
-        ? toPositiveQuantity(source.orderRound ?? source.order_round)
-        : undefined,
     tableNo: toSafeString(source.tableNo) || toSafeString(source.table_no),
     status: toSafeString(source.status) || "PLACED",
     paymentStatus: toSafeString(source.paymentStatus ?? source.payment_status) || "UNPAID",
@@ -3369,16 +3173,6 @@ function parseActiveBillState(rawValue: string | null) {
       ownerBrowserId: toSafeString(parsed.ownerBrowserId) || toSafeString(parsed.owner_browser_id),
       ownerScopeKey: toSafeString(parsed.ownerScopeKey) || toSafeString(parsed.owner_scope_key),
       ownedOrderIds: normalizeOwnedOrderIds(parsed.ownedOrderIds ?? parsed.owned_order_ids),
-      tableSessionDocumentId:
-        toSafeString(parsed.tableSessionDocumentId) ||
-        toSafeString(parsed.table_session_document_id),
-      sessionId: toSafeString(parsed.sessionId) || toSafeString(parsed.session_id),
-      billId: toSafeString(parsed.billId) || toSafeString(parsed.bill_id),
-      tableSessionStatus:
-        toSafeString(parsed.tableSessionStatus) || toSafeString(parsed.table_session_status),
-      tableSessionPaymentStatus:
-        toSafeString(parsed.tableSessionPaymentStatus) ||
-        toSafeString(parsed.table_session_payment_status),
       updatedAt: toSafeString(parsed.updatedAt) || activeOrder?.updatedAt || new Date().toISOString(),
     } satisfies ActiveTableBillState;
   } catch {
@@ -3421,18 +3215,6 @@ function parseActiveSessionState(rawValue: string | null) {
         "",
       ownerBrowserId: toSafeString(parsed.ownerBrowserId) || toSafeString(parsed.owner_browser_id),
       ownerScopeKey: toSafeString(parsed.ownerScopeKey) || toSafeString(parsed.owner_scope_key),
-      tableSessionDocumentId:
-        toSafeString(parsed.tableSessionDocumentId) ||
-        toSafeString(parsed.table_session_document_id),
-      sessionId: toSafeString(parsed.sessionId) || toSafeString(parsed.session_id),
-      billId: toSafeString(parsed.billId) || toSafeString(parsed.bill_id),
-      tableSessionStatus:
-        toSafeString(parsed.tableSessionStatus) || toSafeString(parsed.table_session_status),
-      tableSessionPaymentStatus:
-        toSafeString(parsed.tableSessionPaymentStatus) ||
-        toSafeString(parsed.table_session_payment_status),
-      lockedBy: toSafeString(parsed.lockedBy) || toSafeString(parsed.locked_by),
-      orderRound: toPositiveQuantity(parsed.orderRound ?? parsed.order_round),
       updatedAt: toSafeString(parsed.updatedAt) || new Date().toISOString(),
     } satisfies ActiveTableSessionState;
   } catch {
@@ -3548,6 +3330,27 @@ function isOrderClosed(status: string, paymentStatus: string) {
   );
 }
 
+function isOrderAccepted(status: string) {
+  const normalized = status.trim().toUpperCase();
+  if (!normalized) {
+    return false;
+  }
+  return [
+    "ACCEPTED",
+    "CONFIRMED",
+    "PREPARING",
+    "IN_PROGRESS",
+    "COOKING",
+    "READY",
+    "SERVED",
+    "DELIVERED",
+    "BILLED",
+    "COMPLETED",
+    "CLOSED",
+    "SETTLED",
+  ].includes(normalized);
+}
+
 function isPaymentConfirmed(status: string) {
   const normalized = status.trim().toUpperCase();
   if (!normalized) {
@@ -3638,13 +3441,7 @@ function parseOrderRecordFromDocument(doc: Record<string, unknown>): TableOrderR
   return {
     orderId,
     orderNumber: toSafeString(doc.order_number) || `ORD-${orderId.slice(-6).toUpperCase()}`,
-    sessionId: toSafeString(doc.session_id) || undefined,
-    billId: toSafeString(doc.bill_id) || undefined,
-    orderRound:
-      toPositiveQuantity(doc.order_round) > 0
-        ? toPositiveQuantity(doc.order_round)
-        : undefined,
-    tableNo: toSafeString(doc.table_number) || toSafeString(doc.table_no),
+    tableNo: toSafeString(doc.table_no),
     status: toSafeString(doc.status) || "PLACED",
     paymentStatus: toSafeString(doc.payment_status) || "UNPAID",
     paymentMethod,
@@ -3667,12 +3464,7 @@ function parseOrderRecordFromDocument(doc: Record<string, unknown>): TableOrderR
   } satisfies TableOrderRecord;
 }
 
-async function fetchTableOrderRecords(
-  clientId: string,
-  tableId: string,
-  billId?: string,
-  sessionId?: string,
-) {
+async function fetchTableOrderRecords(clientId: string, tableId: string) {
   try {
     const orderDocs = await fetchAllDocuments(appwriteConfig.collections.orders, {
       pageSize: 50,
@@ -3687,12 +3479,7 @@ async function fetchTableOrderRecords(
 
     return orderDocs
       .map((doc) => parseOrderRecordFromDocument(doc))
-      .filter((entry): entry is TableOrderRecord => !!entry)
-      .filter(
-        (entry) =>
-          (!billId || entry.billId === billId) &&
-          (!sessionId || entry.sessionId === sessionId),
-      );
+      .filter((entry): entry is TableOrderRecord => !!entry);
   } catch (error) {
     const message = getErrorMessage(error).toLowerCase();
     const canIgnore =
@@ -3794,190 +3581,9 @@ function generateOrderNumber(clientId: string, tableNo: string) {
   return `ORD-${clientToken}-${tableToken}-${yyyy}${mm}${dd}${hh}${min}${sec}`;
 }
 
-function parseTableSessionRecord(doc: Record<string, unknown>): TableSessionRecord | null {
-  const documentId = toSafeString(doc.$id) || toSafeString(doc.id);
-  const clientId = toSafeString(doc.client_id);
-  const tableId = toSafeString(doc.table_id);
-  const tableNumber = toSafeString(doc.table_number) || toSafeString(doc.table_no);
-  const sessionId = toSafeString(doc.session_id) || documentId;
-  const billId = toSafeString(doc.bill_id) || documentId;
-  if (!documentId || !clientId || !tableId || !sessionId || !billId) {
-    return null;
-  }
-
-  return {
-    documentId,
-    clientId,
-    tableId,
-    tableNumber,
-    sessionId,
-    billId,
-    status: toSafeString(doc.status) || "active",
-    paymentStatus: toSafeString(doc.payment_status) || "unpaid",
-    lockedBy: toSafeString(doc.locked_by),
-    heartbeatAt: toSafeString(doc.heartbeat_at),
-    openedAt: toSafeString(doc.opened_at) || toSafeString(doc.$createdAt),
-    totalAmount: toAmount(doc.total_amount),
-  } satisfies TableSessionRecord;
-}
-
-function isTableSessionPaymentSettled(session: TableSessionRecord | null | undefined) {
-  return CLOSED_TABLE_SESSION_PAYMENT_STATUSES.includes(
-    session?.paymentStatus.trim().toLowerCase() ?? "",
-  );
-}
-
-function isTableSessionClosedOrPaid(session: TableSessionRecord | null | undefined) {
-  return (
-    CLOSED_TABLE_SESSION_STATUSES.includes(session?.status.trim().toLowerCase() ?? "") ||
-    isTableSessionPaymentSettled(session)
-  );
-}
-
-function isTableSessionOrderLocked(session: TableSessionRecord | null | undefined) {
-  return ORDER_LOCKED_TABLE_SESSION_STATUSES.includes(
-    session?.status.trim().toLowerCase() ?? "",
-  );
-}
-
-function isOrderForSessionBill(order: TableOrderRecord, billId: string, sessionId: string) {
-  return order.billId === billId && order.sessionId === sessionId;
-}
-
-async function resolveTableSessionForBrowser(
-  clientId: string,
-  tableInfo: RestaurantTable,
-  browserId: string,
-) {
-  const tableNumber = tableInfo!.tableNo || tableInfo.displayLabel || tableInfo!.id;
-  const sessionDocs = await fetchAllDocuments(appwriteConfig.collections.tableSessions, {
-    pageSize: 20,
-    maxDocs: 80,
-    queries: [
-      Query.equal("client_id", [clientId]),
-      Query.equal("table_id", [tableInfo!.id]),
-      Query.equal("status", ACTIVE_TABLE_SESSION_STATUSES),
-      Query.orderDesc("$updatedAt"),
-    ],
-    timeoutMs: REQUEST_TIMEOUT_MS,
-  });
-
-  const activeSessions = sessionDocs
-    .map((doc) => parseTableSessionRecord(doc))
-    .filter((entry): entry is TableSessionRecord => !!entry)
-    .filter(
-      (entry) =>
-        entry.clientId === clientId &&
-        entry.tableId === tableInfo!.id &&
-        ACTIVE_TABLE_SESSION_STATUSES.includes(entry.status.trim().toLowerCase()) &&
-        !isTableSessionPaymentSettled(entry),
-    )
-    .sort((a, b) => {
-      const aStamp = Math.max(toTimestamp(a.heartbeatAt), toTimestamp(a.openedAt));
-      const bStamp = Math.max(toTimestamp(b.heartbeatAt), toTimestamp(b.openedAt));
-      return bStamp - aStamp;
-    });
-
-  const existingSession = activeSessions[0] ?? null;
-  const nowIso = new Date().toISOString();
-  if (existingSession) {
-    if (existingSession.lockedBy && existingSession.lockedBy !== browserId) {
-      throw new Error(TABLE_SESSION_LOCKED_MESSAGE);
-    }
-
-    try {
-      const updated = updateDocumentWithFallback(
-        appwriteConfig.collections.tableSessions,
-        existingSession.documentId,
-        [
-          {
-            locked_by: browserId,
-            heartbeat_at: nowIso,
-          },
-        ],
-        {
-          scope: {
-            clientId,
-            tableId: tableInfo!.id,
-            lockedBy: existingSession.lockedBy || browserId,
-          },
-        },
-      );
-      return parseTableSessionRecord(updated) ?? {
-        ...existingSession,
-        lockedBy: browserId,
-        heartbeatAt: nowIso,
-      };
-    } catch (error) {
-      devWarn("Table session heartbeat update failed:", error);
-      return {
-        ...existingSession,
-        lockedBy: browserId || existingSession.lockedBy,
-        heartbeatAt: nowIso,
-      };
-    }
-  }
-
-  const created = createDocumentWithFallback(appwriteConfig.collections.tableSessions, [
-    {
-      client_id: clientId,
-      table_id: tableInfo!.id,
-      table_number: tableNumber,
-      session_id: buildSessionToken("session", clientId, tableInfo!.id),
-      bill_id: buildSessionToken("bill", clientId, tableInfo!.id),
-      status: "active",
-      payment_status: "unpaid",
-      locked_by: browserId,
-      heartbeat_at: nowIso,
-      opened_at: nowIso,
-      total_amount: 0,
-    },
-  ]);
-
-  const createdSession = parseTableSessionRecord(created);
-  if (!createdSession) {
-    throw new Error("Unable to initialize table session.");
-  }
-  return createdSession;
-}
-
-async function fetchCurrentTableSessionRecord(
-  clientId: string,
-  tableInfo: RestaurantTable,
-  currentSession: TableSessionRecord,
-) {
-  const sessionDocs = await fetchAllDocuments(appwriteConfig.collections.tableSessions, {
-    pageSize: 30,
-    maxDocs: 120,
-    queries: [
-      Query.equal("client_id", [clientId]),
-      Query.equal("table_id", [tableInfo!.id]),
-      Query.orderDesc("$updatedAt"),
-    ],
-    timeoutMs: REQUEST_TIMEOUT_MS,
-  });
-
-  const parsedSessions = sessionDocs
-    .map((doc) => parseTableSessionRecord(doc))
-    .filter((entry): entry is TableSessionRecord => !!entry)
-    .filter((entry) => entry.clientId === clientId && entry.tableId === tableInfo!.id);
-
-  return (
-    parsedSessions.find((entry) => entry.documentId === currentSession.documentId) ??
-    parsedSessions.find(
-      (entry) =>
-        entry.sessionId === currentSession.sessionId && entry.billId === currentSession.billId,
-    ) ??
-    null
-  );
-}
-
 function buildTableOrderRecordFromCart(
   orderId: string,
   orderNumber: string,
-  sessionId: string,
-  billId: string,
-  orderRound: number,
   tableNo: string,
   paymentMethod: PaymentMethod,
   subtotal: number,
@@ -3994,9 +3600,6 @@ function buildTableOrderRecordFromCart(
   return {
     orderId,
     orderNumber,
-    sessionId,
-    billId,
-    orderRound,
     tableNo,
     status: "PLACED",
     paymentStatus: "UNPAID",
@@ -4078,6 +3681,7 @@ export default function QrOrderingExperience({
   const routeClientForPath = routeClient || client.trim();
   const routeTableForPath = routeTable || table.trim();
   const tableRoutePath = `/c/${encodeURIComponent(routeClientForPath)}/t/${encodeURIComponent(routeTableForPath)}`;
+  const cartRoutePath = `${tableRoutePath}/cart`;
   const isStandaloneCartRoute = initialView === "cart";
 
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -4102,271 +3706,2381 @@ export default function QrOrderingExperience({
     heroImageUrl: "",
     tagline: "",
     rawDocs: [],
-      });
-        setActiveOrderContext(nextActiveOrderContext);
-        activeOrderContextRef.current = nextActiveOrderContext;
-        trackOwnedOrderId(createdOrder.$id, browserIdForOrder);
-        const placedOrderRecord = buildTableOrderRecordFromCart(
-          createdOrder.$id,
-          orderNumber,
-          activeOrderSession!.sessionId,
-          activeOrderSession!.billId,
-          orderRound,
-          tableInfo!.tableNo,
-          paymentMethod,
-          computedSubtotal,
-          computedTaxAmount,
-          computedCgstAmount,
-          computedSgstAmount,
-          computedPayableTotal,
-          nowIso,
-          cartItems,
-          resolvedSelectedModifiersByItem,
-          resolvedSelectedAddonsByItem,
-          trimmedInstructions,
-        );
-        const mergedLocalOrders = mergeTableOrderRecords(currentBillOrders, [placedOrderRecord]);
-        const nextSessionTotal = roundCurrency(sumTableOrderPayableAmount(mergedLocalOrders));
-        setTableOrders(mergedLocalOrders);
-        tableOrdersRef.current = mergedLocalOrders;
-        setTableSession((current) =>
-          current
-            ? {
-                ...current,
-                heartbeatAt: nowIso,
-                totalAmount: nextSessionTotal,
-              }
-            : current,
-        );
-        void updateDocumentWithFallback(
-          appwriteConfig.collections.tableSessions,
-          activeOrderSession!.documentId,
-          [
-            {
-              heartbeat_at: nowIso,
-              total_amount: nextSessionTotal,
-            },
-          ],
-          {
-            scope: {
-              clientId,
-              tableId: tableInfo!.id,
-              lockedBy: activeOrderSession!.lockedBy || browserIdForOrder,
-            },
-          },
-        ).catch((sessionUpdateError) => {
-          devWarn("Table session total update failed:", sessionUpdateError);
-        });
-        persistOwnedOrderIds(
-          mergedLocalOrders.map((record) => record.orderId),
-          browserIdForOrder,
-        );
-        syncOrderSnapshot(mergedLocalOrders);
-        setBillSyncMessage("Order added to your bill.");
-        touchBillActivity(nowIso);
-        showStatusPopup({
-          title: "Order Placed",
-          description: `${orderNumber} has been sent to the kitchen.`,
-          tone: "success",
-        });
+  });
+  const [tableInfo, setTableInfo] = useState<RestaurantTable | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [offersToday, setOffersToday] = useState<Offer[]>([]);
 
-        if (typeof window !== "undefined") {
-          const resolvedBrowserId = browserIdForOrder || ensureBrowserCustomerId();
-          const resolvedHistoryStorageKey =
-            customerHistoryStorageKey ||
-            buildCustomerHistoryStorageKey(routeClient, resolvedBrowserId);
-          const orderSummary: CustomerOrderSummary = {
-            orderId: createdOrder.$id,
-            client: clientId,
-            table: tableInfo!.tableNo,
-            totalAmount: computedPayableTotal,
-            itemCount: cartCount,
-            paymentMethod,
-            status: "PLACED",
-            placedAt: nowIso,
-            items: cartItems.map((cartItem) => ({
-              id: cartItem.item.id,
-              qty: cartItem.quantity,
-            })),
-          };
+  const [searchText, setSearchText] = useState("");
+  const [activeCategory, setActiveCategory] = useState<string>("all");
+  const [reloadKey, setReloadKey] = useState(0);
+  const [cart, setCart] = useState<Record<string, number>>({});
+  const [selectedModifiersByItem, setSelectedModifiersByItem] = useState<
+    Record<string, SelectedModifier[]>
+  >({});
+  const [selectedAddonsByItem, setSelectedAddonsByItem] = useState<Record<string, SelectedAddon[]>>({});
+  const [itemAddonGroupsByItem, setItemAddonGroupsByItem] = useState<Record<string, ItemAddonGroup[]>>({});
+  const [addonPickerItemId, setAddonPickerItemId] = useState("");
+  const [addonPickerDraftByGroup, setAddonPickerDraftByGroup] = useState<Record<string, string[]>>({});
+  const [addonPickerError, setAddonPickerError] = useState("");
+  const [addonPickerMode, setAddonPickerMode] = useState<"add" | "edit">("add");
+  const [isOffersExpanded, setIsOffersExpanded] = useState(false);
+  const [kitchenInstructions, setKitchenInstructions] = useState("");
+  const [isCartHydrated, setIsCartHydrated] = useState(false);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [billOpen, setBillOpen] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("COUNTER");
+  const [canLaunchUpiDeepLink, setCanLaunchUpiDeepLink] = useState(false);
+  const [upiQrUri, setUpiQrUri] = useState("");
+  const [upiQrAmount, setUpiQrAmount] = useState("");
+  const [upiQrOpen, setUpiQrOpen] = useState(false);
+  const [placingOrder, setPlacingOrder] = useState(false);
+  const [billSyncing, setBillSyncing] = useState(false);
+  const [billSyncMessage, setBillSyncMessage] = useState("");
+  const [statusPopup, setStatusPopup] = useState<StatusPopupState | null>(null);
+  const [orderPlacedId, setOrderPlacedId] = useState("");
+  const [billActionOrderId, setBillActionOrderId] = useState("");
+  const [activeOrderContext, setActiveOrderContext] = useState<ActiveOrderContext | null>(
+    null,
+  );
+  const [tableOrders, setTableOrders] = useState<TableOrderRecord[]>([]);
+  const [billLastActivityAt, setBillLastActivityAt] = useState("");
+  const [customerBrowserId, setCustomerBrowserId] = useState("");
+  const [customerProfile, setCustomerProfile] = useState<CustomerProfile | null>(null);
+  const placeOrderLockRef = useRef(false);
+  const tableOrdersRef = useRef<TableOrderRecord[]>([]);
+  const activeOrderContextRef = useRef<ActiveOrderContext | null>(null);
+  const billLastActivityRef = useRef("");
+  const orderSyncSnapshotRef = useRef<Record<string, { status: string; paymentStatus: string }>>({});
+  const shownKitchenStatusAlertKeysRef = useRef<Set<string>>(new Set());
+  const ownedOrderIdsRef = useRef<Set<string>>(new Set());
+  const persistedCartStateRef = useRef<string | null>(null);
+  const persistedBillStateRef = useRef<string | null>(null);
+  const persistedSessionStateRef = useRef<string | null>(null);
 
-          const currentProfile =
-            customerProfile ??
-            parseCustomerProfile(
-              window.localStorage.getItem(CUSTOMER_PROFILE_KEY),
-              resolvedBrowserId,
-            );
-          const nextProfile = buildNextCustomerProfile(
-            currentProfile,
-            orderSummary,
-            cartItems,
-            resolvedBrowserId,
-          );
-          setCustomerProfile(nextProfile);
-          window.localStorage.setItem(CUSTOMER_PROFILE_KEY, JSON.stringify(nextProfile));
+  const activeCartStorageKey = useMemo(
+    () => buildActiveCartStorageKey(routeClient, routeTable),
+    [routeClient, routeTable],
+  );
+  const activeBillStorageKey = useMemo(
+    () => buildActiveBillStorageKey(routeClient, routeTable),
+    [routeClient, routeTable],
+  );
+  const activeSessionStorageKey = useMemo(
+    () => buildActiveSessionStorageKey(routeClient, routeTable),
+    [routeClient, routeTable],
+  );
+  const legacyTableSessionStorageKey = useMemo(
+    () => `cart_${normalizeRouteToken(routeClient)}_${normalizeRouteToken(routeTable)}`,
+    [routeClient, routeTable],
+  );
+  const customerHistoryStorageKey = useMemo(() => {
+    if (!customerBrowserId) {
+      return "";
+    }
+    return buildCustomerHistoryStorageKey(routeClient, customerBrowserId);
+  }, [customerBrowserId, routeClient]);
+  const customerBillScopeStorageKey = useMemo(() => {
+    if (!customerBrowserId) {
+      return "";
+    }
+    return buildCustomerBillScopeStorageKey(routeClient, routeTable, customerBrowserId);
+  }, [customerBrowserId, routeClient, routeTable]);
+  const customerBillOwnerScopeKey = useMemo(() => {
+    if (!customerBrowserId) {
+      return "";
+    }
+    return buildCustomerBillOwnerScopeKey(routeClient, routeTable, customerBrowserId);
+  }, [customerBrowserId, routeClient, routeTable]);
 
-          const currentHistory =
-            parseCustomerOrderHistory(
-              window.localStorage.getItem(resolvedHistoryStorageKey),
-              resolvedBrowserId,
-            );
-          const nextHistory = buildNextCustomerHistory(
-            currentHistory,
-            orderSummary,
-            resolvedBrowserId,
-          );
-          window.localStorage.setItem(
-            resolvedHistoryStorageKey,
-            JSON.stringify(nextHistory),
-          );
+  const isLightTheme = true;
+
+  function touchBillActivity(activityAt = new Date().toISOString()) {
+    setBillLastActivityAt(activityAt);
+    billLastActivityRef.current = activityAt;
+  }
+
+  function persistOwnedOrderIds(orderIdsInput: Iterable<string>, browserIdInput?: string) {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const resolvedBrowserId = browserIdInput || customerBrowserId || ensureBrowserCustomerId();
+    if (!resolvedBrowserId) {
+      return;
+    }
+
+    const uniqueOrderIds = normalizeOwnedOrderIds([...orderIdsInput]);
+    ownedOrderIdsRef.current = new Set(uniqueOrderIds);
+
+    const storageKey = buildCustomerBillScopeStorageKey(routeClient, routeTable, resolvedBrowserId);
+    const payload: CustomerBillScopeState = {
+      version: CUSTOMER_BILL_SCOPE_VERSION,
+      browserId: resolvedBrowserId,
+      client: routeClient,
+      table: routeTable,
+      orderIds: uniqueOrderIds,
+      updatedAt: new Date().toISOString(),
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+  }
+
+  function trackOwnedOrderId(orderId: string, browserIdInput?: string) {
+    const sanitizedOrderId = toSafeString(orderId);
+    if (!sanitizedOrderId) {
+      return;
+    }
+    const nextOwnedOrderIds = new Set(ownedOrderIdsRef.current);
+    nextOwnedOrderIds.add(sanitizedOrderId);
+    persistOwnedOrderIds(nextOwnedOrderIds, browserIdInput);
+  }
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (window.localStorage.getItem(CLIENT_CACHE_RESET_MARKER_KEY) === "done") {
+      return;
+    }
+
+    const localKeysToRemove: string[] = [];
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key && isResettableClientCacheKey(key)) {
+        localKeysToRemove.push(key);
+      }
+    }
+
+    for (const key of localKeysToRemove) {
+      window.localStorage.removeItem(key);
+    }
+
+    const sessionKeysToRemove: string[] = [];
+    for (let index = 0; index < window.sessionStorage.length; index += 1) {
+      const key = window.sessionStorage.key(index);
+      if (key && isResettableClientCacheKey(key)) {
+        sessionKeysToRemove.push(key);
+      }
+    }
+    for (const key of sessionKeysToRemove) {
+      window.sessionStorage.removeItem(key);
+    }
+
+    window.localStorage.setItem(CLIENT_CACHE_RESET_MARKER_KEY, "done");
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    persistedCartStateRef.current = window.localStorage.getItem(activeCartStorageKey);
+    persistedBillStateRef.current = window.localStorage.getItem(activeBillStorageKey);
+    persistedSessionStateRef.current = window.localStorage.getItem(activeSessionStorageKey);
+  }, [activeBillStorageKey, activeCartStorageKey, activeSessionStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const browserId = ensureBrowserCustomerId();
+    setCustomerBrowserId(browserId);
+    setCustomerProfile(
+      parseCustomerProfile(window.localStorage.getItem(CUSTOMER_PROFILE_KEY), browserId),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    setCanLaunchUpiDeepLink(supportsUpiDeepLinkInBrowser());
+  }, []);
+
+  useEffect(() => {
+    const preferred = customerProfile?.preferences?.preferredPaymentMethod;
+    if (preferred) {
+      setPaymentMethod(preferred);
+    }
+  }, [customerProfile?.preferences?.preferredPaymentMethod]);
+
+  useEffect(() => {
+    tableOrdersRef.current = tableOrders;
+  }, [tableOrders]);
+
+  useEffect(() => {
+    activeOrderContextRef.current = activeOrderContext;
+  }, [activeOrderContext]);
+
+  useEffect(() => {
+    billLastActivityRef.current = billLastActivityAt;
+  }, [billLastActivityAt]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadData() {
+      setLoadState("loading");
+      setIsCartHydrated(false);
+      setErrorMessage("");
+      setNoticeMessage("");
+      setBillSyncMessage("");
+      setStatusPopup(null);
+      setOrderPlacedId("");
+      setActiveOrderContext(null);
+      setTableOrders([]);
+      setBillLastActivityAt("");
+      tableOrdersRef.current = [];
+      activeOrderContextRef.current = null;
+      orderSyncSnapshotRef.current = {};
+      setSearchText("");
+      setBillOpen(false);
+      setSelectedModifiersByItem({});
+      setSelectedAddonsByItem({});
+      setItemAddonGroupsByItem({});
+      setAddonPickerItemId("");
+      setAddonPickerDraftByGroup({});
+      setAddonPickerError("");
+      setAddonPickerMode("add");
+      setKitchenInstructions("");
+      setOffersToday([]);
+
+      try {
+        if (!routeClient || !routeTable) {
+          setTableInfo(null);
+          setLoadState("invalid-table");
+          setErrorMessage("This table QR format is invalid. Please use a valid QR.");
+          return;
         }
 
-        setCart({});
-        setSelectedModifiersByItem({});
-        setSelectedAddonsByItem({});
-        setKitchenInstructions("");
+        setLoadingMessage("Verifying table QR...");
+        const matchedTable = await withTimeout(
+          resolveRouteTable(routeClient, routeTable),
+          REQUEST_TIMEOUT_MS,
+          "Table verification",
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        if (!matchedTable) {
+          setTableInfo(null);
+          setLoadState("invalid-table");
+          setErrorMessage("This table QR is invalid. Please ask staff for the correct QR.");
+          return;
+        }
+
+        setLoadingMessage("Loading menu...");
+        const settingsPromise = fetchClientScopedDocuments(
+          appwriteConfig.collections.settings,
+          routeClient,
+          { pageSize: 40, maxDocs: 120 },
+        ).catch((error) => {
+          if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
+            return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+          }
+          devWarn("Settings fetch failed, continuing with defaults:", error);
+          return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+        });
+        const offersPromise = fetchClientScopedDocuments(
+          appwriteConfig.collections.offers,
+          routeClient,
+          { pageSize: 80, maxDocs: 240 },
+        ).catch((error) => {
+          if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
+            return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+          }
+          devWarn("Offers fetch failed, continuing without offers:", error);
+          return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+        });
+        const addonGroupsPromise = fetchClientScopedDocuments(
+          appwriteConfig.collections.addonGroups,
+          routeClient,
+          { pageSize: 80, maxDocs: 360 },
+        ).catch((error) => {
+          if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
+            return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+          }
+          devWarn("Add-on groups fetch failed, continuing without add-ons:", error);
+          return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+        });
+        const addonOptionsPromise = fetchClientScopedDocuments(
+          appwriteConfig.collections.addonOptions,
+          routeClient,
+          { pageSize: 120, maxDocs: 800 },
+        ).catch((error) => {
+          if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
+            return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+          }
+          devWarn("Add-on options fetch failed, continuing without add-ons:", error);
+          return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+        });
+        const itemAddonMapPromise = fetchClientScopedDocuments(
+          appwriteConfig.collections.itemAddonMap,
+          routeClient,
+          { pageSize: 120, maxDocs: 800 },
+        ).catch((error) => {
+          if (isUnauthorizedError(error) || isRecoverableQueryFailure(error)) {
+            return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+          }
+          devWarn("Item add-on mapping fetch failed, continuing without add-ons:", error);
+          return [] as Awaited<ReturnType<typeof fetchClientScopedDocuments>>;
+        });
+        const [categoryDocs, menuDocs] = await withTimeout(
+          Promise.all([
+            fetchClientScopedDocuments(appwriteConfig.collections.categories, routeClient, {
+              pageSize: 80,
+              maxDocs: 300,
+            }),
+            fetchClientScopedDocuments(appwriteConfig.collections.menuItems, routeClient, {
+              pageSize: 120,
+              maxDocs: 800,
+            }),
+          ]),
+          REQUEST_TIMEOUT_MS,
+          "Menu load",
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        const parsedCategories = parseCategories(categoryDocs, routeClient);
+        const parsedItems = parseMenuItems(menuDocs, routeClient);
+        const fallbackCategories = buildFallbackCategories(parsedItems);
+        const ensuredCategories =
+          parsedCategories.length > 0
+            ? mergeCategorySets(parsedCategories, fallbackCategories)
+            : fallbackCategories;
+        const fallbackSettings = parseClientSettings([], routeClient);
+        setTableInfo(matchedTable);
+        setClientSettings(fallbackSettings);
+        setBranding(null);
+        setCategories(ensuredCategories);
+        setMenuItems(parsedItems);
+        setRestaurantName(
+          inferRestaurantName(routeClient, null, ensuredCategories, parsedItems),
+        );
+        setActiveCategory((current) =>
+          current !== "all" && ensuredCategories.some((category) => category.id === current)
+            ? current
+            : "all",
+        );
         setCartOpen(false);
-        setBillOpen(true);
+        setBillOpen(false);
 
+        let shouldResumeOrderSync = false;
+        if (typeof window !== "undefined") {
+          const activeCartState = parseActiveCartState(
+            window.localStorage.getItem(activeCartStorageKey),
+          );
+          const localBillRaw = window.localStorage.getItem(activeBillStorageKey);
+          const localSessionRaw = window.localStorage.getItem(activeSessionStorageKey);
+          const legacySessionBillRaw = window.sessionStorage.getItem(activeBillStorageKey);
+          const legacySessionStateRaw = window.sessionStorage.getItem(activeSessionStorageKey);
+          if (!localBillRaw && legacySessionBillRaw) {
+            window.localStorage.setItem(activeBillStorageKey, legacySessionBillRaw);
+          }
+          if (!localSessionRaw && legacySessionStateRaw) {
+            window.localStorage.setItem(activeSessionStorageKey, legacySessionStateRaw);
+          }
+          if (legacySessionBillRaw) {
+            window.sessionStorage.removeItem(activeBillStorageKey);
+          }
+          if (legacySessionStateRaw) {
+            window.sessionStorage.removeItem(activeSessionStorageKey);
+          }
 
-      };
-      setActiveOrderContext(nextActiveOrderContext);
-      activeOrderContextRef.current = nextActiveOrderContext;
-      trackOwnedOrderId(createdOrder.$id, browserIdForOrder);
-      const placedOrderRecord = buildTableOrderRecordFromCart(
-        createdOrder.$id,
-        orderNumber,
-        activeOrderSession!.sessionId,
-        activeOrderSession!.billId,
-        orderRound,
-        tableInfo!.tableNo,
-        paymentMethod,
-        computedSubtotal,
-        computedTaxAmount,
-        computedCgstAmount,
-        computedSgstAmount,
-        computedPayableTotal,
-        nowIso,
-        cartItems,
-        resolvedSelectedModifiersByItem,
-        resolvedSelectedAddonsByItem,
-        trimmedInstructions,
-      );
-      const mergedLocalOrders = mergeTableOrderRecords(currentBillOrders, [placedOrderRecord]);
-      const nextSessionTotal = roundCurrency(sumTableOrderPayableAmount(mergedLocalOrders));
-      setTableOrders(mergedLocalOrders);
-      tableOrdersRef.current = mergedLocalOrders;
-      setTableSession((current) =>
-        current
-          ? {
-              ...current,
-              heartbeatAt: nowIso,
-              totalAmount: nextSessionTotal,
-            }
-          : current,
-      );
-      void updateDocumentWithFallback(
-        appwriteConfig.collections.tableSessions,
-        activeOrderSession!.documentId,
-        [
-          {
-            heartbeat_at: nowIso,
-            total_amount: nextSessionTotal,
-          },
-        ],
-        {
-          scope: {
-            clientId,
-            tableId: tableInfo!.id,
-            lockedBy: activeOrderSession!.lockedBy || browserIdForOrder,
-          },
-        },
-      ).catch((sessionUpdateError) => {
-        devWarn("Table session total update failed:", sessionUpdateError);
-      });
-      persistOwnedOrderIds(
-        mergedLocalOrders.map((record) => record.orderId),
-        browserIdForOrder,
-      );
-      syncOrderSnapshot(mergedLocalOrders);
-      setBillSyncMessage("Order added to your bill.");
-      touchBillActivity(nowIso);
-      showStatusPopup({
-        title: "Order Placed",
-        description: `${orderNumber} has been sent to the kitchen.`,
-        tone: "success",
-      });
-
-      if (typeof window !== "undefined") {
-        const resolvedBrowserId = browserIdForOrder || ensureBrowserCustomerId();
-        const resolvedHistoryStorageKey =
-          customerHistoryStorageKey ||
-          buildCustomerHistoryStorageKey(routeClient, resolvedBrowserId);
-        const orderSummary: CustomerOrderSummary = {
-          orderId: createdOrder.$id,
-          client: clientId,
-          table: tableInfo!.tableNo,
-          totalAmount: computedPayableTotal,
-          itemCount: cartCount,
-          paymentMethod,
-          status: "PLACED",
-          placedAt: nowIso,
-          items: cartItems.map((cartItem) => ({
-            id: cartItem.item.id,
-            qty: cartItem.quantity,
-          })),
-        };
-
-        const currentProfile =
-          customerProfile ??
-          parseCustomerProfile(
-            window.localStorage.getItem(CUSTOMER_PROFILE_KEY),
+          const activeBillState = parseActiveBillState(localBillRaw ?? legacySessionBillRaw);
+          const activeSessionState = parseActiveSessionState(
+            localSessionRaw ?? legacySessionStateRaw,
+          );
+          const legacySession = parseLegacyPersistedSession(
+            window.localStorage.getItem(legacyTableSessionStorageKey),
+          );
+          const resolvedBrowserId = customerBrowserId || ensureBrowserCustomerId();
+          if (!customerBrowserId && resolvedBrowserId) {
+            setCustomerBrowserId(resolvedBrowserId);
+          }
+          const ownerScopeKey = buildCustomerBillOwnerScopeKey(
+            routeClient,
+            routeTable,
             resolvedBrowserId,
           );
-        const nextProfile = buildNextCustomerProfile(
-          currentProfile,
-          orderSummary,
-          cartItems,
-          resolvedBrowserId,
-        );
-        setCustomerProfile(nextProfile);
-        window.localStorage.setItem(CUSTOMER_PROFILE_KEY, JSON.stringify(nextProfile));
-
-        const currentHistory =
-          parseCustomerOrderHistory(
-            window.localStorage.getItem(resolvedHistoryStorageKey),
+          const scopeStorageKey = buildCustomerBillScopeStorageKey(
             routeClient,
+            routeTable,
+            resolvedBrowserId,
           );
-        const nextHistory = buildNextCustomerHistory(
-          currentHistory,
-          orderSummary,
-          routeClient,
+          const scopeState = parseCustomerBillScopeState(
+            window.localStorage.getItem(scopeStorageKey),
+            resolvedBrowserId,
+            routeClient,
+            routeTable,
+          );
+          const historyStorageKey = buildCustomerHistoryStorageKey(routeClient, resolvedBrowserId);
+          const historyState = parseCustomerOrderHistory(
+            window.localStorage.getItem(historyStorageKey),
+            resolvedBrowserId,
+          );
+          const ownedOrderIds = new Set<string>(scopeState?.orderIds ?? []);
+          for (const orderId of collectOwnedOrderIdsFromHistory(historyState, routeClient, [
+            routeTable,
+            matchedTable.tableNo,
+            matchedTable.tableCode,
+          ])) {
+            ownedOrderIds.add(orderId);
+          }
+
+          const cartForRoute = isRecordForRoute(activeCartState, routeClient, routeTable)
+            ? activeCartState
+            : null;
+          const billForRouteCandidate = isRecordForRoute(activeBillState, routeClient, routeTable)
+            ? activeBillState
+            : null;
+          const sessionForRouteCandidate = isRecordForRoute(activeSessionState, routeClient, routeTable)
+            ? activeSessionState
+            : null;
+          const billForRoute = isRecordOwnedByCurrentBrowser(
+            billForRouteCandidate,
+            resolvedBrowserId,
+            ownerScopeKey,
+          )
+            ? billForRouteCandidate
+            : null;
+          const sessionForRoute = isRecordOwnedByCurrentBrowser(
+            sessionForRouteCandidate,
+            resolvedBrowserId,
+            ownerScopeKey,
+          )
+            ? sessionForRouteCandidate
+            : null;
+          if (billForRoute?.ownedOrderIds) {
+            for (const orderId of billForRoute.ownedOrderIds) {
+              ownedOrderIds.add(orderId);
+            }
+          }
+          if (billForRoute?.orders) {
+            for (const record of billForRoute.orders) {
+              if (record.orderId) {
+                ownedOrderIds.add(record.orderId);
+              }
+            }
+          }
+          if (billForRoute?.activeOrder?.id) {
+            ownedOrderIds.add(billForRoute.activeOrder.id);
+          }
+          ownedOrderIdsRef.current = ownedOrderIds;
+          persistOwnedOrderIds(ownedOrderIds, resolvedBrowserId);
+
+          const legacyForRoute = isRecordForRoute(legacySession, routeClient, routeTable)
+            ? legacySession
+            : null;
+
+          if (legacyForRoute) {
+            const nowIso = new Date().toISOString();
+            if (!cartForRoute && Object.keys(legacyForRoute.cart).length > 0) {
+              const migratedCart: ActiveTableCartState = {
+                version: ACTIVE_TABLE_STORAGE_VERSION,
+                client: routeClient,
+                table: routeTable,
+                cart: legacyForRoute.cart,
+                selectedModifiersByItem: {},
+                selectedAddonsByItem: {},
+                kitchenInstructions: "",
+                updatedAt: legacyForRoute.updatedAt || nowIso,
+              };
+              window.localStorage.setItem(activeCartStorageKey, JSON.stringify(migratedCart));
+            }
+
+            if (
+              !billForRoute &&
+              legacyForRoute.activeOrder &&
+              !isOrderClosed(
+                legacyForRoute.activeOrder.status,
+                legacyForRoute.activeOrder.paymentStatus,
+              )
+            ) {
+              const migratedBill: ActiveTableBillState = {
+                version: ACTIVE_TABLE_STORAGE_VERSION,
+                client: routeClient,
+                table: routeTable,
+                activeOrder: legacyForRoute.activeOrder,
+                orders: [],
+                lastActivityAt:
+                  legacyForRoute.activeOrder?.updatedAt || legacyForRoute.updatedAt || nowIso,
+                ownerBrowserId: resolvedBrowserId,
+                ownerScopeKey: ownerScopeKey,
+                ownedOrderIds: legacyForRoute.activeOrder?.id ? [legacyForRoute.activeOrder.id] : [],
+                updatedAt: legacyForRoute.activeOrder.updatedAt || legacyForRoute.updatedAt || nowIso,
+              };
+              window.localStorage.setItem(activeBillStorageKey, JSON.stringify(migratedBill));
+            }
+
+            if (!sessionForRoute) {
+              const migratedSession: ActiveTableSessionState = {
+                version: ACTIVE_TABLE_STORAGE_VERSION,
+                client: routeClient,
+                table: routeTable,
+                hasCart: Object.keys(legacyForRoute.cart).length > 0,
+                hasBillOrders: false,
+                activeOrder: legacyForRoute.activeOrder,
+                lastActivityAt: legacyForRoute.updatedAt || nowIso,
+                ownerBrowserId: resolvedBrowserId,
+                ownerScopeKey: ownerScopeKey,
+                updatedAt: legacyForRoute.updatedAt || nowIso,
+              };
+              window.localStorage.setItem(
+                activeSessionStorageKey,
+                JSON.stringify(migratedSession),
+              );
+            }
+
+            window.localStorage.removeItem(legacyTableSessionStorageKey);
+          }
+
+          const hydratedCart: Record<string, number> = {};
+          const hydratedModifiers: Record<string, SelectedModifier[]> = {};
+          const hydratedAddons: Record<string, SelectedAddon[]> = {};
+          let restoredInstructions = "";
+          const validIds = new Set(parsedItems.map((item) => item.id));
+          const cartSource = cartForRoute?.cart ?? legacyForRoute?.cart ?? {};
+          const modifierSource = cartForRoute?.selectedModifiersByItem ?? {};
+          const addonSource = cartForRoute?.selectedAddonsByItem ?? {};
+          restoredInstructions = sanitizeInstructionText(cartForRoute?.kitchenInstructions ?? "");
+
+          for (const [itemId, qtyValue] of Object.entries(cartSource)) {
+              const qty = toPositiveQuantity(qtyValue);
+              if (qty > 0 && validIds.has(itemId)) {
+                hydratedCart[itemId] = qty;
+              }
+          }
+
+          for (const [itemId, selected] of Object.entries(modifierSource)) {
+            if (!hydratedCart[itemId]) {
+              continue;
+            }
+            const parsedModifiers = parseSelectedModifierList(selected);
+            if (parsedModifiers.length > 0) {
+              hydratedModifiers[itemId] = parsedModifiers;
+            }
+          }
+
+          for (const [itemId, selected] of Object.entries(addonSource)) {
+            if (!hydratedCart[itemId]) {
+              continue;
+            }
+            const parsedAddons = parseSelectedAddonList(selected);
+            if (parsedAddons.length > 0) {
+              hydratedAddons[itemId] = parsedAddons;
+            }
+          }
+
+          let restoredOrder =
+            billForRoute?.activeOrder ??
+            sessionForRoute?.activeOrder ??
+            legacyForRoute?.activeOrder ??
+            null;
+          const persistedOrders = (billForRoute?.orders ?? []).filter((order) =>
+            ownedOrderIdsRef.current.has(order.orderId),
+          );
+          const restoredBillActivityAt =
+            billForRoute?.lastActivityAt ||
+            sessionForRoute?.lastActivityAt ||
+            billForRoute?.updatedAt ||
+            sessionForRoute?.updatedAt ||
+            legacyForRoute?.updatedAt ||
+            "";
+          const restoredOrders = applyBillInactivityPolicy(
+            persistedOrders,
+            restoredBillActivityAt,
+          );
+          const nextBillActivityAt =
+            restoredBillActivityAt || (restoredOrders.length > 0 || restoredOrder ? new Date().toISOString() : "");
+          setBillLastActivityAt(nextBillActivityAt);
+          billLastActivityRef.current = nextBillActivityAt;
+
+          if (restoredOrder && !ownedOrderIdsRef.current.has(restoredOrder.id)) {
+            restoredOrder = null;
+          }
+
+          if (!restoredOrder && restoredOrders.length > 0) {
+            restoredOrder = getLatestOrderContextFromRecords(restoredOrders);
+          }
+          if (restoredOrder && !restoredOrders.some((order) => order.orderId === restoredOrder?.id)) {
+            restoredOrder = getLatestOrderContextFromRecords(restoredOrders);
+          }
+
+          shouldResumeOrderSync =
+            !!billForRoute ||
+            !!sessionForRoute ||
+            !!legacyForRoute ||
+            Object.keys(cartSource).length > 0 ||
+            restoredOrders.length > 0 ||
+            !!restoredOrder;
+
+          if (restoredOrder) {
+            setActiveOrderContext(restoredOrder);
+            activeOrderContextRef.current = restoredOrder;
+            setOrderPlacedId(restoredOrder.id);
+            setTableOrders(restoredOrders);
+            tableOrdersRef.current = restoredOrders;
+            syncOrderSnapshot(restoredOrders);
+          } else {
+            setActiveOrderContext(null);
+            activeOrderContextRef.current = null;
+            setTableOrders(restoredOrders);
+            tableOrdersRef.current = restoredOrders;
+            syncOrderSnapshot(restoredOrders);
+          }
+
+          setCart(hydratedCart);
+          setSelectedModifiersByItem(hydratedModifiers);
+          setSelectedAddonsByItem(hydratedAddons);
+          setKitchenInstructions(restoredInstructions);
+        } else {
+          setCart({});
+          setSelectedModifiersByItem({});
+          setSelectedAddonsByItem({});
+          setKitchenInstructions("");
+          setTableOrders([]);
+          tableOrdersRef.current = [];
+          syncOrderSnapshot([]);
+        }
+
+        setLoadState("ready");
+        setIsCartHydrated(true);
+
+        // Settings are non-critical for first paint; apply them after menu is ready.
+        void settingsPromise.then((settingsDocs) => {
+          if (cancelled || settingsDocs.length === 0) {
+            return;
+          }
+
+          const normalizedSettings = parseClientSettings(settingsDocs, routeClient);
+          const brandingSettings = parseBrandingSettings(settingsDocs, routeClient);
+
+          setClientSettings(normalizedSettings);
+          setBranding(brandingSettings);
+          setRestaurantName(
+            normalizedSettings.restaurantName ||
+              inferRestaurantName(routeClient, brandingSettings, ensuredCategories, parsedItems),
+          );
+        });
+
+        void offersPromise.then((offerDocs) => {
+          if (cancelled) {
+            return;
+          }
+          setOffersToday(parseActiveOffers(offerDocs, routeClient, new Date()));
+        });
+
+        void Promise.all([itemAddonMapPromise, addonGroupsPromise, addonOptionsPromise]).then(
+          ([itemAddonMapDocs, addonGroupDocs, addonOptionDocs]) => {
+            if (cancelled) {
+              return;
+            }
+            const resolved = buildItemAddonGroupsByItem(
+              routeClient,
+              parsedItems,
+              itemAddonMapDocs as Record<string, unknown>[],
+              addonGroupDocs as Record<string, unknown>[],
+              addonOptionDocs as Record<string, unknown>[],
+            );
+            setItemAddonGroupsByItem(resolved);
+          },
         );
-        window.localStorage.setItem(resolvedHistoryStorageKey, JSON.stringify(nextHistory));
 
+        const cleanupClientId = matchedTable.clientId || routeClient;
 
+        // Sync backend orders in background so first load does not wait on order-history calls.
+        if (ENABLE_BACKEND_ORDER_SYNC && shouldResumeOrderSync) {
+          void (async () => {
+            try {
+              const backendOrders = await withTimeout(
+                fetchTableOrderRecords(cleanupClientId, matchedTable.id),
+                BILL_SYNC_TIMEOUT_MS,
+                "Initial bill sync",
+              );
+              if (cancelled || backendOrders.length === 0) {
+                return;
+              }
+
+              applyBackendOrders(backendOrders);
+            } catch (syncError) {
+              if (!cancelled) {
+                devWarn("Initial bill sync failed:", syncError);
+              }
+            }
+          })();
+        }
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        devError(error);
+        setLoadState("error");
+        const message = getErrorMessage(error).toLowerCase();
+        if (message.includes("timed out")) {
+          setErrorMessage("Loading is taking longer than expected. Please check internet and retry.");
+        } else if (message.includes("project") || message.includes("database")) {
+          setErrorMessage("Appwrite configuration issue detected. Please verify project and database settings.");
+        } else if (message.includes("network") || message.includes("fetch")) {
+          setErrorMessage("Network issue detected. Please check internet and try again.");
+        } else {
+          setErrorMessage("Unable to load data from Appwrite right now. Please retry.");
+        }
+      }
+    }
+
+    loadData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeBillStorageKey,
+    activeCartStorageKey,
+    activeSessionStorageKey,
+    legacyTableSessionStorageKey,
+    reloadKey,
+    routeClient,
+    routeTable,
+  ]);
+
+  useEffect(() => {
+    if (!tableInfo || loadState !== "ready") {
+      return;
+    }
+
+    const hasTrackableOrder =
+      tableOrders.length > 0 || !!activeOrderContext?.id || !!orderPlacedId;
+    if (!hasTrackableOrder) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const intervalId = setInterval(() => {
+      void (async () => {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+          return;
+        }
+        if (typeof navigator !== "undefined" && "onLine" in navigator && !navigator.onLine) {
+          return;
+        }
+        try {
+          const backendRecords = await withTimeout(
+            fetchTableOrderRecords(tableInfo.clientId || routeClient, tableInfo.id),
+            BILL_SYNC_TIMEOUT_MS,
+            "Status watch sync",
+          );
+          if (cancelled || backendRecords.length === 0) {
+            return;
+          }
+
+          const applyResult = applyBackendOrders(backendRecords);
+          if (applyResult === "closed") {
+            setBillSyncMessage("Bill is already settled. You can start a fresh order now.");
+          }
+        } catch {
+          // Keep status watcher silent in background to avoid noisy UI.
+        }
+      })();
+    }, ORDER_STATUS_WATCH_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [
+    activeOrderContext?.id,
+    loadState,
+    orderPlacedId,
+    routeClient,
+    tableInfo,
+    tableOrders.length,
+  ]);
+
+  useEffect(() => {
+    if (!isCartHydrated || typeof window === "undefined") {
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const hasCart = Object.keys(cart).length > 0;
+    const hasModifierSelections = Object.keys(selectedModifiersByItem).length > 0;
+    const hasAddonSelections = Object.keys(selectedAddonsByItem).length > 0;
+    const hasInstructions = kitchenInstructions.trim().length > 0;
+    const hasOpenOrder =
+      !!activeOrderContext &&
+      !isOrderClosed(activeOrderContext.status, activeOrderContext.paymentStatus);
+    const hasBillOrders = tableOrders.length > 0;
+    const effectiveBillLastActivityAt =
+      billLastActivityAt ||
+      activeOrderContext?.updatedAt ||
+      tableOrders[0]?.updatedAt ||
+      nowIso;
+    const resolvedBrowserId = customerBrowserId || ensureBrowserCustomerId();
+    const resolvedOwnerScopeKey = resolvedBrowserId
+      ? buildCustomerBillOwnerScopeKey(routeClient, routeTable, resolvedBrowserId)
+      : "";
+    const mergedOwnedOrderIds = new Set<string>(ownedOrderIdsRef.current);
+    for (const order of tableOrders) {
+      mergedOwnedOrderIds.add(order.orderId);
+    }
+    if (activeOrderContext?.id) {
+      mergedOwnedOrderIds.add(activeOrderContext.id);
+    }
+    const normalizedOwnedOrderIds = normalizeOwnedOrderIds([...mergedOwnedOrderIds]);
+    ownedOrderIdsRef.current = new Set(normalizedOwnedOrderIds);
+    if (resolvedBrowserId) {
+      const scopeStorageKey =
+        customerBillScopeStorageKey ||
+        buildCustomerBillScopeStorageKey(routeClient, routeTable, resolvedBrowserId);
+      const scopePayload: CustomerBillScopeState = {
+        version: CUSTOMER_BILL_SCOPE_VERSION,
+        browserId: resolvedBrowserId,
+        client: routeClient,
+        table: routeTable,
+        orderIds: normalizedOwnedOrderIds,
+        updatedAt: nowIso,
+      };
+      window.localStorage.setItem(scopeStorageKey, JSON.stringify(scopePayload));
+    }
+
+    const activeCartState: ActiveTableCartState = {
+      version: ACTIVE_TABLE_STORAGE_VERSION,
+      client: routeClient,
+      table: routeTable,
+      cart,
+      selectedModifiersByItem,
+      selectedAddonsByItem,
+      kitchenInstructions: kitchenInstructions.trim(),
+      updatedAt: nowIso,
+    };
+
+    const activeBillState: ActiveTableBillState = {
+      version: ACTIVE_TABLE_STORAGE_VERSION,
+      client: routeClient,
+      table: routeTable,
+      activeOrder: hasOpenOrder ? activeOrderContext : null,
+      orders: tableOrders,
+      lastActivityAt: effectiveBillLastActivityAt,
+      ownerBrowserId: resolvedBrowserId || undefined,
+      ownerScopeKey: resolvedOwnerScopeKey || undefined,
+      ownedOrderIds: normalizedOwnedOrderIds,
+      updatedAt: activeOrderContext?.updatedAt || nowIso,
+    };
+
+    const activeSessionState: ActiveTableSessionState = {
+      version: ACTIVE_TABLE_STORAGE_VERSION,
+      client: routeClient,
+      table: routeTable,
+      hasCart,
+      hasBillOrders,
+      activeOrder: hasOpenOrder ? activeOrderContext : null,
+      lastActivityAt: effectiveBillLastActivityAt,
+      ownerBrowserId: resolvedBrowserId || undefined,
+      ownerScopeKey: resolvedOwnerScopeKey || undefined,
+      updatedAt: nowIso,
+    };
+
+    const cartStatePayload = JSON.stringify(activeCartState);
+    const billStatePayload = JSON.stringify(activeBillState);
+    const sessionStatePayload = JSON.stringify(activeSessionState);
+
+    if (hasCart || hasModifierSelections || hasAddonSelections || hasInstructions) {
+      if (persistedCartStateRef.current !== cartStatePayload) {
+        window.localStorage.setItem(activeCartStorageKey, cartStatePayload);
+        persistedCartStateRef.current = cartStatePayload;
+      }
+    } else {
+      if (persistedCartStateRef.current !== null) {
+        window.localStorage.removeItem(activeCartStorageKey);
+        persistedCartStateRef.current = null;
+      }
+    }
+
+    if (hasOpenOrder || hasBillOrders) {
+      if (persistedBillStateRef.current !== billStatePayload) {
+        window.localStorage.setItem(activeBillStorageKey, billStatePayload);
+        persistedBillStateRef.current = billStatePayload;
+      }
+      window.sessionStorage.removeItem(activeBillStorageKey);
+    } else {
+      if (persistedBillStateRef.current !== null) {
+        window.localStorage.removeItem(activeBillStorageKey);
+        persistedBillStateRef.current = null;
+      }
+      window.sessionStorage.removeItem(activeBillStorageKey);
+    }
+
+    if (hasCart || hasOpenOrder || hasBillOrders) {
+      if (persistedSessionStateRef.current !== sessionStatePayload) {
+        window.localStorage.setItem(activeSessionStorageKey, sessionStatePayload);
+        persistedSessionStateRef.current = sessionStatePayload;
+      }
+      window.sessionStorage.removeItem(activeSessionStorageKey);
+    } else {
+      if (persistedSessionStateRef.current !== null) {
+        window.localStorage.removeItem(activeSessionStorageKey);
+        persistedSessionStateRef.current = null;
+      }
+      window.sessionStorage.removeItem(activeSessionStorageKey);
+    }
+
+    window.localStorage.removeItem(legacyTableSessionStorageKey);
+  }, [
+    activeOrderContext,
+    activeBillStorageKey,
+    activeCartStorageKey,
+    activeSessionStorageKey,
+    cart,
+    customerBillScopeStorageKey,
+    customerBrowserId,
+    kitchenInstructions,
+    isCartHydrated,
+    legacyTableSessionStorageKey,
+    routeClient,
+    routeTable,
+    selectedAddonsByItem,
+    selectedModifiersByItem,
+    tableOrders,
+    billLastActivityAt,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [activeCategory]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    // No service worker/PWA cache exists in this repo now, but users can still have
+    // stale old registrations from earlier deployments that may serve wrong cached
+    // responses for `/api/appwrite/assets` on mobile.
+    const cleanupStaleServiceWorkerCache = async () => {
+      const cleanupFlagKey = "cafeluxe_mobile_cache_cleanup_done";
+      const cleanupAlreadyDone =
+        typeof window.sessionStorage !== "undefined" &&
+        window.sessionStorage.getItem(cleanupFlagKey) === "1";
+      if (cleanupAlreadyDone) {
+        return;
       }
 
-    const handlePlaceOrder = async (options?: { redirectToMenuAfterSuccess?: boolean }) => {
-      const activeOrderSession = await ensureTableSessionForOrder();
-    console.log("PLACE_ORDER_SESSION_CHECK", {
-      sessionId: activeOrderSession?.sessionId,
-      billId: activeOrderSession?.billId,
-      sessionStatus: activeOrderSession?.status,
+      let didMutateRuntimeCache = false;
+
+      try {
+        if ("serviceWorker" in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(
+            registrations.map(async (registration) => {
+              try {
+                const unregistered = await registration.unregister();
+                if (unregistered) {
+                  didMutateRuntimeCache = true;
+                }
+              } catch {
+                // Ignore unregister failures.
+              }
+            }),
+          );
+        }
+      } catch {
+        // Ignore service worker registry read failures.
+      }
+
+      try {
+        const hasCacheStorage = typeof window.caches !== "undefined";
+        if (!hasCacheStorage) {
+          if (typeof window.sessionStorage !== "undefined") {
+            window.sessionStorage.setItem(cleanupFlagKey, "1");
+          }
+          return;
+        }
+        const cacheNames = await window.caches.keys();
+        await Promise.all(
+          cacheNames.map(async (cacheName) => {
+            try {
+              const deleted = await window.caches.delete(cacheName);
+              if (deleted) {
+                didMutateRuntimeCache = true;
+              }
+            } catch {
+              // Ignore delete failures.
+            }
+          }),
+        );
+      } catch {
+        // Ignore Cache Storage cleanup failures.
+      }
+
+      if (typeof window.sessionStorage !== "undefined") {
+        window.sessionStorage.setItem(cleanupFlagKey, "1");
+      }
+
+      if (didMutateRuntimeCache && typeof window.location !== "undefined") {
+        window.location.reload();
+      }
+    };
+
+    let cancelled = false;
+    const runCleanup = () => {
+      if (cancelled) {
+        return;
+      }
+      void cleanupStaleServiceWorkerCache();
+    };
+
+    if ("requestIdleCallback" in window && typeof window.requestIdleCallback === "function") {
+      const idleId = window.requestIdleCallback(() => {
+        runCleanup();
+      }, { timeout: 2000 });
+
+      return () => {
+        cancelled = true;
+        if ("cancelIdleCallback" in window && typeof window.cancelIdleCallback === "function") {
+          window.cancelIdleCallback(idleId);
+        }
+      };
+    }
+
+    const timerId = window.setTimeout(() => {
+      runCleanup();
+    }, 1200);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timerId);
+    };
+  }, []);
+
+  const deferredSearchText = useDeferredValue(searchText);
+  const visibleItems = useMemo(() => {
+    const normalizedSearch = deferredSearchText.trim().toLowerCase();
+    const selectedCategory =
+      activeCategory === "all"
+        ? null
+        : categories.find((category) => category.id === activeCategory) ?? null;
+
+    return menuItems.filter((item) => {
+      const inCategory = !selectedCategory || matchesCategory(item, selectedCategory);
+
+      if (!inCategory) {
+        return false;
+      }
+
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      const haystack = `${item.name} ${item.nameHi} ${item.description}`.toLowerCase();
+      return haystack.includes(normalizedSearch);
     });
-    if (!activeOrderSession?.sessionId || !activeOrderSession!.billId) {
+  }, [activeCategory, categories, deferredSearchText, menuItems]);
+
+  const groupedItems = useMemo(() => {
+    const groups = new Map<string, { category: Category; items: MenuItem[] }>();
+    const selectedCategory =
+      activeCategory === "all"
+        ? null
+        : categories.find((category) => category.id === activeCategory) ?? null;
+    const categoryCandidates = selectedCategory ? [selectedCategory] : categories;
+    const fallbackCategory =
+      categories.find((category) => category.id === "chef-special") ??
+      ({
+        id: "chef-special",
+        name: "Chef Special",
+        nameHi: "Chef Special",
+        description: "",
+        image: "",
+        slug: "chef-special",
+        sortOrder: Number.MAX_SAFE_INTEGER,
+        raw: { $id: "chef-special" },
+      } satisfies Category);
+
+    for (const item of visibleItems) {
+      const matchedCategories = categoryCandidates.filter((category) =>
+        matchesCategory(item, category),
+      );
+      const itemCategories =
+        matchedCategories.length > 0
+          ? matchedCategories
+          : !selectedCategory && item.categoryRefs.length === 0
+            ? [fallbackCategory]
+            : [];
+
+      for (const category of itemCategories) {
+        if (!groups.has(category.id)) {
+          groups.set(category.id, { category, items: [] });
+        }
+        const groupItems = groups.get(category.id)!.items;
+        if (!groupItems.some((entry) => entry.id === item.id)) {
+          groupItems.push(item);
+        }
+      }
+    }
+    return Array.from(groups.values()).sort(
+      (a, b) =>
+        a.category.sortOrder - b.category.sortOrder ||
+        a.category.name.localeCompare(b.category.name),
+    );
+  }, [activeCategory, visibleItems, categories]);
+
+  const cartItems = useMemo(() => {
+    const items: CartItem[] = [];
+    for (const menuItem of menuItems) {
+      const quantity = cart[menuItem.id] ?? 0;
+      if (quantity > 0) {
+        items.push({ item: menuItem, quantity });
+      }
+    }
+    return items;
+  }, [cart, menuItems]);
+
+  const cartCount = useMemo(
+    () => cartItems.reduce((total, item) => total + item.quantity, 0),
+    [cartItems],
+  );
+
+  useEffect(() => {
+    setSelectedModifiersByItem((current) => {
+      const next: Record<string, SelectedModifier[]> = {};
+      let changed = false;
+
+      for (const [itemId, selections] of Object.entries(current)) {
+        if ((cart[itemId] ?? 0) > 0 && selections.length > 0) {
+          next[itemId] = selections;
+          continue;
+        }
+        changed = true;
+      }
+
+      if (!changed && Object.keys(next).length === Object.keys(current).length) {
+        return current;
+      }
+      return next;
+    });
+  }, [cart]);
+
+  useEffect(() => {
+    setSelectedAddonsByItem((current) => {
+      const next: Record<string, SelectedAddon[]> = {};
+      let changed = false;
+
+      for (const [itemId, selections] of Object.entries(current)) {
+        if ((cart[itemId] ?? 0) > 0 && selections.length > 0) {
+          next[itemId] = selections;
+          continue;
+        }
+        changed = true;
+      }
+
+      if (!changed && Object.keys(next).length === Object.keys(current).length) {
+        return current;
+      }
+      return next;
+    });
+  }, [cart]);
+
+  const modifierOptionsByItem = useMemo(() => {
+    const mapping: Record<string, ModifierOption[]> = {};
+    for (const item of menuItems) {
+      mapping[item.id] = getModifierOptionsForMenuItem(item);
+    }
+    return mapping;
+  }, [menuItems]);
+
+  const resolvedSelectedModifiersByItem = useMemo(() => {
+    const resolved: Record<string, SelectedModifier[]> = {};
+
+    for (const { item } of cartItems) {
+      const selected = selectedModifiersByItem[item.id] ?? [];
+      if (selected.length === 0) {
+        continue;
+      }
+      const options = modifierOptionsByItem[item.id] ?? [];
+      const optionLookup = new Map(options.map((option) => [option.id, option]));
+
+      const seen = new Set<string>();
+      const sanitized = selected
+        .map((entry) => {
+          const matched = optionLookup.get(entry.id);
+          if (!matched || seen.has(matched.id)) {
+            return null;
+          }
+          seen.add(matched.id);
+          return {
+            id: matched.id,
+            label: matched.label,
+            price: matched.price,
+          } satisfies SelectedModifier;
+        })
+        .filter((entry): entry is SelectedModifier => !!entry)
+        .slice(0, 12);
+
+      if (sanitized.length > 0) {
+        resolved[item.id] = sanitized;
+      }
+    }
+
+    return resolved;
+  }, [cartItems, modifierOptionsByItem, selectedModifiersByItem]);
+
+  const resolvedSelectedAddonsByItem = useMemo(() => {
+    const resolved: Record<string, SelectedAddon[]> = {};
+
+    for (const { item } of cartItems) {
+      const selected = selectedAddonsByItem[item.id] ?? [];
+      const addonGroups = itemAddonGroupsByItem[item.id] ?? [];
+      if (selected.length === 0 || addonGroups.length === 0) {
+        continue;
+      }
+
+      const groupLookup = new Map(addonGroups.map((group) => [group.id, group]));
+      const sanitized: SelectedAddon[] = [];
+      const seen = new Set<string>();
+
+      for (const entry of selected) {
+        const group = groupLookup.get(entry.groupId);
+        if (!group) {
+          continue;
+        }
+        const option = group.options.find((candidate) => candidate.id === entry.optionId);
+        if (!option) {
+          continue;
+        }
+        const dedupeToken = `${group.id}::${option.id}`;
+        if (seen.has(dedupeToken)) {
+          continue;
+        }
+        seen.add(dedupeToken);
+        sanitized.push({
+          groupId: group.id,
+          groupName: group.name,
+          optionId: option.id,
+          optionName: option.name,
+          price: option.price,
+        });
+      }
+
+      if (sanitized.length > 0) {
+        resolved[item.id] = sanitized;
+      }
+    }
+
+    return resolved;
+  }, [cartItems, itemAddonGroupsByItem, selectedAddonsByItem]);
+
+  const addonPickerItem = useMemo(
+    () => menuItems.find((item) => item.id === addonPickerItemId) ?? null,
+    [addonPickerItemId, menuItems],
+  );
+  const addonPickerGroups = useMemo(
+    () => (addonPickerItem ? itemAddonGroupsByItem[addonPickerItem.id] ?? [] : []),
+    [addonPickerItem, itemAddonGroupsByItem],
+  );
+  const addonPickerOpen = !!addonPickerItem && addonPickerGroups.length > 0;
+
+  const pricedCustomizationsByItem = useMemo(() => {
+    const merged: Record<string, SelectedModifier[]> = {};
+    for (const { item } of cartItems) {
+      const baseModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
+      const selectedAddons = resolvedSelectedAddonsByItem[item.id] ?? [];
+      const mergedCustomizations = mergeCustomizations(baseModifiers, selectedAddons);
+      if (mergedCustomizations.length > 0) {
+        merged[item.id] = mergedCustomizations;
+      }
+    }
+    return merged;
+  }, [cartItems, resolvedSelectedAddonsByItem, resolvedSelectedModifiersByItem]);
+
+  const subtotal = useMemo(() => {
+    return cartItems.reduce((totalAmount, cartItem) => {
+      const selected = pricedCustomizationsByItem[cartItem.item.id] ?? [];
+      const modifierUnitTotal = getSelectedModifierTotal(selected);
+      const unitPrice = cartItem.item.price + modifierUnitTotal;
+      return totalAmount + unitPrice * cartItem.quantity;
+    }, 0);
+  }, [cartItems, pricedCustomizationsByItem]);
+
+  const hasCustomizationsInCart = useMemo(
+    () => Object.keys(pricedCustomizationsByItem).length > 0,
+    [pricedCustomizationsByItem],
+  );
+
+  const normalizedCurrency = useMemo(() => {
+    const code = clientSettings.currency.trim().toUpperCase();
+    return code || "INR";
+  }, [clientSettings.currency]);
+  const gstEnabled = useMemo(() => !!clientSettings.gstEnabled, [clientSettings.gstEnabled]);
+  const taxPercentage = useMemo(
+    () => (gstEnabled ? Math.min(100, Math.max(0, clientSettings.taxPercentage || 0)) : 0),
+    [clientSettings.taxPercentage, gstEnabled],
+  );
+  const cgstPercentage = useMemo(
+    () => (gstEnabled ? Math.min(100, Math.max(0, clientSettings.cgstPercentage || 0)) : 0),
+    [clientSettings.cgstPercentage, gstEnabled],
+  );
+  const sgstPercentage = useMemo(
+    () => (gstEnabled ? Math.min(100, Math.max(0, clientSettings.sgstPercentage || 0)) : 0),
+    [clientSettings.sgstPercentage, gstEnabled],
+  );
+  const taxAmount = useMemo(
+    () => (gstEnabled ? Number(((subtotal * taxPercentage) / 100).toFixed(2)) : 0),
+    [subtotal, taxPercentage, gstEnabled],
+  );
+  const cgstAmount = useMemo(
+    () => (gstEnabled ? Number(((subtotal * cgstPercentage) / 100).toFixed(2)) : 0),
+    [subtotal, cgstPercentage, gstEnabled],
+  );
+  const sgstAmount = useMemo(
+    () => (gstEnabled ? Number(((subtotal * sgstPercentage) / 100).toFixed(2)) : 0),
+    [subtotal, sgstPercentage, gstEnabled],
+  );
+  const preDiscountTotal = roundCurrency(subtotal + taxAmount);
+  const formatMoney = (value: number) => formatInr(value, normalizedCurrency);
+  const cartOfferEvaluationLines = useMemo(() => {
+    return cartItems.map((cartItem) => {
+      const selected = pricedCustomizationsByItem[cartItem.item.id] ?? [];
+      const modifierUnitTotal = getSelectedModifierTotal(selected);
+      const unitPrice = cartItem.item.price + modifierUnitTotal;
+      return {
+        itemId: cartItem.item.id,
+        name: cartItem.item.name,
+        quantity: cartItem.quantity,
+        unitPrice,
+        lineTotal: roundCurrency(unitPrice * cartItem.quantity),
+        categoryRefs: cartItem.item.categoryRefs,
+      } satisfies OfferEvaluationLine;
+    });
+  }, [cartItems, pricedCustomizationsByItem]);
+  const autoPromotions = useMemo(
+    () => offersToday.filter((offer) => resolveOfferApplicationLevel(offer) === "promotion"),
+    [offersToday],
+  );
+  const bxgyOffers = useMemo(
+    () => autoPromotions.filter((offer) => resolveOfferTypeToken(offer) === "bxgy"),
+    [autoPromotions],
+  );
+  const cartLevelOffers = useMemo(
+    () => offersToday.filter((offer) => resolveOfferApplicationLevel(offer) === "cart"),
+    [offersToday],
+  );
+  const matchedItemOffers = useMemo(
+    () =>
+      cartOfferEvaluationLines
+        .map((line) => pickBestItemWiseOfferForLine(line, autoPromotions, subtotal))
+        .filter((entry): entry is ItemWiseOfferMatch => !!entry),
+    [autoPromotions, cartOfferEvaluationLines, subtotal],
+  );
+  const matchedItemOfferByItemId = useMemo(
+    () => new Map(matchedItemOffers.map((entry) => [entry.itemId, entry])),
+    [matchedItemOffers],
+  );
+  const menuOfferPreviewByItemId = useMemo(() => {
+    const previews = new Map<string, ApplicableOfferPreview>();
+    if (autoPromotions.length === 0) {
+      return previews;
+    }
+
+    for (const item of menuItems) {
+      const lineTotal = roundCurrency(item.price);
+      if (lineTotal <= 0) {
+        continue;
+      }
+
+      const line = {
+        itemId: item.id,
+        name: item.name,
+        quantity: 1,
+        unitPrice: item.price,
+        lineTotal,
+        categoryRefs: item.categoryRefs,
+      } satisfies OfferEvaluationLine;
+      const currentOrItemSubtotal = Math.max(subtotal, lineTotal);
+      const [preview] = evaluateApplicableOffers(autoPromotions, [line], currentOrItemSubtotal);
+      if (preview) {
+        previews.set(item.id, preview);
+      }
+    }
+
+    return previews;
+  }, [autoPromotions, menuItems, subtotal]);
+  const cartCouponCandidates = useMemo(
+    () => evaluateApplicableOffers(cartLevelOffers, cartOfferEvaluationLines, subtotal),
+    [cartLevelOffers, cartOfferEvaluationLines, subtotal],
+  );
+  const [selectedCartCouponId] = useState("");
+  const selectedCartCoupon = useMemo(
+    () => cartCouponCandidates.find((offer) => offer.offerId === selectedCartCouponId) ?? null,
+    [cartCouponCandidates, selectedCartCouponId],
+  );
+  const bestCartCoupon = useMemo(
+    () => pickBestApplicableOffer(cartCouponCandidates, preDiscountTotal),
+    [cartCouponCandidates, preDiscountTotal],
+  );
+  const resolvedCartCoupon = useMemo(() => {
+    if (!selectedCartCoupon) {
+      return bestCartCoupon;
+    }
+    return pickBestApplicableOffer([selectedCartCoupon], preDiscountTotal) ?? bestCartCoupon;
+  }, [bestCartCoupon, preDiscountTotal, selectedCartCoupon]);
+  const applicableCartOffers = useMemo(
+    () => summarizeItemWiseOfferMatches(matchedItemOffers),
+    [matchedItemOffers],
+  );
+  const taxes = taxAmount;
+  const safeSubtotal = roundCurrency(Math.max(0, Number(subtotal) || 0));
+  const safeTaxes = roundCurrency(Math.max(0, Number(taxes) || 0));
+  const totalDiscountAmount = useMemo(
+    () =>
+      roundCurrency(
+        Math.min(
+          preDiscountTotal,
+          matchedItemOffers.reduce((sum, entry) => sum + entry.discountAmount, 0) +
+            (resolvedCartCoupon?.discountAmount ?? 0),
+        ),
+      ),
+    [matchedItemOffers, preDiscountTotal, resolvedCartCoupon],
+  );
+  const itemPromotionDiscountTotal = useMemo(
+    () => roundCurrency(matchedItemOffers.reduce((sum, entry) => sum + entry.discountAmount, 0)),
+    [matchedItemOffers],
+  );
+  const cartCouponDiscount = roundCurrency(resolvedCartCoupon?.discountAmount ?? 0);
+  const finalTotal = roundCurrency(Math.max(0, safeSubtotal + safeTaxes - totalDiscountAmount));
+  console.log("Tax Settings Debug", {
+    gstEnabled,
+    taxPercentage,
+    subtotal: safeSubtotal,
+    discountAmount: totalDiscountAmount,
+    taxAmount: safeTaxes,
+    finalTotal,
+  });
+  console.log("Offer Bucket Debug", {
+    cartItems,
+    autoPromotions,
+    cartCouponCandidates,
+    bxgyOffers,
+    itemLevelDiscounts: matchedItemOffers,
+    selectedCartCoupon,
+    bestCartCoupon,
+    itemPromotionDiscountTotal,
+    cartCouponDiscount,
+    totalDiscountAmount,
+    finalTotal,
+  });
+
+  const mergedBillItems = useMemo(
+    () => mergeBillItemsFromOrders(tableOrders, menuItems),
+    [menuItems, tableOrders],
+  );
+
+  const billSubtotal = useMemo(
+    () => mergedBillItems.reduce((sum, item) => sum + item.lineTotal, 0),
+    [mergedBillItems],
+  );
+  const billStoredTaxBreakdown = useMemo(() => sumTableOrderTaxBreakdown(tableOrders), [tableOrders]);
+  const billTaxAmount = useMemo(() => {
+    if (!gstEnabled) {
+      return 0;
+    }
+    if (billStoredTaxBreakdown.taxAmount > 0) {
+      return roundCurrency(billStoredTaxBreakdown.taxAmount);
+    }
+    if (taxPercentage > 0 && billSubtotal > 0) {
+      return Number(((billSubtotal * taxPercentage) / 100).toFixed(2));
+    }
+    return 0;
+  }, [billStoredTaxBreakdown.taxAmount, billSubtotal, gstEnabled, taxPercentage]);
+  const billCgstAmount = useMemo(() => {
+    if (!gstEnabled) {
+      return 0;
+    }
+    if (billStoredTaxBreakdown.cgstAmount > 0) {
+      return roundCurrency(billStoredTaxBreakdown.cgstAmount);
+    }
+    return Number(((billSubtotal * cgstPercentage) / 100).toFixed(2));
+  }, [billStoredTaxBreakdown.cgstAmount, billSubtotal, cgstPercentage, gstEnabled]);
+  const billSgstAmount = useMemo(() => {
+    if (!gstEnabled) {
+      return 0;
+    }
+    if (billStoredTaxBreakdown.sgstAmount > 0) {
+      return roundCurrency(billStoredTaxBreakdown.sgstAmount);
+    }
+    return Number(((billSubtotal * sgstPercentage) / 100).toFixed(2));
+  }, [billStoredTaxBreakdown.sgstAmount, billSubtotal, sgstPercentage, gstEnabled]);
+  const billFinalTotal = billSubtotal + billTaxAmount;
+  const latestBillOrder = getPreferredBillOrder(tableOrders);
+  const latestBillPaymentMethod = latestBillOrder?.paymentMethod ?? paymentMethod;
+  const latestBillStatus = activeOrderContext?.status ?? latestBillOrder?.status ?? "PENDING";
+  const latestBillPaymentStatus =
+    activeOrderContext?.paymentStatus ?? latestBillOrder?.paymentStatus ?? "UNPAID";
+  const latestBillUpdatedAt =
+    activeOrderContext?.updatedAt ??
+    latestBillOrder?.updatedAt ??
+    latestBillOrder?.createdAt ??
+    "";
+  const topCardOrderStatusRaw =
+    toSafeString(activeOrderContext?.status) || toSafeString(latestBillOrder?.status);
+  const topCardPaymentStatusRaw =
+    toSafeString(activeOrderContext?.paymentStatus) ||
+    toSafeString(latestBillOrder?.paymentStatus);
+  const showTopCardStatus = !!topCardOrderStatusRaw;
+
+  const unpaidOrders = useMemo(
+    () =>
+      tableOrders.filter((order) => !isOrderClosed(order.status, order.paymentStatus)),
+    [tableOrders],
+  );
+  const unpaidMergedItems = useMemo(
+    () => mergeBillItemsFromOrders(unpaidOrders, menuItems),
+    [menuItems, unpaidOrders],
+  );
+  const unpaidSubtotal = useMemo(
+    () => unpaidMergedItems.reduce((sum, item) => sum + item.lineTotal, 0),
+    [unpaidMergedItems],
+  );
+  const unpaidStoredTaxBreakdown = useMemo(
+    () => sumTableOrderTaxBreakdown(unpaidOrders),
+    [unpaidOrders],
+  );
+  const unpaidTaxAmount = useMemo(() => {
+    if (!gstEnabled) {
+      return 0;
+    }
+    if (unpaidStoredTaxBreakdown.taxAmount > 0) {
+      return roundCurrency(unpaidStoredTaxBreakdown.taxAmount);
+    }
+    if (taxPercentage > 0 && unpaidSubtotal > 0) {
+      return Number(((unpaidSubtotal * taxPercentage) / 100).toFixed(2));
+    }
+    return 0;
+  }, [gstEnabled, taxPercentage, unpaidStoredTaxBreakdown.taxAmount, unpaidSubtotal]);
+  const unpaidCgstAmount = useMemo(() => {
+    if (!gstEnabled) {
+      return 0;
+    }
+    if (unpaidStoredTaxBreakdown.cgstAmount > 0) {
+      return roundCurrency(unpaidStoredTaxBreakdown.cgstAmount);
+    }
+    return Number(((unpaidSubtotal * cgstPercentage) / 100).toFixed(2));
+  }, [cgstPercentage, gstEnabled, unpaidStoredTaxBreakdown.cgstAmount, unpaidSubtotal]);
+  const unpaidSgstAmount = useMemo(() => {
+    if (!gstEnabled) {
+      return 0;
+    }
+    if (unpaidStoredTaxBreakdown.sgstAmount > 0) {
+      return roundCurrency(unpaidStoredTaxBreakdown.sgstAmount);
+    }
+    return Number(((unpaidSubtotal * sgstPercentage) / 100).toFixed(2));
+  }, [gstEnabled, sgstPercentage, unpaidStoredTaxBreakdown.sgstAmount, unpaidSubtotal]);
+  const unpaidFinalTotal = unpaidSubtotal + unpaidTaxAmount;
+  const hasAggregatedUnpaidBill = unpaidOrders.length > 0;
+  const aggregatedUnpaidOrder = useMemo(
+    () => getPreferredBillOrder(unpaidOrders),
+    [unpaidOrders],
+  );
+  const currentBillOrderNumber = hasAggregatedUnpaidBill
+    ? unpaidOrders.length === 1
+      ? (aggregatedUnpaidOrder?.orderNumber ?? "Unpaid Bill")
+      : `${unpaidOrders.length} Unpaid Orders`
+    : (latestBillOrder?.orderNumber ?? "Order");
+  const currentBillPaymentMethod: PaymentMethod = hasAggregatedUnpaidBill
+    ? unpaidOrders.some((order) => order.paymentMethod === "UPI")
+      ? "UPI"
+      : "COUNTER"
+    : latestBillPaymentMethod;
+  const currentBillStatus = hasAggregatedUnpaidBill
+    ? (aggregatedUnpaidOrder?.status ?? "PENDING")
+    : latestBillStatus;
+  const currentBillPaymentStatus = hasAggregatedUnpaidBill
+    ? (aggregatedUnpaidOrder?.paymentStatus ?? "UNPAID")
+    : latestBillPaymentStatus;
+  const currentBillUpdatedAt = hasAggregatedUnpaidBill
+    ? (aggregatedUnpaidOrder?.updatedAt ??
+      aggregatedUnpaidOrder?.createdAt ??
+      latestBillUpdatedAt)
+    : latestBillUpdatedAt;
+  const currentBillItems = hasAggregatedUnpaidBill
+    ? unpaidMergedItems
+    : mergedBillItems;
+  const currentBillSubtotal = hasAggregatedUnpaidBill ? unpaidSubtotal : billSubtotal;
+  const currentBillCgstAmount = hasAggregatedUnpaidBill ? unpaidCgstAmount : billCgstAmount;
+  const currentBillSgstAmount = hasAggregatedUnpaidBill ? unpaidSgstAmount : billSgstAmount;
+  const currentBillFinalTotal = hasAggregatedUnpaidBill ? unpaidFinalTotal : billFinalTotal;
+  const menuItemLookup = useMemo(
+    () => new Map(menuItems.map((item) => [item.id, item])),
+    [menuItems],
+  );
+  const unpaidOfferEvaluationLines = useMemo(() => {
+    return unpaidMergedItems.map((lineItem) => {
+      const menuItem = menuItemLookup.get(lineItem.itemId);
+      return {
+        itemId: lineItem.itemId,
+        name: lineItem.name,
+        quantity: lineItem.quantity,
+        unitPrice: lineItem.unitPrice,
+        lineTotal: lineItem.lineTotal,
+        categoryRefs: menuItem?.categoryRefs ?? [],
+      } satisfies OfferEvaluationLine;
+    });
+  }, [menuItemLookup, unpaidMergedItems]);
+  const applicableUnpaidOffers = useMemo(
+    () => evaluateApplicableOffers(offersToday, unpaidOfferEvaluationLines, unpaidSubtotal),
+    [offersToday, unpaidOfferEvaluationLines, unpaidSubtotal],
+  );
+  const unpaidStoredPayableTotal = useMemo(
+    () => sumTableOrderPayableAmount(unpaidOrders),
+    [unpaidOrders],
+  );
+  const unpaidOnlyPayableTotal = useMemo(() => {
+    if (!hasAggregatedUnpaidBill) {
+      return 0;
+    }
+    return unpaidStoredPayableTotal;
+  }, [hasAggregatedUnpaidBill, unpaidStoredPayableTotal]);
+  const billOfferEvaluationLines = useMemo(() => {
+    return currentBillItems.map((lineItem) => {
+      const menuItem = menuItemLookup.get(lineItem.itemId);
+      return {
+        itemId: lineItem.itemId,
+        name: lineItem.name,
+        quantity: lineItem.quantity,
+        unitPrice: lineItem.unitPrice,
+        lineTotal: lineItem.lineTotal,
+        categoryRefs: menuItem?.categoryRefs ?? [],
+      } satisfies OfferEvaluationLine;
+    });
+  }, [currentBillItems, menuItemLookup]);
+  const applicableBillOffers = useMemo(
+    () => evaluateApplicableOffers(offersToday, billOfferEvaluationLines, currentBillSubtotal),
+    [billOfferEvaluationLines, currentBillSubtotal, offersToday],
+  );
+  const currentBillOrders = hasAggregatedUnpaidBill ? unpaidOrders : tableOrders;
+  const billPayableTotal = useMemo(
+    () => sumTableOrderPayableAmount(currentBillOrders),
+    [currentBillOrders],
+  );
+  const billOfferDiscountAmount = roundCurrency(
+    Math.max(0, currentBillFinalTotal - billPayableTotal),
+  );
+  const currentBillInstructions = useMemo(() => {
+    if (!hasAggregatedUnpaidBill) {
+      return latestBillOrder?.instructions?.trim() ?? "";
+    }
+    const uniqueInstructions = new Set<string>();
+    for (const order of unpaidOrders) {
+      const instruction = order.instructions.trim();
+      if (instruction) {
+        uniqueInstructions.add(instruction);
+      }
+    }
+    return [...uniqueInstructions].join(" | ");
+  }, [hasAggregatedUnpaidBill, latestBillOrder, unpaidOrders]);
+  const counterUnpaidOrders = useMemo(
+    () => unpaidOrders.filter((order) => order.paymentMethod === "COUNTER"),
+    [unpaidOrders],
+  );
+  const upiUnpaidOrders = useMemo(
+    () => unpaidOrders.filter((order) => order.paymentMethod === "UPI"),
+    [unpaidOrders],
+  );
+  const unpaidTotal = unpaidOnlyPayableTotal;
+
+  function updateItemQuantity(itemId: string, delta: number) {
+    setCart((current) => {
+      const oldQty = current[itemId] ?? 0;
+      const nextQty = Math.max(0, oldQty + delta);
+      if (nextQty === 0) {
+        const cloned = { ...current };
+        delete cloned[itemId];
+        return cloned;
+      }
+      return { ...current, [itemId]: nextQty };
+    });
+  }
+
+  function clearCart() {
+    setCart({});
+    setSelectedModifiersByItem({});
+    setSelectedAddonsByItem({});
+    setKitchenInstructions("");
+  }
+
+  function toggleModifierSelection(itemId: string, option: ModifierOption) {
+    setSelectedModifiersByItem((current) => {
+      const existing = current[itemId] ?? [];
+      const isSelected = existing.some((entry) => entry.id === option.id);
+
+      let nextSelection: SelectedModifier[];
+      if (isSelected) {
+        nextSelection = existing.filter((entry) => entry.id !== option.id);
+      } else {
+        nextSelection = [
+          ...existing,
+          {
+            id: option.id,
+            label: option.label,
+            price: option.price,
+          },
+        ];
+      }
+
+      const next = { ...current };
+      if (nextSelection.length > 0) {
+        next[itemId] = nextSelection;
+      } else {
+        delete next[itemId];
+      }
+      return next;
+    });
+  }
+
+  function closeAddonPicker() {
+    setAddonPickerItemId("");
+    setAddonPickerDraftByGroup({});
+    setAddonPickerError("");
+    setAddonPickerMode("add");
+  }
+
+  function openAddonPickerForItem(item: MenuItem, mode: "add" | "edit" = "add") {
+    const addonGroups = itemAddonGroupsByItem[item.id] ?? [];
+    if (addonGroups.length === 0) {
+      updateItemQuantity(item.id, 1);
+      return;
+    }
+
+    const existingSelections = resolvedSelectedAddonsByItem[item.id] ?? [];
+    const initialDraft: Record<string, string[]> = {};
+    for (const group of addonGroups) {
+      const selectedOptions = existingSelections
+        .filter((entry) => entry.groupId === group.id)
+        .map((entry) => entry.optionId);
+      if (selectedOptions.length > 0) {
+        initialDraft[group.id] =
+          group.selectionMode === "single" ? [selectedOptions[0]] : selectedOptions;
+      }
+    }
+
+    setAddonPickerItemId(item.id);
+    setAddonPickerDraftByGroup(initialDraft);
+    setAddonPickerError("");
+    setAddonPickerMode(mode);
+  }
+
+  function toggleAddonDraftOption(group: ItemAddonGroup, optionId: string) {
+    setAddonPickerDraftByGroup((current) => {
+      const existing = current[group.id] ?? [];
+      if (group.selectionMode === "single") {
+        return { ...current, [group.id]: [optionId] };
+      }
+
+      const isSelected = existing.includes(optionId);
+      const nextGroupSelection = isSelected
+        ? existing.filter((entry) => entry !== optionId)
+        : [...existing, optionId];
+      return {
+        ...current,
+        [group.id]: nextGroupSelection,
+      };
+    });
+    setAddonPickerError("");
+  }
+
+  function saveAddonSelectionAndAddItem() {
+    if (!addonPickerItem) {
+      return;
+    }
+
+    const nextSelection: SelectedAddon[] = [];
+    for (const group of addonPickerGroups) {
+      const selectedOptionIds = addonPickerDraftByGroup[group.id] ?? [];
+      if (group.required && selectedOptionIds.length === 0) {
+        setAddonPickerError(`Please select at least one option for ${group.name}.`);
+        return;
+      }
+
+      for (const optionId of selectedOptionIds) {
+        const option = group.options.find((entry) => entry.id === optionId);
+        if (!option) {
+          continue;
+        }
+        nextSelection.push({
+          groupId: group.id,
+          groupName: group.name,
+          optionId: option.id,
+          optionName: option.name,
+          price: option.price,
+        });
+      }
+    }
+
+    setSelectedAddonsByItem((current) => {
+      const next = { ...current };
+      if (nextSelection.length > 0) {
+        next[addonPickerItem.id] = nextSelection;
+      } else {
+        delete next[addonPickerItem.id];
+      }
+      return next;
+    });
+
+    if (addonPickerMode === "add") {
+      updateItemQuantity(addonPickerItem.id, 1);
+    }
+    closeAddonPicker();
+  }
+
+  function showStatusPopup(nextPopup: StatusPopupState) {
+    setStatusPopup(nextPopup);
+  }
+
+  function markKitchenStatusAlertSeen(orderId: string, status: string) {
+    const key = `${orderId}:${status.trim().toUpperCase()}`;
+    shownKitchenStatusAlertKeysRef.current.add(key);
+    return key;
+  }
+
+  function hasSeenKitchenStatusAlert(orderId: string, status: string) {
+    const key = `${orderId}:${status.trim().toUpperCase()}`;
+    return shownKitchenStatusAlertKeysRef.current.has(key);
+  }
+
+  function buildKitchenStatusPopup(record: TableOrderRecord, normalizedStatus: string) {
+    const pendingStatuses = new Set(["PENDING", "NEW", "PLACED", "RECEIVED"]);
+    const preparingStatuses = new Set(["PREPARING", "COOKING", "IN_PROGRESS"]);
+    const readyStatuses = new Set(["READY"]);
+    const servedStatuses = new Set(["SERVED", "DELIVERED", "COMPLETED", "CLOSED", "BILLED"]);
+    const confirmedStatuses = new Set(["ACCEPTED", "CONFIRMED"]);
+
+    if (pendingStatuses.has(normalizedStatus)) {
+      return {
+        title: "Order Pending",
+        description: `${record.orderNumber} is pending kitchen confirmation.`,
+        tone: "info",
+      } satisfies StatusPopupState;
+    }
+
+    if (servedStatuses.has(normalizedStatus)) {
+      return {
+        title: "Order Served",
+        description: `${record.orderNumber} has been served.`,
+        tone: "success",
+      } satisfies StatusPopupState;
+    }
+
+    if (readyStatuses.has(normalizedStatus)) {
+      return {
+        title: "Order Ready",
+        description: `${record.orderNumber} is ready to serve.`,
+        tone: "success",
+      } satisfies StatusPopupState;
+    }
+
+    if (preparingStatuses.has(normalizedStatus)) {
+      return {
+        title: "Order Preparing",
+        description: `${record.orderNumber} is now being prepared.`,
+        tone: "info",
+      } satisfies StatusPopupState;
+    }
+
+    if (confirmedStatuses.has(normalizedStatus)) {
+      return {
+        title: "Order Confirmed",
+        description: `${record.orderNumber} is confirmed by kitchen.`,
+        tone: "info",
+      } satisfies StatusPopupState;
+    }
+
+    return null;
+  }
+
+  function syncOrderSnapshot(records: TableOrderRecord[]) {
+    orderSyncSnapshotRef.current = records.reduce(
+      (accumulator, record) => {
+        accumulator[record.orderId] = {
+          status: record.status.trim().toUpperCase(),
+          paymentStatus: record.paymentStatus.trim().toUpperCase(),
+        };
+        return accumulator;
+      },
+      {} as Record<string, { status: string; paymentStatus: string }>,
+    );
+  }
+
+  function checkBackendTransitions(records: TableOrderRecord[]) {
+    const previousSnapshot = orderSyncSnapshotRef.current;
+    let paymentConfirmedRecord: TableOrderRecord | null = null;
+    const transitionPopups: StatusPopupState[] = [];
+
+    for (const record of records) {
+      const currentStatus = record.status.trim().toUpperCase();
+      const previous = previousSnapshot[record.orderId];
+      if (!previous) {
+        const popup = buildKitchenStatusPopup(record, currentStatus);
+        const hasExistingPopupKey = hasSeenKitchenStatusAlert(record.orderId, currentStatus);
+        const isCurrentJourneyOrder =
+          record.orderId === activeOrderContextRef.current?.id ||
+          record.orderId === orderPlacedId ||
+          !isOrderClosed(record.status, record.paymentStatus);
+
+        // When snapshot is missing (newly observed order), still emit one safe
+        // status toast for the active/current-order journey.
+        if (popup && !hasExistingPopupKey && isCurrentJourneyOrder) {
+          transitionPopups.push(popup);
+          markKitchenStatusAlertSeen(record.orderId, currentStatus);
+          continue;
+        }
+
+        // Seed dedupe keys for non-eligible first-seen rows to avoid replay spam.
+        markKitchenStatusAlertSeen(record.orderId, currentStatus);
+        continue;
+      }
+
+      const currentPaymentStatus = record.paymentStatus.trim().toUpperCase();
+      const previousStatus = previous.status;
+      const previousPaymentStatus = previous.paymentStatus;
+
+      if (
+        !isPaymentConfirmed(previousPaymentStatus) &&
+        isPaymentConfirmed(currentPaymentStatus)
+      ) {
+        paymentConfirmedRecord = record;
+        continue;
+      }
+
+      if (previousStatus !== currentStatus) {
+        const popup = buildKitchenStatusPopup(record, currentStatus);
+        if (popup && !hasSeenKitchenStatusAlert(record.orderId, currentStatus)) {
+          transitionPopups.push(popup);
+          markKitchenStatusAlertSeen(record.orderId, currentStatus);
+        }
+      }
+    }
+
+    syncOrderSnapshot(records);
+
+    if (paymentConfirmedRecord) {
+      showStatusPopup({
+        title: "Payment Confirmed",
+        description: `${paymentConfirmedRecord.orderNumber} is confirmed by cashier.`,
+        tone: "success",
+      });
+      return;
+    }
+
+    if (transitionPopups.length > 0) {
+      const servedPopup = transitionPopups.find((entry) => entry.title === "Order Served");
+      const readyPopup = transitionPopups.find((entry) => entry.title === "Order Ready");
+      const preparingPopup = transitionPopups.find((entry) => entry.title === "Order Preparing");
+      const confirmedPopup = transitionPopups.find((entry) => entry.title === "Order Confirmed");
+      const pendingPopup = transitionPopups.find((entry) => entry.title === "Order Pending");
+      showStatusPopup(
+        servedPopup ?? readyPopup ?? preparingPopup ?? confirmedPopup ?? pendingPopup ?? transitionPopups[0],
+      );
+      return;
+    }
+  }
+
+  function applyBackendOrders(backendRecords: TableOrderRecord[]) {
+    if (backendRecords.length === 0) {
+      return "none" as const;
+    }
+
+    const ownedOrderIds = ownedOrderIdsRef.current;
+    const scopedBackendRecords =
+      ownedOrderIds.size > 0
+        ? backendRecords.filter((record) => ownedOrderIds.has(record.orderId))
+        : [];
+
+    const mergedRecords = mergeTableOrderRecords(tableOrdersRef.current, scopedBackendRecords);
+    checkBackendTransitions(mergedRecords);
+    const activityMarker = billLastActivityRef.current;
+    const previousVisibleRecords = applyBillInactivityPolicy(
+      tableOrdersRef.current,
+      activityMarker,
+    );
+    const visibleRecords = applyBillInactivityPolicy(mergedRecords, activityMarker);
+    const previousSignature = previousVisibleRecords
+      .map(
+        (record) =>
+          `${record.orderId}:${record.status}:${record.paymentStatus}:${record.totalAmount}:${record.updatedAt}`,
+      )
+      .join("|");
+    const nextSignature = visibleRecords
+      .map(
+        (record) =>
+          `${record.orderId}:${record.status}:${record.paymentStatus}:${record.totalAmount}:${record.updatedAt}`,
+      )
+      .join("|");
+    if (previousSignature !== nextSignature) {
+      touchBillActivity();
+    }
+
+    tableOrdersRef.current = visibleRecords;
+    setTableOrders(visibleRecords);
+
+    const openRecords = visibleRecords.filter(
+      (record) => !isOrderClosed(record.status, record.paymentStatus),
+    );
+    const latestContext = getLatestOrderContextFromRecords(openRecords);
+    if (!latestContext) {
+      setActiveOrderContext(null);
+      activeOrderContextRef.current = null;
+      setOrderPlacedId("");
+      syncOrderSnapshot(visibleRecords);
+      if (typeof window !== "undefined") {
+        if (visibleRecords.length === 0) {
+          window.localStorage.removeItem(activeBillStorageKey);
+          window.localStorage.removeItem(activeSessionStorageKey);
+          window.sessionStorage.removeItem(activeBillStorageKey);
+          window.sessionStorage.removeItem(activeSessionStorageKey);
+        }
+      }
+      return mergedRecords.length > 0 ? ("closed" as const) : ("applied" as const);
+    }
+
+    setActiveOrderContext(latestContext);
+    activeOrderContextRef.current = latestContext;
+    setOrderPlacedId(latestContext.id);
+    return "applied" as const;
+  }
+
+  async function updateUnpaidOrder(
+    order: TableOrderRecord,
+    payloadCandidates: Record<string, unknown>[],
+    localUpdater: (current: TableOrderRecord) => TableOrderRecord,
+    successMessage: string,
+  ) {
+    setBillActionOrderId(order.orderId);
+    setBillSyncMessage("");
+
+    try {
+      await updateDocumentWithFallback(
+        appwriteConfig.collections.orders,
+        order.orderId,
+        payloadCandidates,
+      );
+
+      setTableOrders((current) =>
+        current.map((entry) => (entry.orderId === order.orderId ? localUpdater(entry) : entry)),
+      );
+      setBillSyncMessage(successMessage);
+      return true;
+    } catch (error) {
+      devError(error);
+      const message = getErrorMessage(error).toLowerCase();
+      const permissionIssue =
+        message.includes("not authorized") ||
+        message.includes("user_unauthorized") ||
+        message.includes("missing scope") ||
+        message.includes("401");
+      const missingOrderIssue =
+        message.includes("not found") ||
+        message.includes("document with the requested id") ||
+        message.includes("document not found") ||
+        message.includes("404");
+      if (missingOrderIssue) {
+        setBillSyncMessage("This bill is not available for switching anymore. Please refresh.");
+      } else if (permissionIssue) {
+        setBillSyncMessage("This bill cannot be switched from the current session. Please ask staff.");
+      } else {
+        setBillSyncMessage("Unable to update bill right now. Please retry.");
+      }
+      return false;
+    } finally {
+      setBillActionOrderId("");
+    }
+  }
+
+  async function switchUnpaidBillToUpi(order: TableOrderRecord) {
+    if (order.paymentMethod === "UPI") {
+      return true;
+    }
+
+    const nowIso = new Date().toISOString();
+    touchBillActivity(nowIso);
+    const payloadCandidates: Record<string, unknown>[] = [
+      {
+        payment_method: "UPI",
+        payment_status: "PENDING",
+      },
+    ];
+
+    const updated = await updateUnpaidOrder(
+      order,
+      payloadCandidates,
+      (current) => ({
+        ...current,
+        paymentMethod: "UPI",
+        paymentStatus: "PENDING",
+        updatedAt: nowIso,
+      }),
+      "Payment method switched to UPI.",
+    );
+
+    if (!updated || !tableInfo) {
+      return false;
+    }
+    touchBillActivity(nowIso);
+
+    const amount = toAmount(order.totalAmount > 0 ? order.totalAmount : order.subtotal);
+    if (amount <= 0) {
+      setBillSyncMessage("This bill amount is invalid. Please refresh bill details.");
+      return false;
+    }
+    const paymentPayloadCandidates: Record<string, unknown>[] = [
+      {
+        client_id: tableInfo.clientId || routeClient,
+        order_id: order.orderId,
+        amount,
+        payment_method: "UPI",
+        payment_status: "PENDING",
+        customer_marked_paid: false,
+        verified_by: "PENDING_CASHIER_CONFIRMATION",
+      },
+    ];
+
+    try {
+      await createDocumentWithFallback(appwriteConfig.collections.payments, paymentPayloadCandidates);
+    } catch {
+      // Payment rows may be schema-restricted in some tenants; order method update is still valid.
+    }
+    return true;
+  }
+
+  async function switchAllUnpaidBillsToUpi() {
+    if (counterUnpaidOrders.length === 0) {
+      setBillSyncMessage("All unpaid bills are already set to UPI.");
+      return;
+    }
+
+    let successCount = 0;
+    for (const order of counterUnpaidOrders) {
+      const switched = await switchUnpaidBillToUpi(order);
+      if (switched) {
+        successCount += 1;
+      }
+    }
+
+    if (successCount === counterUnpaidOrders.length) {
+      setBillSyncMessage("All unpaid bills switched to UPI.");
+      return;
+    }
+
+    if (successCount > 0) {
+      setBillSyncMessage(
+        `${successCount} of ${counterUnpaidOrders.length} unpaid bills switched to UPI.`,
+      );
+      return;
+    }
+
+    setBillSyncMessage("Unable to switch unpaid bills right now. Please retry.");
+  }
+
+  async function switchUnpaidBillToManual(order: TableOrderRecord) {
+    if (order.paymentMethod === "COUNTER") {
+      return true;
+    }
+
+    const nowIso = new Date().toISOString();
+    touchBillActivity(nowIso);
+    const payloadCandidates: Record<string, unknown>[] = [
+      {
+        payment_method: "COUNTER",
+        payment_status: "UNPAID",
+      },
+    ];
+
+    const updated = await updateUnpaidOrder(
+      order,
+      payloadCandidates,
+      (current) => ({
+        ...current,
+        paymentMethod: "COUNTER",
+        paymentStatus: "UNPAID",
+        updatedAt: nowIso,
+      }),
+      "Payment method switched to Manual.",
+    );
+
+    if (!updated) {
+      return false;
+    }
+
+    touchBillActivity(nowIso);
+    return true;
+  }
+
+  async function switchAllUnpaidBillsToManual() {
+    if (upiUnpaidOrders.length === 0) {
+      setBillSyncMessage("All unpaid bills are already set to Manual.");
+      return;
+    }
+
+    let successCount = 0;
+    for (const order of upiUnpaidOrders) {
+      const switched = await switchUnpaidBillToManual(order);
+      if (switched) {
+        successCount += 1;
+      }
+    }
+
+    if (successCount === upiUnpaidOrders.length) {
+      setBillSyncMessage("All unpaid bills switched to Manual.");
+      return;
+    }
+
+    if (successCount > 0) {
+      setBillSyncMessage(
+        `${successCount} of ${upiUnpaidOrders.length} unpaid bills switched to Manual.`,
+      );
+      return;
+    }
+
+    setBillSyncMessage("Unable to switch unpaid bills right now. Please retry.");
+  }
+
+  async function refreshBillFromBackend() {
+    if (!tableInfo || billSyncing) {
+      return;
+    }
+
+    setBillSyncing(true);
+    setBillSyncMessage("");
+
+    try {
+      const backendRecords = await withTimeout(
+        fetchTableOrderRecords(tableInfo.clientId || routeClient, tableInfo.id),
+        BILL_SYNC_TIMEOUT_MS,
+        "Bill refresh",
+      );
+
+      if (backendRecords.length === 0) {
+        setBillSyncMessage(
+          "No readable live bill found right now. Showing your local bill snapshot.",
+        );
+        return;
+      }
+
+      const applyResult = applyBackendOrders(backendRecords);
+      if (applyResult === "closed") {
+        setBillSyncMessage("Bill is already settled. You can start a fresh order now.");
+        return;
+      }
+
+      setBillSyncMessage("Bill refreshed successfully.");
+    } catch (error) {
+      devError(error);
+      const message = getErrorMessage(error).toLowerCase();
+      if (message.includes("not authorized") || message.includes("user_unauthorized")) {
+        setBillSyncMessage(
+          "Unable to load bill. Please retry.",
+        );
+      } else if (message.includes("timed out")) {
+        setBillSyncMessage("Unable to load bill. Please retry.");
+      } else {
+        setBillSyncMessage("Unable to load bill. Please retry.");
+      }
+    } finally {
+      setBillSyncing(false);
+    }
+  }
+
+  function openBillDrawer() {
+    touchBillActivity();
+    setCartOpen(false);
+    setBillOpen(true);
+    setBillSyncMessage("");
+  }
+
+  function openCartPage() {
+    touchBillActivity();
+    setBillOpen(false);
+    if (isStandaloneCartRoute) {
+      setCartOpen(true);
+      return;
+    }
+    router.push(cartRoutePath);
+  }
+
+  function closeCartView() {
+    if (isStandaloneCartRoute) {
+      router.replace(tableRoutePath);
+      return;
+    }
+    setCartOpen(false);
+  }
+
+  function backToMenuFromBill() {
+    setBillOpen(false);
+    setCartOpen(false);
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
+  function browseMenuFromCart() {
+    if (isStandaloneCartRoute) {
+      router.replace(tableRoutePath);
+      return;
+    }
+    closeCartView();
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
+  function navigateToMenuAfterOrder() {
+    if (isStandaloneCartRoute) {
+      window.setTimeout(() => {
+        router.replace(tableRoutePath);
+      }, 650);
+      return;
+    }
+
+    window.setTimeout(() => {
+      setCartOpen(false);
+      if (typeof window !== "undefined") {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    }, 650);
+  }
+
+  async function handlePlaceOrder(options?: { redirectToMenuAfterSuccess?: boolean }) {
+    if (placeOrderLockRef.current || placingOrder || cartCount === 0 || !tableInfo) {
+      return;
+    }
+
+    placeOrderLockRef.current = true;
+    setPlacingOrder(true);
+    setErrorMessage("");
+    setNoticeMessage("");
+    setOrderPlacedId("");
+
+    if (!tableInfo.id) {
+      setErrorMessage("Table mapping is missing. Please rescan the QR.");
       setPlacingOrder(false);
       placeOrderLockRef.current = false;
+      return;
     }
 
     const nowIso = new Date().toISOString();
     const clientId = tableInfo.clientId || routeClient;
-    const orderNumber = generateOrderNumber(clientId, tableInfo!.tableNo);
-    const currentBillOrders = tableOrdersRef.current.filter((order) =>
-      isOrderForSessionBill(order, activeOrderSession!.billId, activeOrderSession!.sessionId),
-    );
-    const orderRound = currentBillOrders.length + 1;
-    const isAddMore = orderRound > 1;
+    const orderNumber = generateOrderNumber(clientId, tableInfo.tableNo);
     const browserIdForOrder =
       customerBrowserId || (typeof window !== "undefined" ? ensureBrowserCustomerId() : "");
     if (!customerBrowserId && browserIdForOrder) {
@@ -4410,14 +6124,14 @@ export default function QrOrderingExperience({
     const computedSubtotal = Math.round(
       compactItems.reduce((sum, entry) => sum + toAmount(entry.line_total), 0) * 100,
     ) / 100;
-    const computedTaxAmount = latestTaxConfig.gstEnabled
-      ? Math.round((computedSubtotal * latestTaxConfig.taxPercentage) / 100 * 100) / 100
+    const computedTaxAmount = gstEnabled
+      ? Math.round((computedSubtotal * taxPercentage) / 100 * 100) / 100
       : 0;
-    const computedCgstAmount = latestTaxConfig.gstEnabled
-      ? Math.round((computedSubtotal * latestTaxConfig.cgstPercentage) / 100 * 100) / 100
+    const computedCgstAmount = gstEnabled
+      ? Math.round((computedSubtotal * cgstPercentage) / 100 * 100) / 100
       : 0;
-    const computedSgstAmount = latestTaxConfig.gstEnabled
-      ? Math.round((computedSubtotal * latestTaxConfig.sgstPercentage) / 100 * 100) / 100
+    const computedSgstAmount = gstEnabled
+      ? Math.round((computedSubtotal * sgstPercentage) / 100 * 100) / 100
       : 0;
     const computedTotal = roundCurrency(computedSubtotal + computedTaxAmount);
     const computedOfferDiscount = roundCurrency(
@@ -4434,44 +6148,24 @@ export default function QrOrderingExperience({
       return;
     }
 
-    // Convert money fields to integers for Appwrite INTEGER schema
-    const discountAmountInt = Math.round(computedOfferDiscount || 0);
-    const taxAmountInt = Math.round(computedTaxAmount || 0);
-    const cgstAmountInt = Math.round(computedCgstAmount || 0);
-    const sgstAmountInt = Math.round(computedSgstAmount || 0);
-
     const orderBasePayload = {
       client_id: clientId,
-      table_id: tableInfo!.id,
+      table_id: tableInfo.id,
       order_number: orderNumber,
-      session_id: activeOrderSession!.sessionId,
-      bill_id: activeOrderSession!.billId,
-      table_number: tableInfo!.tableNo || tableLabel,
-      order_round: orderRound,
-      is_add_more: isAddMore,
-      kot_status: "pending",
       status: "PLACED",
       payment_status: "UNPAID",
       subtotal: computedSubtotal,
-      tax_amount: taxAmountInt,
-      cgst_amount: cgstAmountInt,
-      sgst_amount: sgstAmountInt,
+      tax_amount: computedTaxAmount,
+      cgst_amount: computedCgstAmount,
+      sgst_amount: computedSgstAmount,
       total_amount: computedPayableTotal,
-      discount_amount: discountAmountInt, // Explicit source of truth
     };
-
-    console.log("ORDER_MONEY_DEBUG", {
-      subtotal: computedSubtotal,
-      discount_amount: discountAmountInt,
-      tax_amount: taxAmountInt,
-      cgst_amount: cgstAmountInt,
-      sgst_amount: sgstAmountInt,
-      total_amount: computedPayableTotal
-    });
-
+    const orderDiscountPayload =
+      computedOfferDiscount > 0 ? { discount_amount: computedOfferDiscount } : {};
     const orderPayloadCandidates: Record<string, unknown>[] = [
       {
         ...orderBasePayload,
+        ...orderDiscountPayload,
         payment_method: paymentMethod,
         created_at_custom: nowIso,
         items_json: orderItemsSnapshot,
@@ -4479,6 +6173,7 @@ export default function QrOrderingExperience({
       },
       {
         ...orderBasePayload,
+        ...orderDiscountPayload,
         payment_method: paymentMethod,
         created_at_custom: nowIso,
         order_items: orderItemsSnapshot,
@@ -4486,6 +6181,7 @@ export default function QrOrderingExperience({
       },
       {
         ...orderBasePayload,
+        ...orderDiscountPayload,
         payment_method: paymentMethod,
         created_at_custom: nowIso,
         items_json: orderItemsSnapshot,
@@ -4493,6 +6189,7 @@ export default function QrOrderingExperience({
       },
       {
         ...orderBasePayload,
+        ...orderDiscountPayload,
         payment_method: paymentMethod,
         created_at_custom: nowIso,
         order_items: orderItemsSnapshot,
@@ -4500,6 +6197,7 @@ export default function QrOrderingExperience({
       },
       {
         ...orderBasePayload,
+        ...orderDiscountPayload,
         payment_method: paymentMethod,
         created_at_custom: nowIso,
         items: compactItems,
@@ -4512,7 +6210,12 @@ export default function QrOrderingExperience({
       },
     ];
 
-    const handleOrderSuccess = async (createdOrder) => {
+    try {
+      const createdOrder = await createDocumentWithFallback(
+        appwriteConfig.collections.orders,
+        orderPayloadCandidates,
+      );
+
       if (paymentMethod === "UPI") {
         const paymentPayloadCandidates: Record<string, unknown>[] = [
           {
@@ -4552,10 +6255,7 @@ export default function QrOrderingExperience({
       const placedOrderRecord = buildTableOrderRecordFromCart(
         createdOrder.$id,
         orderNumber,
-        activeOrderSession!.sessionId,
-        activeOrderSession!.billId,
-        orderRound,
-        tableInfo!.tableNo,
+        tableInfo.tableNo,
         paymentMethod,
         computedSubtotal,
         computedTaxAmount,
@@ -4568,38 +6268,9 @@ export default function QrOrderingExperience({
         resolvedSelectedAddonsByItem,
         trimmedInstructions,
       );
-      const mergedLocalOrders = mergeTableOrderRecords(currentBillOrders, [placedOrderRecord]);
-      const nextSessionTotal = roundCurrency(sumTableOrderPayableAmount(mergedLocalOrders));
+      const mergedLocalOrders = mergeTableOrderRecords(tableOrdersRef.current, [placedOrderRecord]);
       setTableOrders(mergedLocalOrders);
       tableOrdersRef.current = mergedLocalOrders;
-      setTableSession((current) =>
-        current
-          ? {
-              ...current,
-              heartbeatAt: nowIso,
-              totalAmount: nextSessionTotal,
-            }
-          : current,
-      );
-      void updateDocumentWithFallback(
-        appwriteConfig.collections.tableSessions,
-        activeOrderSession!.documentId,
-        [
-          {
-            heartbeat_at: nowIso,
-            total_amount: nextSessionTotal,
-          },
-        ],
-        {
-          scope: {
-            clientId,
-            tableId: tableInfo!.id,
-            lockedBy: activeOrderSession!.lockedBy || browserIdForOrder,
-          },
-        },
-      ).catch((sessionUpdateError) => {
-        devWarn("Table session total update failed:", sessionUpdateError);
-      });
       persistOwnedOrderIds(
         mergedLocalOrders.map((record) => record.orderId),
         browserIdForOrder,
@@ -4621,7 +6292,7 @@ export default function QrOrderingExperience({
         const orderSummary: CustomerOrderSummary = {
           orderId: createdOrder.$id,
           client: clientId,
-          table: tableInfo!.tableNo,
+          table: tableInfo.tableNo,
           totalAmount: computedPayableTotal,
           itemCount: cartCount,
           paymentMethod,
@@ -4669,490 +6340,41 @@ export default function QrOrderingExperience({
       setSelectedAddonsByItem({});
       setKitchenInstructions("");
       setCartOpen(false);
-      setBillOpen(true);
 
       if (options?.redirectToMenuAfterSuccess) {
         setNoticeMessage("Order placed successfully.");
         navigateToMenuAfterOrder();
       }
-    };
-
-    try {
-      const createdOrder = await createDocumentWithFallback(
-        appwriteConfig.collections.orders,
-        orderPayloadCandidates,
-      );
-      handleOrderSuccess(createdOrder);
-    } catch (orderError: any) {
-      console.error("ORDER_CREATE_FAILED_FULL", {
-        message: orderError?.message,
-        code: orderError?.code,
-        type: orderError?.type,
-        response: orderError?.response,
-        payload: orderPayloadCandidates[0]
-      });
-
-      // Retry without money fields
-      const fallbackOrderPayloadCandidates = orderPayloadCandidates.map(payload => {
-        const newPayload = { ...payload };
-        delete newPayload.discount_amount;
-        delete newPayload.tax_amount;
-        delete newPayload.cgst_amount;
-        delete newPayload.sgst_amount;
-        return newPayload;
-      });
-
-      try {
-        const createdOrder = await createDocumentWithFallback(
-          appwriteConfig.collections.orders,
-          fallbackOrderPayloadCandidates,
+    } catch (orderError) {
+      devError(orderError);
+      const rawMessage = getErrorMessage(orderError);
+      const message = rawMessage.toLowerCase();
+      if (message.includes("network") || message.includes("fetch")) {
+        setErrorMessage("Network issue detected. Please check your connection and retry.");
+      } else if (
+        message.includes("not authorized") ||
+        message.includes("user_unauthorized") ||
+        message.includes("permission") ||
+        message.includes("missing scope") ||
+        message.includes("401")
+      ) {
+        setErrorMessage("Unable to submit order from this device due to access settings. Please call staff.");
+      } else if (message.includes("missing required attribute")) {
+        setErrorMessage("Order request is missing required billing fields. Please ask staff to sync settings.");
+      } else if (message.includes('"table_id"')) {
+        setErrorMessage(
+          "Table ID could not be resolved. Please rescan the QR and inform staff.",
         );
-        handleOrderSuccess(createdOrder);
-      } catch (retryError) {
-        devError(retryError);
-        const rawMessage = getErrorMessage(retryError);
-        const message = rawMessage.toLowerCase();
-        if (message.includes("network") || message.includes("fetch")) {
-          setErrorMessage("Network issue detected. Please check your connection and retry.");
-        } else if (
-          message.includes("not authorized") ||
-          message.includes("user_unauthorized") ||
-          message.includes("permission") ||
-          message.includes("missing scope") ||
-          message.includes("401")
-        ) {
-          setErrorMessage("Unable to submit order from this device due to access settings. Please call staff.");
-        } else if (message.includes("missing required attribute")) {
-          setErrorMessage("Order request is missing required billing fields. Please ask staff to sync settings.");
-        } else if (message.includes('"table_id"')) {
-          setErrorMessage(
-            "Table ID could not be resolved. Please rescan the QR and inform staff.",
-          );
-        } else {
-          setErrorMessage(
-            "Unable to place order right now. Please retry in a moment or inform staff.",
-          );
-        }
+      } else {
+        setErrorMessage(
+          "Unable to place order right now. Please retry in a moment or inform staff.",
+        );
       }
     } finally {
       setPlacingOrder(false);
       placeOrderLockRef.current = false;
     }
-
-  async function copyTextWithNotice(value: string, successMessage: string) {
-    const text = value.trim();
-    if (!text || typeof navigator === "undefined") {
-      return;
-    }
-
-    try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error("Clipboard API unavailable");
-      }
-      await navigator.clipboard.writeText(text);
-      setNoticeMessage(successMessage);
-    } catch {
-      setNoticeMessage(
-        "Unable to copy automatically. Please copy manually from the details shown.",
-      );
-    }
   }
-
-  function closeUpiQrSheet() {
-    setUpiQrOpen(false);
-  }
-
-  const tableLabel = tableInfo ? tableInfo.displayLabel : formatTableLabel(routeTable);
-  const accentColor = normalizeThemeColor(LUXURY_GOLD, LUXURY_GOLD);
-
-  useEffect(() => {
-    if (!shouldShowCartPanel || isStandaloneCartRoute || typeof document === "undefined") {
-      return;
-    }
-
-    const body = document.body;
-    const documentElement = document.documentElement;
-    const scrollY = window.scrollY;
-    const previousBodyOverflow = body.style.overflow;
-    const previousBodyPosition = body.style.position;
-    const previousBodyTop = body.style.top;
-    const previousBodyWidth = body.style.width;
-    const previousBodyPaddingRight = body.style.paddingRight;
-    const previousOverscrollBehavior = documentElement.style.overscrollBehavior;
-    const scrollbarCompensation = window.innerWidth - documentElement.clientWidth;
-
-    body.style.overflow = "hidden";
-    body.style.position = "fixed";
-    body.style.top = `-${scrollY}px`;
-    body.style.width = "100%";
-    body.style.paddingRight = `${scrollbarCompensation}px`;
-    documentElement.style.overscrollBehavior = "contain";
-
-    return () => {
-      body.style.overflow = previousBodyOverflow;
-      body.style.position = previousBodyPosition;
-      body.style.top = previousBodyTop;
-      body.style.width = previousBodyWidth;
-      body.style.paddingRight = previousBodyPaddingRight;
-      documentElement.style.overscrollBehavior = previousOverscrollBehavior;
-      window.scrollTo(0, scrollY);
-    };
-  }, [shouldShowCartPanel, isStandaloneCartRoute]);
-
-  useEffect(() => {
-    if (addonPickerOpen || cartOpen || isStandaloneCartRoute || upiQrOpen) {
-      return;
-    }
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (billOpen) {
-          requestCloseBill();
-        } else if (cartOpen) {
-          closeCartView();
-        }
-      }
-    };
-
-    document.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [addonPickerOpen, cartOpen, isStandaloneCartRoute, upiQrOpen, billOpen, requestCloseBill, closeCartView]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      setViewportHeight(window.innerHeight);
-    };
-
-    window.addEventListener("resize", handleResize);
-    handleResize();
-
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  const upiQrImageSrc = useMemo(() => buildUpiQrImageUrl(upiQrUri), [upiQrUri]);
-  const upiQrAmountNumber = useMemo(() => {
-    const parsed = Number(upiQrAmount);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-  }, [upiQrAmount]);
-  const appBackground = isLightTheme
-    ? `linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_BACKGROUND} 56%, ${PALETTE_SURFACE} 100%)`
-    : `linear-gradient(180deg, ${PALETTE_TEXT} 0%, ${PALETTE_SECONDARY} 36%, ${PALETTE_TEXT} 100%)`;
-  const panelGradient = isLightTheme
-    ? `linear-gradient(165deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 64%, rgba(232,217,197,0.18) 100%)`
-    : `linear-gradient(165deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
-  const sectionGradient = isLightTheme
-    ? `linear-gradient(160deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
-    : `linear-gradient(160deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
-  const sheetGradient = isLightTheme
-    ? `linear-gradient(176deg, rgba(232,217,197,0.99) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
-    : `linear-gradient(176deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
-  const bottomBarGradient = isLightTheme
-    ? `linear-gradient(170deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
-    : `linear-gradient(170deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
-  const overlayShade = isLightTheme ? "rgba(122,109,96,0.2)" : "rgba(0, 0, 0, 0.72)";
-  const contentTextClass = isLightTheme ? "text-brand-dark" : "text-white";
-  const secondaryTextClass = isLightTheme ? "text-brand-accent" : "text-zinc-300";
-  const mutedTextClass = isLightTheme ? "text-zinc-500" : "text-zinc-400";
-  const themeScopeClass = isLightTheme ? "cafe-theme-light" : "";
-  const shouldShowCartPanel = cartOpen || isStandaloneCartRoute;
-  const luxurySpring = prefersReducedMotion
-    ? { duration: 0 }
-    : { type: "spring" as const, stiffness: 300, damping: 32, mass: 0.82 };
-  const gentleSpring = prefersReducedMotion
-    ? { duration: 0 }
-    : { type: "spring" as const, stiffness: 240, damping: 30, mass: 0.9 };
-  const dockSpring = prefersReducedMotion
-    ? { duration: 0 }
-    : { type: "spring" as const, stiffness: 360, damping: 38, mass: 0.72 };
-  const softEase = [0.22, 1, 0.36, 1] as const;
-  const overlayTransition = prefersReducedMotion ? { duration: 0 } : { duration: 0.22, ease: softEase };
-  const motionInitial = prefersReducedMotion ? false : { opacity: 0, y: 14, scale: 0.985 };
-  const motionVisible = { opacity: 1, y: 0, scale: 1 };
-  const motionTransition = luxurySpring;
-  const pressMotion = prefersReducedMotion ? undefined : { scale: 0.985, y: 1 };
-  const hoverLiftMotion = prefersReducedMotion ? undefined : { y: -2, scale: 1.01 };
-  const addFeedbackPulse =
-    recentlyAddedItemId && !prefersReducedMotion
-      ? { scale: [1, 1.012, 1], y: [0, -1, 0] }
-      : undefined;
-  const cartContentVariants = {
-    hidden: prefersReducedMotion ? { opacity: 1 } : { opacity: 1 },
-    show: {
-      opacity: 1,
-      transition: {
-        staggerChildren: prefersReducedMotion ? 0 : 0.045,
-        delayChildren: prefersReducedMotion ? 0 : 0.08,
-      },
-    },
-  };
-  const cartContentItemVariants = {
-    hidden: prefersReducedMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 },
-    show: { opacity: 1, y: 0, transition: gentleSpring },
-  };
-
-  return (
-          },
-        ];
-
-        try {
-          createDocumentWithFallback(
-            appwriteConfig.collections.payments,
-            paymentPayloadCandidates,
-          );
-        } catch (paymentError) {
-          devError(paymentError);
-          setNoticeMessage(
-            "Order placed. UPI confirmation is pending and will be verified by cashier.",
-          );
-        }
-      }
-
-      setOrderPlacedId(createdOrder.$id);
-      const nextActiveOrderContext: ActiveOrderContext = {
-        id: createdOrder.$id,
-        status: "PLACED",
-        paymentStatus: "UNPAID",
-        updatedAt: nowIso,
-      };
-      setActiveOrderContext(nextActiveOrderContext);
-      activeOrderContextRef.current = nextActiveOrderContext;
-      trackOwnedOrderId(createdOrder.$id, browserIdForOrder);
-      const placedOrderRecord = buildTableOrderRecordFromCart(
-        createdOrder.$id,
-        orderNumber,
-        activeOrderSession!.sessionId,
-        activeOrderSession!.billId,
-        orderRound,
-        tableInfo!.tableNo,
-        paymentMethod,
-        computedSubtotal,
-        computedTaxAmount,
-        computedCgstAmount,
-        computedSgstAmount,
-        computedPayableTotal,
-        nowIso,
-        cartItems,
-        resolvedSelectedModifiersByItem,
-        resolvedSelectedAddonsByItem,
-        trimmedInstructions,
-      );
-      const mergedLocalOrders = mergeTableOrderRecords(currentBillOrders, [placedOrderRecord]);
-      const nextSessionTotal = roundCurrency(sumTableOrderPayableAmount(mergedLocalOrders));
-      setTableOrders(mergedLocalOrders);
-      tableOrdersRef.current = mergedLocalOrders;
-      setTableSession((current) =>
-        current
-          ? {
-              ...current,
-              heartbeatAt: nowIso,
-              totalAmount: nextSessionTotal,
-            }
-          : current,
-      );
-      void updateDocumentWithFallback(
-        appwriteConfig.collections.tableSessions,
-        activeOrderSession!.documentId,
-        [
-          {
-            heartbeat_at: nowIso,
-            total_amount: nextSessionTotal,
-          },
-        ],
-        {
-          scope: {
-            clientId,
-            tableId: tableInfo!.id,
-            lockedBy: activeOrderSession!.lockedBy || browserIdForOrder,
-          },
-        },
-      ).catch((sessionUpdateError) => {
-        devWarn("Table session total update failed:", sessionUpdateError);
-      });
-      persistOwnedOrderIds(
-        mergedLocalOrders.map((record) => record.orderId),
-        browserIdForOrder,
-      );
-      syncOrderSnapshot(mergedLocalOrders);
-      setBillSyncMessage("Order added to your bill.");
-      touchBillActivity(nowIso);
-      showStatusPopup({
-        title: "Order Placed",
-        description: `${orderNumber} has been sent to the kitchen.`,
-        tone: "success",
-      });
-
-      if (typeof window !== "undefined") {
-        const resolvedBrowserId = browserIdForOrder || ensureBrowserCustomerId();
-        const resolvedHistoryStorageKey =
-          customerHistoryStorageKey ||
-          buildCustomerHistoryStorageKey(routeClient, resolvedBrowserId);
-        const orderSummary: CustomerOrderSummary = {
-          orderId: createdOrder.$id,
-          client: clientId,
-          table: tableInfo!.tableNo,
-          totalAmount: computedPayableTotal,
-          itemCount: cartCount,
-          paymentMethod,
-          status: "PLACED",
-          placedAt: nowIso,
-          items: cartItems.map((cartItem) => ({
-            id: cartItem.item.id,
-            qty: cartItem.quantity,
-          })),
-        };
-
-        const currentProfile =
-          customerProfile ??
-          parseCustomerProfile(
-            window.localStorage.getItem(CUSTOMER_PROFILE_KEY),
-            resolvedBrowserId,
-          );
-        const nextProfile = buildNextCustomerProfile(
-          currentProfile,
-          orderSummary,
-          cartItems,
-          resolvedBrowserId,
-        );
-        setCustomerProfile(nextProfile);
-        window.localStorage.setItem(CUSTOMER_PROFILE_KEY, JSON.stringify(nextProfile));
-
-        const currentHistory =
-          parseCustomerOrderHistory(
-            window.localStorage.getItem(resolvedHistoryStorageKey),
-            resolvedBrowserId,
-          );
-        const nextHistory = buildNextCustomerHistory(
-          currentHistory,
-          orderSummary,
-          resolvedBrowserId,
-        );
-        window.localStorage.setItem(
-          resolvedHistoryStorageKey,
-          JSON.stringify(nextHistory),
-        );
-      }
-
-      setCart({});
-      setSelectedModifiersByItem({});
-      setSelectedAddonsByItem({});
-      setKitchenInstructions("");
-      setCartOpen(false);
-      setBillOpen(true);
-
-      if (options?.redirectToMenuAfterSuccess) {
-        setNoticeMessage("Order placed successfully.");
-        navigateToMenuAfterOrder();
-      }
-
-
-
-    try {
-      const createdOrder = await databases.createDocument(
-        appwriteConfig.collections.orders,
-        'unique()',
-        orderPayloadCandidates[0],
-      );
-      handleOrderSuccess(createdOrder);
-    } catch (orderError: any) {
-      console.error("ORDER_CREATE_FAILED_FULL", {
-        message: orderError?.message,
-        code: orderError?.code,
-        type: orderError?.type,
-        response: orderError?.response,
-        payload: orderPayloadCandidates[0]
-      });
-
-      // Retry without money fields
-      const newOrderPayloadCandidates = orderPayloadCandidates.map(payload => {
-        const newPayload = { ...payload };
-        delete newPayload.discount_amount;
-        delete newPayload.tax_amount;
-        delete newPayload.cgst_amount;
-        delete newPayload.sgst_amount;
-        return newPayload;
-      });
-
-      try {
-        const createdOrder = createDocumentWithFallback(
-          appwriteConfig.collections.orders,
-          newOrderPayloadCandidates,
-        );
-        handleOrderSuccess(createdOrder);
-      } catch (retryError) {
-        devError(retryError);
-        const rawMessage = getErrorMessage(retryError);
-        const message = rawMessage.toLowerCase();
-        if (message.includes("network") || message.includes("fetch")) {
-          setErrorMessage("Network issue detected. Please check your connection and retry.");
-        } else if (
-          message.includes("not authorized") ||
-          message.includes("user_unauthorized") ||
-          message.includes("permission") ||
-          message.includes("missing scope") ||
-          message.includes("401")
-        ) {
-          setErrorMessage("Unable to submit order from this device due to access settings. Please call staff.");
-        } else if (message.includes("missing required attribute")) {
-          setErrorMessage("Order request is missing required billing fields. Please ask staff to sync settings.");
-        } else if (message.includes('"table_id"')) {
-          setErrorMessage(
-            "Table ID could not be resolved. Please rescan the QR and inform staff.",
-          );
-        } else {
-          setErrorMessage(
-            "Unable to place order right now. Please retry in a moment or inform staff.",
-          );
-        }
-      } finally {
-        setPlacingOrder(false);
-        placeOrderLockRef.current = false;
-      }
-    };
-
-  const upiQrImageSrc = useMemo(() => buildUpiQrImageUrl(upiQrUri), [upiQrUri]);
-  const upiQrAmountNumber = useMemo(() => {
-    const parsed = Number(upiQrAmount);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-  }, [upiQrAmount]);
-  const appBackground = isLightTheme
-    ? `linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_BACKGROUND} 56%, ${PALETTE_SURFACE} 100%)`
-    : `linear-gradient(180deg, ${PALETTE_TEXT} 0%, ${PALETTE_SECONDARY} 36%, ${PALETTE_TEXT} 100%)`;
-  const panelGradient = isLightTheme
-    ? `linear-gradient(165deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 64%, rgba(232,217,197,0.18) 100%)`
-    : `linear-gradient(165deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
-  const sectionGradient = isLightTheme
-    ? `linear-gradient(160deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
-    : `linear-gradient(160deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
-  const sheetGradient = isLightTheme
-    ? `linear-gradient(176deg, rgba(232,217,197,0.99) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
-    : `linear-gradient(176deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
-  const bottomBarGradient = isLightTheme
-    ? `linear-gradient(170deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
-    : `linear-gradient(170deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
-  const overlayShade = isLightTheme ? "rgba(122,109,96,0.2)" : "rgba(0, 0, 0, 0.72)";
-  const contentTextClass = isLightTheme ? "text-brand-dark" : "text-white";
-  const secondaryTextClass = isLightTheme ? "text-brand-accent" : "text-zinc-300";
-  const mutedTextClass = isLightTheme ? "text-zinc-500" : "text-zinc-400";
-  const themeScopeClass = isLightTheme ? "cafe-theme-light" : "";
-  const shouldShowCartPanel = cartOpen || isStandaloneCartRoute;
-  const luxurySpring = prefersReducedMotion
-    ? { duration: 0 }
-    : { type: "spring" as const, stiffness: 300, damping: 32, mass: 0.82 };
-  const gentleSpring = prefersReducedMotion
-    ? { duration: 0 }
-    : { type: "spring" as const, stiffness: 240, damping: 30, mass: 0.9 };
-  const dockSpring = prefersReducedMotion
-    ? { duration: 0 }
-    : { type: "spring" as const, stiffness: 360, damping: 38, mass: 0.72 };
-  const softEase = [0.22, 1, 0.36, 1] as const;
-  const overlayTransition = prefersReducedMotion ? { duration: 0 } : { duration: 0.22, ease: softEase };
-  const motionInitial = prefersReducedMotion ? false : { opacity: 0, y: 14, scale: 0.985 };
-  const motionVisible = { opacity: 1, y: 0, scale: 1 };
-  const motionTransition = luxurySpring;
-  const pressMotion = prefersReducedMotion ? undefined : { scale: 0.985, y: 1 };
-  const hoverLiftMotion = prefersReducedMotion ? undefined : { y: -2, scale: 1.01 };
-  const addFeedbackPulse =
-    recentlyAddedItemId && !prefersReducedMotion
 
   async function copyTextWithNotice(value: string, successMessage: string) {
     const text = value.trim();
@@ -5246,12 +6468,14 @@ export default function QrOrderingExperience({
     clientSettings.upiName.trim() || DEFAULT_UPI_NAME,
     60,
   );
-  const billUpiLink = buildUpiPaymentLink({
-    upiId: configuredUpiId,
-    upiName: configuredUpiName,
-    amount: unpaidTotal,
-  });
-
+  const cartUpiLink =
+    paymentMethod === "UPI"
+      ? buildUpiPaymentLink({
+          upiId: configuredUpiId,
+          upiName: configuredUpiName,
+          amount: finalTotal,
+        })
+      : "";
   const currentBillUpiLink =
     currentBillPaymentMethod === "UPI" && !isOrderClosed(currentBillStatus, currentBillPaymentStatus)
       ? buildUpiPaymentLink({
@@ -5260,90 +6484,35 @@ export default function QrOrderingExperience({
           amount: billPayableTotal,
         })
       : "";
-
-  async function copyTextWithNotice(value: string, successMessage: string) {
-    const text = value.trim();
-    if (!text || typeof navigator === "undefined") {
-      return;
-    }
-
-    try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error("Clipboard API unavailable");
-      }
-      await navigator.clipboard.writeText(text);
-      setNoticeMessage(successMessage);
-    } catch {
-      setNoticeMessage(
-        "Unable to copy automatically. Please copy manually from the details shown.",
-      );
-    }
-  }
-
-  function closeUpiQrSheet() {
-    setUpiQrOpen(false);
-  }
-
-  useEffect(() => {
-    if (!shouldShowCartPanel || isStandaloneCartRoute || typeof document === "undefined") {
-      return;
-    }
-
-    const body = document.body;
-    const documentElement = document.documentElement;
-    const scrollY = window.scrollY;
-    const previousBodyOverflow = body.style.overflow;
-    const previousBodyPosition = body.style.position;
-    const previousBodyTop = body.style.top;
-    const previousBodyWidth = body.style.width;
-    const previousBodyPaddingRight = body.style.paddingRight;
-    const previousOverscrollBehavior = documentElement.style.overscrollBehavior;
-    const scrollbarCompensation = window.innerWidth - documentElement.clientWidth;
-
-    body.style.overflow = "hidden";
-    body.style.position = "fixed";
-    body.style.top = `-${scrollY}px`;
-    body.style.width = "100%";
-    if (scrollbarCompensation > 0) {
-      body.style.paddingRight = `${scrollbarCompensation}px`;
-    }
-    documentElement.style.overscrollBehavior = "contain";
-
-    return () => {
-      body.style.overflow = previousBodyOverflow;
-      body.style.position = previousBodyPosition;
-      body.style.top = previousBodyTop;
-      body.style.width = previousBodyWidth;
-      body.style.paddingRight = previousBodyPaddingRight;
-      documentElement.style.overscrollBehavior = previousOverscrollBehavior;
-      window.scrollTo(0, scrollY);
-    };
-  }, [isStandaloneCartRoute, shouldShowCartPanel]);
-
-  useEffect(() => {
-    if (!cartOpen || isStandaloneCartRoute || typeof window === "undefined") {
-      return;
-    }
-
-    function handleCartEscape(event: KeyboardEvent) {
-      if (event.key !== "Escape" || addonPickerOpen || upiQrOpen) {
-        return;
-      }
-      event.preventDefault();
-      setCartOpen(false);
-    }
-
-    window.addEventListener("keydown", handleCartEscape);
-    return () => window.removeEventListener("keydown", handleCartEscape);
-  }, [addonPickerOpen, cartOpen, isStandaloneCartRoute, upiQrOpen]);
-
-  useEffect(() => {
-    return () => {
-      if (addFeedbackTimeoutRef.current !== null) {
-        window.clearTimeout(addFeedbackTimeoutRef.current);
-      }
-    };
-  }, []);
+  const upiQrImageSrc = useMemo(() => buildUpiQrImageUrl(upiQrUri), [upiQrUri]);
+  const upiQrAmountNumber = useMemo(() => {
+    const parsed = Number(upiQrAmount);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }, [upiQrAmount]);
+  const appBackground = isLightTheme
+    ? `linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_BACKGROUND} 56%, ${PALETTE_SURFACE} 100%)`
+    : `linear-gradient(180deg, ${PALETTE_TEXT} 0%, ${PALETTE_SECONDARY} 36%, ${PALETTE_TEXT} 100%)`;
+  const panelGradient = isLightTheme
+    ? `linear-gradient(165deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 64%, rgba(232,217,197,0.18) 100%)`
+    : `linear-gradient(165deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
+  const sectionGradient = isLightTheme
+    ? `linear-gradient(160deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
+    : `linear-gradient(160deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
+  const cardGradient = isLightTheme
+    ? `linear-gradient(168deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 72%, rgba(232,217,197,0.16) 100%)`
+    : `linear-gradient(168deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
+  const sheetGradient = isLightTheme
+    ? `linear-gradient(176deg, rgba(232,217,197,0.99) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
+    : `linear-gradient(176deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
+  const bottomBarGradient = isLightTheme
+    ? `linear-gradient(170deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
+    : `linear-gradient(170deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
+  const overlayShade = isLightTheme ? "rgba(122,109,96,0.2)" : "rgba(0, 0, 0, 0.72)";
+  const contentTextClass = isLightTheme ? "text-brand-dark" : "text-white";
+  const secondaryTextClass = isLightTheme ? "text-brand-accent" : "text-zinc-300";
+  const mutedTextClass = isLightTheme ? "text-zinc-500" : "text-zinc-400";
+  const themeScopeClass = isLightTheme ? "cafe-theme-light" : "";
+  const shouldShowCartPanel = cartOpen || isStandaloneCartRoute;
 
   if (loadState === "loading") {
     return (
@@ -5449,7 +6618,7 @@ export default function QrOrderingExperience({
 
   return (
     <div
-      className={clsx("cafeluxe-page-enter relative min-h-screen overflow-x-hidden", contentTextClass, themeScopeClass)}
+      className={clsx("relative min-h-screen overflow-x-hidden", contentTextClass, themeScopeClass)}
       style={{ background: appBackground }}
     >
       {heroImageUrl ? (
@@ -5482,12 +6651,9 @@ export default function QrOrderingExperience({
       />
 
       {!isStandaloneCartRoute ? (
-      <div className="cafeluxe-menu-stage relative mx-auto flex w-full max-w-5xl flex-col px-4 pb-[16rem] pt-5 sm:px-6 sm:pb-[14rem] md:pb-[12.5rem]">
-        <motion.header
-          initial={motionInitial}
-          animate={motionVisible}
-          transition={motionTransition}
-          className="cafeluxe-hero-enter cafe-luxe-header sticky top-3 z-20 mb-5 rounded-3xl border px-4 py-4 shadow-[0_32px_74px_-42px_rgba(0,0,0,0.98)] backdrop-blur-xl sm:px-5 sm:py-4.5"
+      <div className="relative mx-auto flex w-full max-w-5xl flex-col px-4 pb-44 pt-5 sm:px-6 sm:pb-36">
+        <header
+          className="cafe-luxe-header sticky top-3 z-20 mb-5 rounded-3xl border px-4 py-4 shadow-[0_32px_74px_-42px_rgba(0,0,0,0.98)] backdrop-blur-xl sm:px-5 sm:py-4.5"
           style={{
             background: panelGradient,
             borderColor: withAlpha(WARM_HIGHLIGHT, 0.22),
@@ -5587,7 +6753,7 @@ export default function QrOrderingExperience({
               </div>
             </div>
           </div>
-        </motion.header>
+        </header>
 
         {errorMessage ? (
           <div
@@ -5628,10 +6794,7 @@ export default function QrOrderingExperience({
         ) : null}
 
         {orderPlacedId ? (
-          <motion.div
-            initial={prefersReducedMotion ? false : { opacity: 0, y: 10, scale: 0.992 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={gentleSpring}
+          <div
             className="cafe-luxe-alert mb-4 flex items-start gap-3 rounded-2xl border p-4"
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.34),
@@ -5666,14 +6829,11 @@ export default function QrOrderingExperience({
                 </div>
               ) : null}
             </div>
-          </motion.div>
+          </div>
         ) : null}
 
         {statusPopup ? (
-          <motion.div
-            initial={prefersReducedMotion ? false : { opacity: 0, y: 10, scale: 0.992 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={gentleSpring}
+          <div
             className="cafe-luxe-alert mb-4 flex items-start gap-3 rounded-2xl border p-4 shadow-[0_18px_40px_-28px_rgba(0,0,0,0.75)]"
             style={{
               borderColor:
@@ -5709,14 +6869,11 @@ export default function QrOrderingExperience({
             >
               Dismiss
             </button>
-          </motion.div>
+          </div>
         ) : null}
 
-        <motion.section
-          initial={motionInitial}
-          animate={motionVisible}
-          transition={{ ...motionTransition, delay: prefersReducedMotion ? 0 : 0.08 }}
-          className="cafeluxe-section-reveal cafe-luxe-card mb-4 rounded-2xl border p-4 shadow-[0_24px_64px_-38px_rgba(0,0,0,0.98)]"
+        <section
+          className="cafe-luxe-card mb-4 rounded-2xl border p-4 shadow-[0_24px_64px_-38px_rgba(0,0,0,0.98)]"
           style={{
             borderColor: accentSubtle,
             background: sectionGradient,
@@ -5743,32 +6900,27 @@ export default function QrOrderingExperience({
                 {normalizedCurrency}
               </p>
               <p className={clsx("text-xs", isLightTheme ? "text-brand-dark/70" : "text-zinc-300")}>
-                GST: {gstEnabled ? `On (${taxPercentage}%)` : "Off"}
+                GST: {gstEnabled ? `${taxPercentage}%` : "Off"}
               </p>
             </div>
           </div>
-        </motion.section>
+        </section>
 
-        <motion.section
-          initial={motionInitial}
-          animate={motionVisible}
-          transition={{ ...motionTransition, delay: prefersReducedMotion ? 0 : 0.14 }}
-          className="cafeluxe-search-section mb-4"
-        >
+        <section className="mb-4">
           <label
             htmlFor="menu-search"
-            className={clsx("cafeluxe-search-label mb-2 block text-xs uppercase tracking-[0.16em]", mutedTextClass)}
+            className={clsx("mb-2 block text-xs uppercase tracking-[0.16em]", mutedTextClass)}
           >
             {"Search Menu"}
           </label>
           <div
-            className="cafeluxe-search-shell cafe-luxe-input-wrap flex items-center gap-2 rounded-2xl border px-3 py-2.5 shadow-[0_18px_40px_-30px_rgba(0,0,0,0.92)]"
+            className="cafe-luxe-input-wrap flex items-center gap-2 rounded-2xl border px-3 py-2.5 shadow-[0_18px_40px_-30px_rgba(0,0,0,0.92)]"
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.32),
               background: sectionGradient,
             }}
           >
-            <Search className={clsx("cafeluxe-search-icon h-4 w-4", mutedTextClass)} />
+            <Search className={clsx("h-4 w-4", mutedTextClass)} />
             <input
               id="menu-search"
               value={searchText}
@@ -5781,43 +6933,22 @@ export default function QrOrderingExperience({
               inputMode="search"
             />
           </div>
-        </motion.section>
+        </section>
 
-        <motion.section
-          initial={motionInitial}
-          animate={motionVisible}
-          transition={{ ...motionTransition, delay: prefersReducedMotion ? 0 : 0.18 }}
-          className="cafeluxe-category-strip sticky top-[98px] z-10 mb-4 -mx-1 overflow-x-auto px-1"
-        >
-          <motion.div
-            initial={prefersReducedMotion ? false : "hidden"}
-            animate="show"
-            variants={{
-              hidden: { opacity: 0 },
-              show: {
-                opacity: 1,
-                transition: { staggerChildren: 0.045, delayChildren: 0.05 },
-              },
-            }}
-            className="cafeluxe-category-rail cafe-luxe-card inline-flex min-w-full gap-2 rounded-2xl border p-1.5 shadow-[0_20px_48px_-34px_rgba(122,109,96,0.28)] backdrop-blur"
+        <section className="sticky top-[98px] z-10 mb-4 -mx-1 overflow-x-auto px-1">
+          <div
+            className="cafe-luxe-card inline-flex min-w-full gap-2 rounded-2xl border p-1.5 shadow-[0_20px_48px_-34px_rgba(122,109,96,0.28)] backdrop-blur"
             style={{
               borderColor: withAlpha(WARM_HIGHLIGHT, 0.22),
               background: sectionGradient,
             }}
           >
-            <motion.button
+            <button
               type="button"
-              layout
-              variants={{
-                hidden: { opacity: 0, y: 8 },
-                show: { opacity: 1, y: 0 },
-              }}
-              whileHover={hoverLiftMotion}
-              whileTap={pressMotion}
               className={clsx(
-                "cafeluxe-category-chip cafe-luxe-chip flex-none rounded-xl px-4 py-2 text-sm font-semibold transition active:translate-y-px",
+                "cafe-luxe-chip flex-none rounded-xl px-4 py-2 text-sm font-semibold transition active:translate-y-px",
                 activeCategory === "all"
-                  ? "cafeluxe-category-chip-active text-brand-dark shadow-[0_12px_30px_-18px_rgba(0,0,0,0.5)]"
+                  ? "text-brand-dark shadow-[0_12px_30px_-18px_rgba(0,0,0,0.5)]"
                   : isLightTheme ? "text-brand-dark/70 hover:text-brand-dark" : "text-white/70 hover:text-white",
               )}
                   style={
@@ -5837,22 +6968,15 @@ export default function QrOrderingExperience({
               onClick={() => setActiveCategory("all")}
             >
               {"All"}
-            </motion.button>
+            </button>
             {categories.map((category) => (
-              <motion.button
+              <button
                 key={category.id}
                 type="button"
-                layout
-                variants={{
-                  hidden: { opacity: 0, y: 8 },
-                  show: { opacity: 1, y: 0 },
-                }}
-                whileHover={hoverLiftMotion}
-                whileTap={pressMotion}
                 className={clsx(
-                  "cafeluxe-category-chip cafe-luxe-chip flex-none rounded-xl px-4 py-2 text-sm font-semibold transition active:translate-y-px",
+                  "cafe-luxe-chip flex-none rounded-xl px-4 py-2 text-sm font-semibold transition active:translate-y-px",
                   activeCategory === category.id
-                    ? "cafeluxe-category-chip-active text-brand-dark shadow-[0_12px_30px_-18px_rgba(0,0,0,0.5)]"
+                    ? "text-brand-dark shadow-[0_12px_30px_-18px_rgba(0,0,0,0.5)]"
                     : isLightTheme ? "text-brand-dark/70 hover:text-brand-dark" : "text-white/70 hover:text-white",
                 )}
                 style={
@@ -5872,10 +6996,10 @@ export default function QrOrderingExperience({
                 onClick={() => setActiveCategory(category.id)}
               >
                 {category.name}
-              </motion.button>
+              </button>
             ))}
-          </motion.div>
-        </motion.section>
+          </div>
+        </section>
 
         {offersToday.length > 0 ? (
           <section
@@ -5972,580 +7096,518 @@ export default function QrOrderingExperience({
               ? "No menu items are available right now. Please check with staff."
               : "No items match this search/category. Try another filter."}
           </section>
+        ) : groupedItems.length === 0 ? (
+          <section
+            className={clsx(
+              "rounded-2xl border p-5 text-sm",
+              secondaryTextClass,
+              isLightTheme ? "border-[#C6A57B] bg-[#E8D9C5]" : "border-zinc-800/30 bg-[#F8F5F0]/10",
+            )}
+          >
+            No categorized items are available right now.
+          </section>
         ) : (
-          <div className="cafeluxe-menu-listing space-y-6 sm:space-y-8">
-            {menuSections.map((section, sectionIndex) => {
-              const categoryTitle = section.category.name || "Menu";
-
-              return (
-                <motion.section
-                  key={section.category.id}
-                  initial={motionInitial}
-                  whileInView={motionVisible}
-                  viewport={{ once: true, amount: 0.18 }}
-                  transition={{
-                    ...motionTransition,
-                    delay: prefersReducedMotion ? 0 : Math.min(sectionIndex * 0.05, 0.18),
-                  }}
-                  className="cafeluxe-menu-section-card cafe-luxe-category-coverflow space-y-3 overflow-hidden rounded-[1.75rem] border px-3 py-4 sm:px-4 sm:py-5"
-                  style={{
-                    borderColor: withAlpha(WARM_HIGHLIGHT, 0.18),
-                    background: isLightTheme
-                      ? `linear-gradient(135deg, ${withAlpha(PALETTE_SURFACE, 0.34)} 0%, ${withAlpha(PALETTE_BACKGROUND, 0.72)} 100%)`
-                      : `linear-gradient(135deg, ${withAlpha(PALETTE_SURFACE, 0.08)} 0%, ${withAlpha(PALETTE_TEXT, 0.42)} 100%)`,
-                    boxShadow: `0 26px 58px -46px rgba(0,0,0,0.78), 0 0 0 1px ${withAlpha(WARM_HIGHLIGHT, 0.08)} inset`,
-                  }}
-                >
-                  <div className="flex items-end justify-between gap-3 px-1">
-                    <div className="min-w-0">
-                      <p className={clsx("text-[11px] font-semibold uppercase tracking-[0.16em]", mutedTextClass)}>
-                        Category
-                      </p>
-                      <h2 className={clsx("truncate text-xl font-semibold sm:text-2xl", contentTextClass)}>
-                        {categoryTitle}
-                      </h2>
-                    </div>
-                    <span
-                      className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
-                      style={{
-                        borderColor: withAlpha(WARM_HIGHLIGHT, 0.28),
-                        backgroundColor: withAlpha(WARM_HIGHLIGHT, isLightTheme ? 0.14 : 0.1),
-                        color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE,
-                      }}
-                    >
-                      {section.items.length} item{section.items.length === 1 ? "" : "s"}
-                    </span>
+          <div className="space-y-9">
+            {groupedItems.map(({ category, items }) => (
+              <section key={category.id} className="cafe-luxe-menu-category overflow-hidden">
+                <div className="mb-3 flex items-end justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className={clsx("cafe-luxe-eyebrow text-[10px]", mutedTextClass)}>
+                      Category
+                    </p>
+                    <h2 className={clsx("cafe-luxe-section-title truncate text-xl font-semibold", contentTextClass)}>
+                      {category.name}
+                    </h2>
                   </div>
-
-                  <div className="cafeluxe-coverflow-shell">
-                    <div className="native-menu-coverflow">
-                       {section.items.map((item, index) => {
-                         const quantity = cart[item.id] ?? 0;
-                         const parsedImageSrc = item.image.trim();
-                         const hasImage = parsedImageSrc.length > 0;
-                         const selectedModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
-                         const selectedAddons = resolvedSelectedAddonsByItem[item.id] ?? [];
-                         const modifierTotal = getSelectedModifierTotal(selectedModifiers);
-                         const addonTotal = getSelectedAddonTotal(selectedAddons);
-                         const displayPrice = item.price + modifierTotal + addonTotal;
-                         const itemModifierOptions = modifierOptionsByItem[item.id] ?? [];
-                         const itemAddonGroups = itemAddonGroupsByItem[item.id] ?? [];
-                         const hasMappedAddons = itemAddonGroups.length > 0;
-                         const previewQuantity = Math.max(1, quantity);
-                         const previewLineTotal = displayPrice * previewQuantity;
-                         const itemOfferPreview = pickBestItemWiseOfferForLine(
-                           {
-                             itemId: item.id,
-                             name: item.name,
-                             quantity: previewQuantity,
-                             unitPrice: displayPrice,
-                             lineTotal: previewLineTotal,
-                             categoryRefs: item.categoryRefs,
-                           },
-                           autoPromotions,
-                           Math.max(subtotal, previewLineTotal),
-                         );
-                         const handleCardAdd = () => {
-                           console.log("CARD_CLICK", {
-                             categoryName: section.category.name,
-                             index,
-                             itemId: item.id,
-                             itemName: item.name
-                           });
-                           void addToCart(item);
-                         };
-
-
-
-                        return (
-                <article
-                  key={item.id}
-                  data-menu-item-id={item.id}
-                  role="button"
-                  tabIndex={item.isAvailable ? 0 : -1}
-                  aria-disabled={!item.isAvailable}
-                  aria-label={item.isAvailable ? `Add ${item.name}` : `${item.name} is out of stock`}
-                  className={clsx(
-                    "cafeluxe-menu-glass-card cafe-luxe-product-card group flex h-full flex-col overflow-hidden rounded-[1.35rem] border shadow-[0_26px_60px_-44px_rgba(0,0,0,0.98)] outline-none transition duration-300 focus-visible:ring-2",
-                    item.isAvailable ? "cursor-pointer" : "cursor-not-allowed",
-                    !item.isAvailable && quantity === 0 ? "opacity-75" : "",
-                  )}
-                  style={{
-                    borderColor: withAlpha(WARM_HIGHLIGHT, item.isAvailable ? 0.38 : 0.18),
-                    background: isLightTheme
-                      ? `linear-gradient(158deg, ${withAlpha(PALETTE_SURFACE, 0.52)} 0%, ${withAlpha(PALETTE_BACKGROUND, 0.42)} 58%, ${withAlpha(PALETTE_ACCENT, 0.16)} 100%)`
-                      : `linear-gradient(158deg, ${withAlpha(PALETTE_SURFACE, 0.1)} 0%, ${withAlpha(SOFT_DARK_SURFACE, 0.5)} 58%, ${withAlpha(PALETTE_ACCENT, 0.12)} 100%)`,
-                    boxShadow: `0 16px 34px -28px rgba(0,0,0,0.68), 0 30px 66px -52px rgba(0,0,0,0.9), 0 0 0 1px ${withAlpha(WARM_HIGHLIGHT, 0.16)} inset, inset 0 1px 0 rgba(255,255,255,0.32), inset 0 -16px 36px -34px ${withAlpha(WARM_HIGHLIGHT, 0.34)}`,
-                    backdropFilter: "blur(12px) saturate(1.08)",
-                    WebkitBackdropFilter: "blur(12px) saturate(1.08)",
-                    ["--tw-ring-color" as string]: withAlpha(WARM_HIGHLIGHT, 0.45),
-                  }}
-                  onClick={(event) => {
-                    if ((event.target as HTMLElement).closest("[data-menu-card-control]")) {
-                      return;
-                    }
-                    handleCardAdd();
-                  }}
-                  onKeyDown={(event) => {
-                    if ((event.target as HTMLElement).closest("[data-menu-card-control]")) {
-                      return;
-                    }
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      handleCardAdd();
-                    }
-                  }}
-                >
-                  <div
-                    className="cafeluxe-menu-card-image relative aspect-[4/3] overflow-hidden"
+                  <span
+                    className={clsx("cafe-luxe-chip shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold", mutedTextClass)}
                     style={{
-                      background: isLightTheme
-                        ? "linear-gradient(135deg, rgba(232,217,197,0.96) 0%, rgba(232,217,197,0.28) 100%)"
-                        : "linear-gradient(135deg, rgb(39 39 42) 0%, rgb(9 9 11) 100%)",
+                      borderColor: withAlpha(WARM_HIGHLIGHT, 0.28),
+                      backgroundColor: withAlpha(PALETTE_BACKGROUND, 0.74),
                     }}
                   >
-                    <div className="absolute inset-0 flex items-center justify-center text-zinc-500">
-                      <ShoppingBag className="h-10 w-10" />
-                    </div>
-                    {hasImage ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={parsedImageSrc}
-                        alt={item.name}
-                        className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.015]"
-                        loading="lazy"
-                        decoding="async"
-                        fetchPriority="low"
-                        onError={(event) => {
-                          event.currentTarget.style.display = "none";
-                        }}
-                      />
-                    ) : null}
-                    <div
-                      className="pointer-events-none absolute inset-0"
-                      style={{
-                        background: isLightTheme
-                          ? "linear-gradient(180deg, rgba(232,217,197,0.02) 0%, rgba(122,109,96,0.1) 100%)"
-                          : "linear-gradient(180deg, rgba(122,109,96,0.04) 0%, rgba(17,24,39,0.34) 100%)",
-                      }}
-                    />
-                    <div
-                      className="pointer-events-none absolute inset-x-0 top-0 h-20"
-                      style={{
-                        background: `linear-gradient(180deg, ${withAlpha(WARM_HIGHLIGHT, 0.18)} 0%, rgba(0,0,0,0) 100%)`,
-                      }}
-                    />
-                    <div className="absolute left-2 top-2 flex max-w-[72%] flex-wrap gap-1">
-                      <span
-                        className="rounded-full border px-1.5 py-0.5 text-[10px] font-semibold"
-                        style={{
-                          borderColor: withAlpha(WARM_HIGHLIGHT, 0.4),
-                          backgroundColor: withAlpha(isLightTheme ? PALETTE_BACKGROUND : PALETTE_TEXT, 0.72),
-                          color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE,
-                        }}
-                      >
-                        {categoryTitle}
-                      </span>
-                      {item.isVeg ? (
-                        <span
-                          className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
-                          style={{
-                            borderColor: withAlpha(WARM_HIGHLIGHT, 0.42),
-                            backgroundColor: withAlpha(WARM_HIGHLIGHT, 0.12),
-                            color: WARM_HIGHLIGHT,
-                          }}
-                        >
-                          <Leaf className="h-3 w-3" />
-                          Veg
-                        </span>
-                      ) : null}
-                      {item.isSpicy ? (
-                        <span
-                          className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
-                          style={{
-                            borderColor: withAlpha(LUXURY_GOLD, 0.36),
-                            backgroundColor: withAlpha(LUXURY_GOLD, 0.13),
-                            color: WARM_HIGHLIGHT,
-                          }}
-                        >
-                          <Flame className="h-3 w-3" />
-                          Spicy
-                        </span>
-                      ) : null}
-                      {item.isBestseller ? (
-                        <span
-                          className="rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
-                          style={{
-                            borderColor: withAlpha(LUXURY_GOLD, 0.42),
-                            backgroundColor: withAlpha(LUXURY_GOLD, 0.18),
-                            color: WARM_HIGHLIGHT,
-                          }}
-                        >
-                          Bestseller
-                        </span>
-                      ) : null}
-                      {!item.isAvailable ? (
-                        <span className="rounded-full border border-zinc-300/30 bg-zinc-900/75 px-1.5 py-0.5 text-[10px] font-medium text-zinc-200">
-                          Out Of Stock
-                        </span>
-                      ) : null}
-                    </div>
-                    {quantity > 0 ? (
-                      <motion.span
-                        animate={
-                          recentlyAddedItemId === item.id && !prefersReducedMotion
-                            ? { scale: [1, 1.035, 1], opacity: [1, 0.96, 1] }
-                            : undefined
-                        }
-                        transition={{ duration: prefersReducedMotion ? 0 : 0.42, ease: softEase }}
-                        className="absolute right-2 top-2 rounded-full border px-2 py-1 text-[10px] font-semibold"
-                        style={{
-                          borderColor: withAlpha(WARM_HIGHLIGHT, 0.5),
-                          backgroundColor: withAlpha(WARM_HIGHLIGHT, 0.88),
-                          color: PALETTE_TEXT,
-                        }}
-                      >
-                        {quantity} in cart
-                      </motion.span>
-                    ) : null}
-                    {itemOfferPreview ? (
-                      <span
-                        className="absolute bottom-2 left-2 right-2 inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold"
-                        style={{
-                          borderColor: withAlpha(WARM_HIGHLIGHT, 0.42),
-                          backgroundColor: withAlpha(isLightTheme ? PALETTE_BACKGROUND : PALETTE_TEXT, 0.78),
-                          color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE,
-                          backdropFilter: "blur(12px)",
-                        }}
-                      >
-                        <Sparkles className="h-3 w-3 shrink-0" />
-                        <span className="truncate">
-                          {itemOfferPreview.offer.offerName || itemOfferPreview.offer.matchedReason || "Offer available"}
-                        </span>
-                      </span>
-                    ) : null}
-                  </div>
+                    {items.length} item{items.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                {category.description ? (
+                  <p className={clsx("mb-2 line-clamp-2 text-xs", secondaryTextClass)}>
+                    {category.description}
+                  </p>
+                ) : null}
 
-                  <div className="space-y-2.5 p-3">
-                    <div>
-                      <h3 className={clsx("line-clamp-1 text-sm font-semibold sm:text-base", contentTextClass)}>{item.name}</h3>
-                      <p className={clsx("line-clamp-1 text-[11px] sm:text-sm", secondaryTextClass)}>{item.nameHi}</p>
-                    </div>
+                <Swiper
+                  effect="coverflow"
+                  grabCursor
+                  centeredSlides
+                  slidesPerView="auto"
+                  spaceBetween={16}
+                  loop={items.length > 3}
+                  watchSlidesProgress
+                  slideToClickedSlide
+                  preventClicks
+                  preventClicksPropagation
+                  threshold={4}
+                  touchRatio={1}
+                  coverflowEffect={{
+                    rotate: 34,
+                    stretch: 0,
+                    depth: 145,
+                    modifier: 1.05,
+                    scale: 0.9,
+                    slideShadows: false,
+                  }}
+                  modules={[EffectCoverflow]}
+                  className="cafe-luxe-coverflow w-full"
+                  aria-label={`${category.name} menu carousel`}
+                >
+                  {items.map((item) => {
+                    const quantity = cart[item.id] ?? 0;
+                    const parsedImageSrc = item.image.trim();
+                    const hasImage = parsedImageSrc.length > 0;
+                    const selectedModifiers = resolvedSelectedModifiersByItem[item.id] ?? [];
+                    const selectedAddons = resolvedSelectedAddonsByItem[item.id] ?? [];
+                    const modifierTotal = getSelectedModifierTotal(selectedModifiers);
+                    const addonTotal = getSelectedAddonTotal(selectedAddons);
+                    const displayPrice = item.price + modifierTotal + addonTotal;
+                    const itemModifierOptions = modifierOptionsByItem[item.id] ?? [];
+                    const itemAddonGroups = itemAddonGroupsByItem[item.id] ?? [];
+                    const hasMappedAddons = itemAddonGroups.length > 0;
+                    const matchedCartOffer = matchedItemOfferByItemId.get(item.id) ?? null;
+                    const activeOffer = matchedCartOffer?.offer ?? menuOfferPreviewByItemId.get(item.id) ?? null;
+                    const customizationCount = selectedModifiers.length + selectedAddons.length;
+                    const handleCardTap = () => {
+                      if (!item.isAvailable) {
+                        return;
+                      }
+                      if (hasMappedAddons) {
+                        openAddonPickerForItem(item);
+                        return;
+                      }
+                      updateItemQuantity(item.id, 1);
+                    };
 
-                    {item.description ? (
-                      <p className={clsx("line-clamp-2 min-h-8 text-[11px] sm:min-h-9 sm:text-xs", secondaryTextClass)}>{item.description}</p>
-                    ) : (
-                      <div className="min-h-8 sm:min-h-9" />
-                    )}
-
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <p
-                          className={clsx(WEBSITE_STYLE_CLASSES.text.sectionTitle, "sm:text-base")}
-                          style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE }}
-                        >
-                          {formatMoney(displayPrice)}
-                        </p>
-                        {selectedModifiers.length > 0 || selectedAddons.length > 0 ? (
-                          <p className={clsx("text-[11px]", mutedTextClass)}>
-                            +{selectedModifiers.length + selectedAddons.length} customization
-                            {selectedModifiers.length + selectedAddons.length > 1 ? "s" : ""}
-                          </p>
-                        ) : null}
-                      </div>
-
-                      {!item.isAvailable && quantity === 0 ? (
-                        <button
-                          type="button"
-                          data-menu-card-control
+                    return (
+                      <SwiperSlide key={`${category.id}_${item.id}`}>
+                        <article
+                          data-menu-item-id={item.id}
+                          role="button"
+                          tabIndex={item.isAvailable ? 0 : -1}
+                          aria-disabled={!item.isAvailable}
+                          aria-label={item.isAvailable ? `Add ${item.name}` : `${item.name} unavailable`}
                           className={clsx(
-                            "inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-xs font-semibold sm:text-sm",
-                            isLightTheme
-                              ? "border-[#C6A57B] bg-[#C6A57B] text-brand-dark/60"
-                              : "border-zinc-700 bg-zinc-900 text-zinc-400",
-                          )}
-                          disabled
-                        >
-                          Unavailable
-                        </button>
-                      ) : quantity === 0 ? (
-                        <motion.button
-                          type="button"
-                          data-menu-card-control
-                          whileTap={pressMotion}
-                          className="cafe-luxe-cta inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs font-semibold text-brand-dark shadow-[0_14px_34px_-20px_rgba(0,0,0,0.9)] transition active:translate-y-px sm:px-3.5 sm:py-2 sm:text-sm"
-                          style={{
-                            backgroundColor: LUXURY_GOLD,
-                            borderColor: withAlpha(LUXURY_GOLD, 0.55),
-                          }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void addToCart(item);
-                          }}
-                        >
-                          <Plus className="h-4 w-4" />
-                          Add
-                        </motion.button>
-                      ) : (
-                        <motion.div
-                          data-menu-card-control
-                          animate={
-                            recentlyAddedItemId === item.id && !prefersReducedMotion
-                              ? { scale: [1, 1.025, 1] }
-                              : undefined
-                          }
-                          transition={{ duration: prefersReducedMotion ? 0 : 0.38, ease: softEase }}
-                          className={clsx(
-                            "cafe-luxe-control inline-flex items-center rounded-xl border",
-                            isLightTheme
-                              ? "border-[#C6A57B] bg-[#F8F5F0]/85"
-                              : "border-zinc-700 bg-zinc-950/20",
-                          )}
-                        >
-                          <button
-                            type="button"
-                            data-menu-card-control
-                            className={clsx(
-                              "cafe-luxe-control p-1.5 transition sm:p-2",
-                              contentTextClass,
-                              isLightTheme ? "hover:bg-[#C6A57B]" : "hover:bg-zinc-800",
-                            )}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              updateItemQuantity(item.id, -1);
-                            }}
-                            aria-label={`Remove one ${item.name}`}
-                          >
-                            <Minus className="h-4 w-4" />
-                          </button>
-                          <span className={clsx("w-7 text-center text-xs font-semibold sm:w-8 sm:text-sm", contentTextClass)}>
-                            {quantity}
-                          </span>
-                          <button
-                            type="button"
-                            data-menu-card-control
-                            className={clsx(
-                              "cafe-luxe-control p-1.5 transition sm:p-2",
-                              contentTextClass,
-                              isLightTheme ? "hover:bg-[#C6A57B]" : "hover:bg-zinc-800",
-                            )}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              updateItemQuantity(item.id, 1);
-                              triggerAddFeedback(item.id);
-                            }}
-                            aria-label={`Add one ${item.name}`}
-                          >
-                            <Plus className="h-4 w-4" />
-                          </button>
-                        </motion.div>
-                      )}
-                    </div>
-
-                    {hasMappedAddons ? (
-                      <div className="flex items-center justify-between gap-2">
-                        <p className={clsx("text-[11px]", secondaryTextClass)}>
-                          {selectedAddons.length > 0
-                            ? `${selectedAddons.length} add-on selection${selectedAddons.length > 1 ? "s" : ""}`
-                            : `${itemAddonGroups.length} add-on group${itemAddonGroups.length > 1 ? "s" : ""} available`}
-                        </p>
-                        <button
-                          type="button"
-                          data-menu-card-control
-                          className={clsx(
-                            "cafe-luxe-chip rounded-full border px-2 py-1 text-[11px] font-medium transition",
-                            isLightTheme
-                              ? "text-brand-dark/80 hover:bg-[#E8D9C5]"
-                              : "text-zinc-200 hover:bg-zinc-800",
+                            "cafe-luxe-menu-card cafe-luxe-product-card group flex h-full min-h-[430px] flex-col overflow-hidden rounded-[1.35rem] border transition duration-300 active:translate-y-[1px]",
+                            item.isAvailable ? "cursor-pointer" : "cursor-not-allowed opacity-75",
                           )}
                           style={{
-                            borderColor: withAlpha(WARM_HIGHLIGHT, 0.25),
-                            backgroundColor: isLightTheme
-                              ? withAlpha(PALETTE_SURFACE, 0.95)
-                              : withAlpha(SOFT_DARK_SURFACE, 0.7),
+                            borderColor: withAlpha(WARM_HIGHLIGHT, item.isAvailable ? 0.3 : 0.18),
+                            background: isLightTheme
+                              ? `linear-gradient(158deg, ${withAlpha(PALETTE_BACKGROUND, 0.84)} 0%, ${withAlpha(PALETTE_SURFACE, 0.74)} 58%, ${withAlpha(PALETTE_BACKGROUND, 0.62)} 100%)`
+                              : `linear-gradient(158deg, ${withAlpha(SOFT_DARK_SURFACE, 0.74)} 0%, ${withAlpha(PALETTE_TEXT, 0.88)} 100%)`,
                           }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            if (sessionBlocked) {
-setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
-;
+                          onClick={handleCardTap}
+                          onKeyDown={(event) => {
+                            if (event.target !== event.currentTarget) {
+                              return;
                             }
-                            openAddonPickerForItem(item, "edit");
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              handleCardTap();
+                            }
                           }}
                         >
-                          {selectedAddons.length > 0 ? "Edit Add-ons" : "Choose Add-ons"}
-                        </button>
-                      </div>
-                    ) : null}
+                          <div
+                            className="relative mx-3 mt-3 aspect-[4/3] overflow-hidden rounded-[1.1rem] border"
+                            style={{
+                              borderColor: withAlpha(WARM_HIGHLIGHT, 0.22),
+                              background: `linear-gradient(135deg, ${withAlpha(PALETTE_SURFACE, 0.96)} 0%, ${withAlpha(PALETTE_BACKGROUND, 0.44)} 100%)`,
+                            }}
+                          >
+                            <div className={clsx("absolute inset-0 flex items-center justify-center", mutedTextClass)}>
+                              <ShoppingBag className="h-10 w-10" />
+                            </div>
+                            {hasImage ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={parsedImageSrc}
+                                alt={item.name}
+                                className="relative h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
+                                loading="lazy"
+                                decoding="async"
+                                fetchPriority="low"
+                                onError={(event) => {
+                                  event.currentTarget.style.display = "none";
+                                }}
+                              />
+                            ) : null}
+                            <div
+                              className="pointer-events-none absolute inset-0"
+                              style={{
+                                background: `linear-gradient(180deg, ${withAlpha(PALETTE_BACKGROUND, 0.02)} 0%, ${withAlpha(PALETTE_SECONDARY, 0.26)} 100%)`,
+                              }}
+                            />
+                            <div className="absolute left-2 top-2 flex max-w-[calc(100%-1rem)] flex-wrap gap-1.5">
+                              <span
+                                className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold"
+                                style={{
+                                  borderColor: withAlpha(WARM_HIGHLIGHT, 0.38),
+                                  backgroundColor: withAlpha(PALETTE_BACKGROUND, 0.78),
+                                  color: PALETTE_TEXT,
+                                }}
+                              >
+                                {category.name}
+                              </span>
+                              {item.isVeg ? (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold"
+                                  style={{
+                                    borderColor: withAlpha(WARM_HIGHLIGHT, 0.42),
+                                    backgroundColor: withAlpha(PALETTE_BACKGROUND, 0.78),
+                                    color: PALETTE_TEXT,
+                                  }}
+                                >
+                                  <Leaf className="h-3 w-3" />
+                                  Veg
+                                </span>
+                              ) : null}
+                              {item.isSpicy ? (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold"
+                                  style={{
+                                    borderColor: withAlpha(LUXURY_GOLD, 0.4),
+                                    backgroundColor: withAlpha(PALETTE_BACKGROUND, 0.78),
+                                    color: PALETTE_TEXT,
+                                  }}
+                                >
+                                  <Flame className="h-3 w-3" />
+                                  Spicy
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="absolute bottom-2 left-2 right-2 flex flex-wrap items-end justify-between gap-1.5">
+                              <div className="flex flex-wrap gap-1.5">
+                                {item.isBestseller ? (
+                                  <span
+                                    className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold"
+                                    style={{
+                                      borderColor: withAlpha(LUXURY_GOLD, 0.45),
+                                      backgroundColor: withAlpha(PALETTE_BACKGROUND, 0.82),
+                                      color: PALETTE_TEXT,
+                                    }}
+                                  >
+                                    Bestseller
+                                  </span>
+                                ) : null}
+                                {activeOffer ? (
+                                  <span
+                                    className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold"
+                                    style={{
+                                      borderColor: withAlpha(LUXURY_GOLD, 0.5),
+                                      backgroundColor: withAlpha(LUXURY_GOLD, 0.82),
+                                      color: PALETTE_TEXT,
+                                    }}
+                                    title={activeOffer.offerName}
+                                  >
+                                    <Sparkles className="h-3 w-3" />
+                                    {matchedCartOffer ? `Save ${formatMoney(matchedCartOffer.discountAmount)}` : "Offer"}
+                                  </span>
+                                ) : null}
+                              </div>
+                              {!item.isAvailable ? (
+                                <span className="rounded-full border border-zinc-300/30 bg-zinc-900/80 px-2 py-1 text-[10px] font-semibold text-zinc-100">
+                                  Out Of Stock
+                                </span>
+                              ) : quantity > 0 ? (
+                                <span
+                                  className="rounded-full border px-2 py-1 text-[10px] font-semibold"
+                                  style={{
+                                    borderColor: withAlpha(WARM_HIGHLIGHT, 0.36),
+                                    backgroundColor: withAlpha(PALETTE_BACKGROUND, 0.82),
+                                    color: PALETTE_TEXT,
+                                  }}
+                                >
+                                  In Cart x{quantity}
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
 
-                    {!hasMappedAddons && itemModifierOptions.length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5 pt-1">
-                        {itemModifierOptions.slice(0, 3).map((option) => {
-                          const selected = selectedModifiers.some((entry) => entry.id === option.id);
-                          return (
-                            <button
-                              key={`${item.id}_${option.id}`}
-                              type="button"
-                              data-menu-card-control
-                      className={clsx(
-                        "cafe-luxe-chip rounded-full border px-2 py-1 text-[11px] font-medium transition",
-                                selected
-                                  ? "text-zinc-950"
-                                  : isLightTheme
-                                    ? "text-brand-dark/80"
-                                    : "text-zinc-200",
-                              )}
-                              style={
-                                selected
-                                  ? {
-                                      borderColor: withAlpha(WARM_HIGHLIGHT, 0.5),
+                          <div className="flex flex-1 flex-col space-y-3 p-3.5">
+                            <div className="min-w-0">
+                              <h3 className={clsx("line-clamp-2 text-base font-semibold leading-5", contentTextClass)}>
+                                {item.name}
+                              </h3>
+                              {item.nameHi && item.nameHi !== item.name ? (
+                                <p className={clsx("mt-1 line-clamp-1 text-xs", secondaryTextClass)}>
+                                  {item.nameHi}
+                                </p>
+                              ) : null}
+                            </div>
+
+                            {item.description ? (
+                              <p className={clsx("line-clamp-3 min-h-[3.45rem] text-xs leading-relaxed", secondaryTextClass)}>
+                                {item.description}
+                              </p>
+                            ) : (
+                              <div className="min-h-[3.45rem]" />
+                            )}
+
+                            {activeOffer ? (
+                              <p className={clsx("line-clamp-1 text-[11px] font-semibold", isLightTheme ? "text-brand-dark/80" : "text-zinc-200")}>
+                                {activeOffer.offerName}
+                              </p>
+                            ) : null}
+
+                            <div className="mt-auto space-y-3">
+                              <div className="flex items-end justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p
+                                    className={clsx(WEBSITE_STYLE_CLASSES.text.sectionTitle, "text-lg")}
+                                    style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_SURFACE }}
+                                  >
+                                    {formatMoney(displayPrice)}
+                                  </p>
+                                  {customizationCount > 0 ? (
+                                    <p className={clsx("text-[11px]", mutedTextClass)}>
+                                      +{customizationCount} customization{customizationCount === 1 ? "" : "s"}
+                                    </p>
+                                  ) : quantity > 0 ? (
+                                    <p className={clsx("text-[11px]", mutedTextClass)}>
+                                      {quantity} in cart
+                                    </p>
+                                  ) : null}
+                                </div>
+
+                                {!item.isAvailable && quantity === 0 ? (
+                                  <button
+                                    type="button"
+                                    className={clsx(
+                                      "inline-flex min-h-9 items-center rounded-full border px-3 py-1.5 text-xs font-semibold",
+                                      isLightTheme
+                                        ? "border-[#C6A57B] bg-[#E8D9C5] text-brand-dark/55"
+                                        : "border-zinc-700 bg-zinc-900 text-zinc-400",
+                                    )}
+                                    disabled
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    Unavailable
+                                  </button>
+                                ) : quantity === 0 ? (
+                                  <button
+                                    type="button"
+                                    className="cafe-luxe-cta inline-flex min-h-9 items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-semibold text-brand-dark transition active:translate-y-px"
+                                    style={{
                                       background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
-                                    }
-                                  : {
+                                      borderColor: withAlpha(LUXURY_GOLD, 0.55),
+                                    }}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleCardTap();
+                                    }}
+                                  >
+                                    <Plus className="h-4 w-4" />
+                                    Add
+                                  </button>
+                                ) : (
+                                  <div
+                                    className={clsx(
+                                      "cafe-luxe-control inline-flex items-center rounded-xl border",
+                                      isLightTheme
+                                        ? "border-[#C6A57B] bg-[#F8F5F0]/85"
+                                        : "border-zinc-700 bg-zinc-950/20",
+                                    )}
+                                  >
+                                    <button
+                                      type="button"
+                                      className={clsx(
+                                        "cafe-luxe-control p-1.5 transition sm:p-2",
+                                        contentTextClass,
+                                        isLightTheme ? "hover:bg-[#C6A57B]" : "hover:bg-zinc-800",
+                                      )}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        updateItemQuantity(item.id, -1);
+                                      }}
+                                      aria-label={`Remove one ${item.name}`}
+                                    >
+                                      <Minus className="h-4 w-4" />
+                                    </button>
+                                    <span className={clsx("w-7 text-center text-xs font-semibold sm:w-8 sm:text-sm", contentTextClass)}>
+                                      {quantity}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className={clsx(
+                                        "cafe-luxe-control p-1.5 transition sm:p-2 disabled:cursor-not-allowed disabled:opacity-45",
+                                        contentTextClass,
+                                        isLightTheme ? "hover:bg-[#C6A57B]" : "hover:bg-zinc-800",
+                                      )}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        if (!item.isAvailable) {
+                                          return;
+                                        }
+                                        updateItemQuantity(item.id, 1);
+                                      }}
+                                      disabled={!item.isAvailable}
+                                      aria-label={`Add one ${item.name}`}
+                                    >
+                                      <Plus className="h-4 w-4" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
+                              {hasMappedAddons ? (
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className={clsx("line-clamp-1 text-[11px]", secondaryTextClass)}>
+                                    {selectedAddons.length > 0
+                                      ? `${selectedAddons.length} add-on selection${selectedAddons.length === 1 ? "" : "s"}`
+                                      : `${itemAddonGroups.length} add-on group${itemAddonGroups.length === 1 ? "" : "s"}`}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    className={clsx(
+                                      "cafe-luxe-chip shrink-0 rounded-full border px-2 py-1 text-[11px] font-medium transition",
+                                      isLightTheme
+                                        ? "text-brand-dark/80 hover:bg-[#E8D9C5]"
+                                        : "text-zinc-200 hover:bg-zinc-800",
+                                    )}
+                                    style={{
                                       borderColor: withAlpha(WARM_HIGHLIGHT, 0.25),
                                       backgroundColor: isLightTheme
                                         ? withAlpha(PALETTE_SURFACE, 0.95)
                                         : withAlpha(SOFT_DARK_SURFACE, 0.7),
-                                    }
-                              }
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                if (sessionBlocked) {
-                                  setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
-                                  return;
-                                }
-                                if (sessionInitFailed) {
-                                  setErrorMessage("Unable to initialize table session. Please refresh the QR and try again.");
-                                  return;
-                                }
-                                if (!item.isAvailable) {
-                                  return;
-                                }
-                                if (quantity === 0) {
-                                  updateItemQuantity(item.id, 1);
-                                  triggerAddFeedback(item.id);
-                                }
-                                toggleModifierSelection(item.id, option);
-                              }}
-                            >
-                              {option.label}
-                              {option.price > 0 ? ` +${formatMoney(option.price)}` : ""}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : null}
-                  </div>
-                </article>
+                                    }}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openAddonPickerForItem(item, "edit");
+                                    }}
+                                  >
+                                    {selectedAddons.length > 0 ? "Edit Add-ons" : "Choose Add-ons"}
+                                  </button>
+                                </div>
+                              ) : null}
 
-                        );
-                      })}
-                    </div>
-                  </div>
-                </motion.section>
-              );
-            })}
+                              {!hasMappedAddons && itemModifierOptions.length > 0 ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {itemModifierOptions.slice(0, 3).map((option) => {
+                                    const selected = selectedModifiers.some((entry) => entry.id === option.id);
+                                    return (
+                                      <button
+                                        key={`${item.id}_${option.id}`}
+                                        type="button"
+                                        className={clsx(
+                                          "cafe-luxe-chip rounded-full border px-2 py-1 text-[11px] font-medium transition",
+                                          selected
+                                            ? "text-zinc-950"
+                                            : isLightTheme
+                                              ? "text-brand-dark/80"
+                                              : "text-zinc-200",
+                                        )}
+                                        style={
+                                          selected
+                                            ? {
+                                                borderColor: withAlpha(WARM_HIGHLIGHT, 0.5),
+                                                background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
+                                              }
+                                            : {
+                                                borderColor: withAlpha(WARM_HIGHLIGHT, 0.25),
+                                                backgroundColor: isLightTheme
+                                                  ? withAlpha(PALETTE_SURFACE, 0.95)
+                                                  : withAlpha(SOFT_DARK_SURFACE, 0.7),
+                                              }
+                                        }
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          if (!item.isAvailable) {
+                                            return;
+                                          }
+                                          if (quantity === 0) {
+                                            updateItemQuantity(item.id, 1);
+                                          }
+                                          toggleModifierSelection(item.id, option);
+                                        }}
+                                      >
+                                        {option.label}
+                                        {option.price > 0 ? ` +${formatMoney(option.price)}` : ""}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </article>
+                      </SwiperSlide>
+                    );
+                  })}
+                </Swiper>
+              </section>
+            ))}
           </div>
         )}
       </div>
       ) : null}
 
       {!isStandaloneCartRoute ? (
-      <motion.div
-        initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...dockSpring, delay: prefersReducedMotion ? 0 : 0.24 }}
-        className="cafeluxe-bottom-bar fixed inset-x-0 bottom-0 z-30 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:px-6"
-      >
+      <div className="fixed inset-x-0 bottom-0 z-30 px-4 pb-4 sm:px-6">
         <div
-          className="cafeluxe-floating-dock cafe-luxe-card-strong mx-auto w-full max-w-4xl rounded-2xl border p-2 shadow-[0_30px_80px_-44px_rgba(0,0,0,0.98)] backdrop-blur-xl"
+          className="cafe-luxe-card-strong mx-auto w-full max-w-4xl rounded-2xl border p-2 shadow-[0_30px_80px_-44px_rgba(0,0,0,0.98)] backdrop-blur-xl"
           style={{
             borderColor: withAlpha(WARM_HIGHLIGHT, 0.3),
             background: bottomBarGradient,
           }}
         >
-          <div className="flex gap-2">
-            {billVisible && !cartVisible && (
-              <motion.button
-                type="button"
-                whileHover={hoverLiftMotion}
-                whileTap={pressMotion}
-                className="cafeluxe-dock-action cafeluxe-dock-bill cafe-luxe-cta flex w-full items-center justify-between rounded-xl border px-4 py-3 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)] transition active:translate-y-px"
-                style={{
-                  borderColor: withAlpha(ROYAL_NAVY, 0.34),
-                  background: isLightTheme
-                    ? "linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_SURFACE} 100%)"
-                    : `linear-gradient(180deg, ${PALETTE_TEXT} 0%, ${PALETTE_SECONDARY} 100%)`,
-                  color: isLightTheme ? PALETTE_TEXT : undefined,
-                }}
-                onClick={openBillDrawer}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className="cafe-luxe-cta flex items-center justify-between rounded-xl border px-4 py-3 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)] transition active:translate-y-px"
+              style={{
+                borderColor: withAlpha(ROYAL_NAVY, 0.34),
+                background: isLightTheme
+                  ? "linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_SURFACE} 100%)"
+                  : `linear-gradient(180deg, ${PALETTE_TEXT} 0%, ${PALETTE_SECONDARY} 100%)`,
+                color: isLightTheme ? PALETTE_TEXT : undefined,
+              }}
+              onClick={openBillDrawer}
+            >
+              <span className="inline-flex items-center gap-2 text-sm font-semibold">
+                <ReceiptText className="h-5 w-5" />
+                {"My Bill"}
+              </span>
+              <span
+                className={clsx(
+                  "rounded-lg px-2 py-1 text-xs font-semibold",
+                  isLightTheme ? "bg-[#C6A57B] text-brand-dark" : "bg-black/20",
+                )}
               >
-                <span className="inline-flex items-center gap-2 text-sm font-semibold">
-                  <ReceiptText className="h-5 w-5" />
-                  {"My Bill"}
-                </span>
-                <span
-                  className={clsx(
-                    "rounded-lg px-2 py-1 text-xs font-semibold",
-                    isLightTheme ? "bg-[#C6A57B] text-brand-dark" : "bg-black/20",
-                  )}
-                >
-                  <AnimatePresence mode="popLayout" initial={false}>
-                    <motion.span
-                      key={`bill_total_${unpaidTotal.toFixed(2)}`}
-                      initial={prefersReducedMotion ? false : { opacity: 0, y: 5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -5 }}
-                      transition={gentleSpring}
-                      className="block"
-                    >
-                      {formatMoney(unpaidTotal)}
-                    </motion.span>
-                  </AnimatePresence>
-                </span>
-              </motion.button>
-            )}
+                {formatMoney(unpaidTotal)}
+              </span>
+            </button>
 
-            {cartVisible && (
-              <motion.button
-                type="button"
-                whileHover={hoverLiftMotion}
-                whileTap={pressMotion}
-                animate={addFeedbackPulse}
-                transition={{ duration: prefersReducedMotion ? 0 : 0.42, ease: softEase }}
-                className="cafeluxe-dock-action cafeluxe-dock-cart cafe-luxe-cta flex w-full items-center justify-between rounded-xl border px-4 py-3 text-brand-dark shadow-[0_16px_36px_-24px_rgba(0,0,0,0.95)] transition disabled:cursor-not-allowed disabled:opacity-60 active:translate-y-px"
-                style={{
-                  borderColor: withAlpha(LUXURY_GOLD, 0.42),
-                  background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
-                }}
-                onClick={() => void openCartPage()}
-              >
-                <span className="inline-flex items-center gap-2 text-sm font-semibold">
-                  <ShoppingBag className="h-5 w-5" />
-                  {"Cart"} {cartCount > 0 ? `(${cartCount})` : ""}
-                </span>
-                <span className="rounded-lg bg-black/10 px-2 py-1 text-xs font-semibold">
-                  <AnimatePresence mode="popLayout" initial={false}>
-                    <motion.span
-                      key={`cart_total_${finalTotal.toFixed(2)}`}
-                      initial={prefersReducedMotion ? false : { opacity: 0, y: 5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -5 }}
-                      transition={gentleSpring}
-                      className="block"
-                    >
-                      {formatMoney(finalTotal)}
-                    </motion.span>
-                  </AnimatePresence>
-                </span>
-              </motion.button>
-            )}
+            <button
+              type="button"
+              className="cafe-luxe-cta flex items-center justify-between rounded-xl border px-4 py-3 text-brand-dark shadow-[0_16px_36px_-24px_rgba(0,0,0,0.95)] transition disabled:cursor-not-allowed disabled:opacity-60 active:translate-y-px"
+              style={{
+                borderColor: withAlpha(LUXURY_GOLD, 0.42),
+                background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
+              }}
+              onClick={openCartPage}
+            >
+              <span className="inline-flex items-center gap-2 text-sm font-semibold">
+                <ShoppingBag className="h-5 w-5" />
+                {"Cart"} {cartCount > 0 ? `(${cartCount})` : ""}
+              </span>
+              <span className="rounded-lg bg-black/10 px-2 py-1 text-xs font-semibold">
+                {formatMoney(finalTotal)}
+              </span>
+            </button>
           </div>
           <p className={clsx("mt-2 text-center text-[11px] font-medium tracking-[0.08em]", isLightTheme ? "text-brand-dark/72" : "text-zinc-400")}>
             Developed by TrustFirst Solutions
           </p>
         </div>
-      </motion.div>
+      </div>
       ) : null}
 
       {billOpen ? (
@@ -7172,32 +8234,6 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
                   {"Add More Items"}
                 </button>
 
-                {unpaidOrders.length > 0 ? (
-                  <button
-                    type="button"
-                    className={clsx(
-                      "cafe-luxe-chip inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
-                      isLightTheme
-                        ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
-                        : "border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800",
-                    )}
-                    onClick={() => setPaymentMethodSelectionOpen(true)}
-                    disabled={billActionOrderId.length > 0}
-                  >
-                    {billActionOrderId === "__close_bill__" ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        {"Requesting..."}
-                      </>
-                    ) : (
-                      <>
-                        <HandCoins className="h-4 w-4" />
-                        {"Pay Bill Now"}
-                      </>
-                    )}
-                  </button>
-                ) : null}
-
                 <button
                   type="button"
                   className={clsx(
@@ -7228,24 +8264,19 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
         </div>
       ) : null}
 
-      <AnimatePresence>
       {shouldShowCartPanel ? (
-        <motion.div
-          key="customer-cart-panel"
-          initial={isStandaloneCartRoute || prefersReducedMotion ? false : { opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0 }}
-          transition={overlayTransition}
+        <div
           className={clsx(
             isStandaloneCartRoute
               ? "relative z-40 mx-auto w-full max-w-3xl px-4 pb-8 pt-4 sm:px-6"
-              : "cafeluxe-cart-overlay fixed inset-0 z-40 overflow-hidden backdrop-blur-sm",
+              : "fixed inset-0 z-40 backdrop-blur-sm",
           )}
           style={
             isStandaloneCartRoute
               ? undefined
               : {
                   backgroundColor: overlayShade,
+                  animation: "luxe-fade-in 0.22s ease-out",
                 }
           }
         >
@@ -7258,36 +8289,23 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
             />
           ) : null}
 
-          <motion.aside
-            initial={isStandaloneCartRoute || prefersReducedMotion ? false : { opacity: 0, y: 24, scale: 0.992 }}
-            animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
-            exit={isStandaloneCartRoute || prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.992 }}
-            transition={dockSpring}
-            role="dialog"
-            aria-modal={isStandaloneCartRoute ? undefined : true}
-            aria-labelledby="cart-drawer-title"
+          <aside
             className={clsx(
               isStandaloneCartRoute
                 ? "relative w-full min-h-[calc(100dvh-2rem)] overflow-visible rounded-3xl border shadow-[0_28px_80px_-38px_rgba(0,0,0,0.34)] sm:min-h-[calc(100dvh-2.5rem)]"
-                : "cafeluxe-cart-drawer absolute inset-x-0 bottom-0 h-[90dvh] max-h-[calc(100dvh-0.75rem)] w-full overflow-hidden rounded-t-[1.75rem] border-x-0 border-b-0 shadow-[0_-22px_70px_-40px_rgba(0,0,0,0.98)] md:inset-y-4 md:left-auto md:right-4 md:h-[calc(100dvh-2rem)] md:w-[520px] md:max-h-[calc(100dvh-2rem)] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)] lg:w-[540px]",
+                : "absolute inset-0 w-full h-[100dvh] overflow-hidden rounded-none border-0 shadow-none md:bottom-4 md:left-auto md:right-4 md:top-4 md:h-auto md:w-[480px] md:max-h-[unset] md:rounded-3xl md:border md:shadow-[0_28px_80px_-38px_rgba(0,0,0,0.98)]",
               isLightTheme ? "text-brand-dark" : "text-zinc-100",
             )}
             style={{
               borderColor: accentBorder,
+              animation: isStandaloneCartRoute ? undefined : "luxe-sheet-up 0.25s ease-out",
               background: sheetGradient,
             }}
           >
-            <motion.div
-              variants={cartContentVariants}
-              initial="hidden"
-              animate="show"
-              exit="hidden"
-              className={clsx("flex min-h-0 flex-col", isStandaloneCartRoute ? "h-auto" : "h-full")}
-            >
-              <motion.div
-                variants={cartContentItemVariants}
+            <div className={clsx("flex flex-col", isStandaloneCartRoute ? "h-auto" : "h-full")}>
+              <div
                 className={clsx(
-                  "cafeluxe-cart-header shrink-0 border-b px-4 pb-4 pt-[calc(env(safe-area-inset-top)+12px)] sm:px-5 md:rounded-t-3xl md:pt-5",
+                  "border-b px-5 pb-4 pt-[calc(env(safe-area-inset-top)+12px)] md:rounded-t-3xl md:px-5 md:pt-5",
                   isLightTheme ? "border-[#C6A57B]" : "border-zinc-800/90",
                 )}
                 style={{
@@ -7297,35 +8315,17 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
                 }}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className={clsx("text-[10px] font-semibold uppercase tracking-[0.16em]", isLightTheme ? "text-brand-dark/62" : "text-zinc-400")}>
-                      CafeLuxe Checkout
+                  <div>
+                    <h2 className="text-[1.1rem] font-semibold leading-tight">{"Your Cart"}</h2>
+                    <p className={clsx("mt-1 text-[11px]", isLightTheme ? "text-brand-dark/70" : "text-zinc-400")}>
+                      {cartCount} item{cartCount === 1 ? "" : "s"}
                     </p>
-                    <h2 id="cart-drawer-title" className="mt-1 text-xl font-semibold leading-tight">{"Your Cart"}</h2>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <span
-                        className={clsx(
-                          "inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold",
-                          isLightTheme ? "border-[#C6A57B] bg-[#F8F5F0]/80 text-brand-dark/82" : "border-zinc-700 bg-zinc-900/55 text-zinc-300",
-                        )}
-                      >
-                        {tableInfo?.tableNo ? `Table ${tableInfo!.tableNo}` : tableLabel}
-                      </span>
-                      <span
-                        className={clsx(
-                          "inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold",
-                          isLightTheme ? "border-[#C6A57B] bg-[#F8F5F0]/80 text-brand-dark/82" : "border-zinc-700 bg-zinc-900/55 text-zinc-300",
-                        )}
-                      >
-                        {cartCount} item{cartCount === 1 ? "" : "s"}
-                      </span>
-                    </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
                       className={clsx(
-                        "inline-flex h-9 items-center gap-1 rounded-xl border px-2.5 text-[11px] font-medium transition disabled:opacity-50",
+                        "inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-[11px] font-medium transition disabled:opacity-50",
                         isLightTheme
                           ? "text-brand-dark hover:bg-[#F8F5F0]/70"
                           : "text-zinc-300 hover:bg-zinc-800",
@@ -7340,27 +8340,23 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
                     <button
                       type="button"
                       className={clsx(
-                        "inline-flex h-9 w-9 items-center justify-center rounded-xl border text-[11px] font-medium transition",
+                        "inline-flex h-8 items-center rounded-lg border px-2.5 text-[11px] font-medium transition",
                         isLightTheme
                           ? "text-brand-dark hover:bg-[#F8F5F0]/70"
                           : "text-zinc-300 hover:bg-zinc-800",
                       )}
                       style={{ borderColor: withAlpha(WARM_HIGHLIGHT, 0.25) }}
                       onClick={closeCartView}
-                      aria-label={isStandaloneCartRoute ? "Back to menu" : "Close cart"}
                     >
-                      <X className="h-4 w-4" />
+                      {isStandaloneCartRoute ? "Back To Menu" : "Close"}
                     </button>
                   </div>
                 </div>
-              </motion.div>
+              </div>
 
-              <motion.div
-                variants={cartContentItemVariants}
+              <div
                 className={clsx(
-                  isStandaloneCartRoute
-                    ? "cafeluxe-cart-body px-4 py-4 sm:px-5 md:px-5"
-                    : "cafeluxe-cart-body min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 md:px-5",
+                  isStandaloneCartRoute ? "px-5 py-5 md:px-5" : "flex-1 overflow-y-auto px-5 py-5 md:px-5",
                 )}
               >
                 {cartItems.length === 0 ? (
@@ -7431,7 +8427,7 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
                         <section
                           key={item.id}
                           className={clsx(
-                            "cafeluxe-cart-line-item cafe-luxe-card rounded-2xl border p-3.5",
+                            "cafe-luxe-card rounded-2xl border p-3.5",
                             isLightTheme
                               ? "border-[#C6A57B] bg-[#E8D9C5]"
                               : "border-zinc-800/30 bg-[#F8F5F0]/10",
@@ -7551,7 +8547,7 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
                           <div className="mt-3 flex items-center justify-between gap-3">
                             <div
                               className={clsx(
-                                "cafeluxe-cart-qty-control inline-flex items-center rounded-xl border",
+                                "inline-flex items-center rounded-xl border",
                                 isLightTheme
                                   ? "border-[#C6A57B] bg-[#F8F5F0]/90"
                                   : "border-zinc-800/30 bg-[#F8F5F0]/20",
@@ -7571,9 +8567,7 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
                               <button
                                 type="button"
                                 className={clsx("p-2 transition hover:bg-black/10", contentTextClass)}
-                                onClick={() => {
-                                  void addToCart(item);
-                                }}
+                                onClick={() => updateItemQuantity(item.id, 1)}
                                 aria-label={`Add one ${item.name}`}
                               >
                                 <Plus className="h-4 w-4" />
@@ -7654,7 +8648,10 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
                     })}
                   </div>
                 )}
-                <div className="mt-4">
+              </div>
+
+              {/* Kitchen Instructions: placed below items list and above offers */}
+              <div className="pb-3">
                 <section
                   className={clsx(
                     "cafe-luxe-card space-y-2 rounded-2xl border p-3.5",
@@ -7683,9 +8680,14 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
                     onChange={(event) => setKitchenInstructions(sanitizeInstructionText(event.target.value))}
                   />
                 </section>
-                </div>
+              </div>
 
-                <div className="mt-4 space-y-4">
+              <div
+                className={clsx(
+                  "space-y-4 border-t px-5 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 md:px-5",
+                  isLightTheme ? "border-[#C6A57B]" : "border-zinc-800",
+                )}
+              >
                 {applicableCartOffers.length > 0 || cartCouponCandidates.length > 0 ? (
                   <section
                     className={clsx(
@@ -7796,17 +8798,198 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
                   </section>
                 ) : null}
 
+                <section
+                  className={clsx(
+                    "cafe-luxe-card space-y-3 rounded-2xl border p-3.5",
+                    isLightTheme
+                      ? "border-[#C6A57B] bg-[#E8D9C5]"
+                      : "border-zinc-800 bg-zinc-900/55",
+                  )}
+                >
+                  <p className={clsx("cafe-luxe-section-title mb-2 text-sm font-medium", isLightTheme ? "text-brand-dark/75" : "text-zinc-300")}>
+                    {"Payment Method"}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(["COUNTER", "UPI"] as const).map((method) => (
+                      <button
+                        key={method}
+                        type="button"
+                        className={clsx(
+                          "cafe-luxe-control inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition",
+                          paymentMethod === method
+                            ? "text-zinc-950"
+                            : isLightTheme
+                              ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
+                              : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800",
+                        )}
+                        style={
+                          paymentMethod === method
+                            ? { borderColor: accentBorder, backgroundColor: accentColor }
+                            : undefined
+                        }
+                        onClick={() => setPaymentMethod(method)}
+                      >
+                        {method === "UPI" ? (
+                          <Sparkles className="h-4 w-4" />
+                        ) : (
+                          <HandCoins className="h-4 w-4" />
+                        )}
+                        {method === "UPI" ? "UPI" : "Pay At Counter"}
+                      </button>
+                    ))}
+                  </div>
+                </section>
 
-                </div>
-              </motion.div>
+                {paymentMethod === "UPI" ? (
+                  <section
+                    className={clsx(
+                      "cafe-luxe-card rounded-2xl border p-3.5 text-sm",
+                      contentTextClass,
+                      isLightTheme
+                        ? "border-[#C6A57B] bg-[#E8D9C5]"
+                        : "border-zinc-800/30 bg-[#F8F5F0]/10",
+                    )}
+                  >
+                    <p className="text-[10px] uppercase tracking-[0.14em] opacity-70">UPI Payment</p>
+                    <p className="mt-1 text-sm font-semibold">{configuredUpiName}</p>
+                    <p className="mt-0.5 text-xs opacity-70">{configuredUpiId}</p>
+                    <div
+                      className={clsx(
+                        "cafe-luxe-summary mt-3 flex items-center justify-between rounded-xl border px-3 py-2",
+                        isLightTheme
+                          ? "border-[#C6A57B] bg-[#E8D9C5]"
+                          : "border-zinc-800/20 bg-black/10",
+                      )}
+                    >
+                      <span className="text-xs opacity-70">Payable Amount</span>
+                      <span className="text-sm font-semibold">{formatMoney(finalTotal)}</span>
+                    </div>
+                    {cartUpiLink ? (
+                      <>
+                        <button
+                          type="button"
+                          className="cafe-luxe-cta mt-3 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold text-zinc-950 transition active:translate-y-px"
+                          style={{
+                            borderColor: withAlpha(WARM_HIGHLIGHT, 0.45),
+                            background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
+                          }}
+                          onClick={() => handleUpiPayClick(cartUpiLink)}
+                        >
+                          {"Pay With Any UPI App"}
+                        </button>
+                        <button
+                          type="button"
+                          className={clsx(
+                            "mt-2 inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold transition",
+                            isLightTheme
+                              ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
+                              : "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800",
+                          )}
+                          onClick={() => handleShowUpiQr(cartUpiLink, finalTotal)}
+                        >
+                          {"Pay By QR (Recommended)"}
+                        </button>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className={clsx(
+                              "cafe-luxe-chip rounded-lg border px-2 py-1 text-[11px] font-medium transition",
+                              isLightTheme
+                                ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
+                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                            )}
+                            onClick={() => copyTextWithNotice(configuredUpiId, "UPI ID copied.")}
+                          >
+                            {"Copy UPI ID"}
+                          </button>
+                          <button
+                            type="button"
+                            className={clsx(
+                              "cafe-luxe-chip rounded-lg border px-2 py-1 text-[11px] font-medium transition",
+                              isLightTheme
+                                ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
+                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                            )}
+                            onClick={() => copyTextWithNotice(Number(finalTotal).toFixed(2), "Amount copied.")}
+                          >
+                            {"Copy Amount"}
+                          </button>
+                        </div>
+                      </>
+                    ) : null}
+                    {!canLaunchUpiDeepLink ? (
+                      <div
+                        className={clsx(
+                          "mt-3 rounded-lg border p-2 text-[11px]",
+                          isLightTheme
+                            ? "border-[#C6A57B] bg-[#E8D9C5] text-brand-dark/75"
+                            : "border-zinc-800 bg-zinc-950/70 text-zinc-400",
+                        )}
+                      >
+                        <p>
+                          {"Open this page on your phone to pay with any UPI app."}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className={clsx(
+                              "cafe-luxe-chip rounded-lg border px-2 py-1 font-medium transition",
+                              isLightTheme
+                                ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
+                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                            )}
+                            onClick={() =>
+                              copyTextWithNotice(
+                                configuredUpiId,
+                                "UPI ID copied.",
+                              )
+                            }
+                          >
+                            {"Copy UPI ID"}
+                          </button>
+                          <button
+                            type="button"
+                            className={clsx(
+                              "cafe-luxe-chip rounded-lg border px-2 py-1 font-medium transition",
+                              isLightTheme
+                                ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
+                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                            )}
+                            onClick={() =>
+                              copyTextWithNotice(
+                                cartUpiLink,
+                                "Payment link copied.",
+                              )
+                            }
+                          >
+                            {"Copy Payment Link"}
+                          </button>
+                          <button
+                            type="button"
+                            className={clsx(
+                              "cafe-luxe-chip rounded-lg border px-2 py-1 font-medium transition",
+                              isLightTheme
+                                ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
+                                : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                            )}
+                            onClick={() =>
+                              copyTextWithNotice(
+                                Number(finalTotal).toFixed(2),
+                                "Amount copied.",
+                              )
+                            }
+                          >
+                            {"Copy Amount"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                    <p className={clsx("mt-2 text-[11px] leading-relaxed", isLightTheme ? "text-brand-dark/70" : "text-zinc-500")}>
+                      {"After payment, your status stays pending until cashier confirms."}
+                    </p>
+                  </section>
+                ) : null}
 
-              <motion.div
-                variants={cartContentItemVariants}
-                className={clsx(
-                  "cafeluxe-checkout-panel shrink-0 space-y-3 border-t px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-3 sm:px-5 md:px-5 md:pb-5",
-                  isLightTheme ? "border-[#C6A57B]" : "border-zinc-800",
-                )}
-              >
                 <section
                   className={clsx(
                     "cafe-luxe-card cafe-luxe-summary space-y-2 rounded-2xl border px-3.5 py-3.5 text-sm",
@@ -7816,12 +8999,12 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
                       : "border-zinc-800/30 bg-[#F8F5F0]/10",
                   )}
                 >
-                  <div className="cafeluxe-cart-summary-row flex items-center justify-between gap-4">
+                  <div className="flex items-center justify-between">
                     <span className="opacity-80">Subtotal</span>
                     <span className="font-semibold">{formatMoney(subtotal)}</span>
                   </div>
                   {hasCustomizationsInCart ? (
-                    <div className="cafeluxe-cart-summary-row flex items-center justify-between gap-4">
+                    <div className="flex items-center justify-between">
                       <span className="opacity-80">Customizations</span>
                       <span className="font-semibold">
                         Included
@@ -7830,29 +9013,29 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
                   ) : null}
                   {gstEnabled ? (
                     <>
-                      <div className="cafeluxe-cart-summary-row flex items-center justify-between gap-4">
+                      <div className="flex items-center justify-between">
                         <span className="opacity-80">CGST ({cgstPercentage}%)</span>
                         <span className="font-semibold">{formatMoney(cgstAmount)}</span>
                       </div>
-                      <div className="cafeluxe-cart-summary-row flex items-center justify-between gap-4">
+                      <div className="flex items-center justify-between">
                         <span className="opacity-80">SGST ({sgstPercentage}%)</span>
                         <span className="font-semibold">{formatMoney(sgstAmount)}</span>
                       </div>
                     </>
                   ) : null}
-                  <div className="cafeluxe-cart-summary-row flex w-full items-center justify-between gap-4">
-                    <span className="opacity-80">Discount Applied</span>
-                    <span className="font-semibold text-green-600">-{formatMoney(totalDiscountAmount)}</span>
+                  <div className="flex justify-between w-full">
+                    <span>Discount Applied</span>
+                    <span className="text-green-600">-₹{totalDiscountAmount.toFixed(2)}</span>
                   </div>
                   {applicableCartOffers.length > 0 || resolvedCartCoupon ? (
-                    <div className="cafeluxe-cart-summary-row flex items-center justify-between gap-4">
+                    <div className="flex items-center justify-between">
                       <span className="opacity-80">Matched Offers</span>
                       <span className="font-semibold">{applicableCartOffers.length + (resolvedCartCoupon ? 1 : 0)}</span>
                     </div>
                   ) : null}
-                  <div className="cafeluxe-cart-summary-total flex w-full items-center justify-between gap-4 border-t pt-2 font-bold text-lg">
+                  <div className="flex justify-between w-full font-bold text-lg">
                     <span>Final Payable</span>
-                    <span>{formatMoney(finalTotal)}</span>
+                    <span>₹{finalTotal.toFixed(2)}</span>
                   </div>
                 </section>
 
@@ -7865,7 +9048,7 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
                       background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
                     }}
                     onClick={() => void handlePlaceOrder()}
-                    disabled={placeOrderDisabled}
+                    disabled={cartCount === 0 || placingOrder}
                   >
                     {placingOrder ? (
                       <>
@@ -7888,7 +9071,7 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
                         background: `linear-gradient(180deg, ${PALETTE_SURFACE} 0%, ${WARM_HIGHLIGHT} 100%)`,
                       }}
                       onClick={() => void handlePlaceOrder({ redirectToMenuAfterSuccess: true })}
-                      disabled={placeOrderDisabled}
+                      disabled={cartCount === 0 || placingOrder}
                     >
                       {placingOrder ? "Placing Order..." : "Payment Done"}
                     </button>
@@ -7897,12 +9080,11 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
                     </p>
                   </div>
                 ) : null}
-              </motion.div>
-            </motion.div>
-          </motion.aside>
-        </motion.div>
+              </div>
+            </div>
+          </aside>
+        </div>
       ) : null}
-      </AnimatePresence>
 
       {addonPickerOpen && addonPickerItem ? (
         <div
@@ -8213,191 +9395,6 @@ setErrorMessage(TABLE_SESSION_LOCKED_MESSAGE);
           </aside>
         </div>
       ) : null}
-
-      <AnimatePresence>
-        {paymentMethodSelectionOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[75] backdrop-blur-sm"
-            style={{ backgroundColor: overlayShade }}
-            onClick={() => { setPaymentMethodSelectionOpen(false); setSelectedPaymentMode(null); }}
-          >
-            <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className={clsx(
-                "cafe-luxe-card-strong absolute inset-x-0 bottom-0 mx-auto w-full max-w-md rounded-t-3xl border-x-0 border-b-0 p-6 shadow-[0_28px_80px_-40px_rgba(0,0,0,0.98)] md:inset-y-0 md:my-auto md:h-fit md:max-w-lg md:rounded-3xl",
-                isLightTheme
-                  ? "border-[#C6A57B] bg-[#E8D9C5]/95 text-brand-dark"
-                  : "border-zinc-800 bg-zinc-950/95 text-zinc-100",
-              )}
-              style={{ borderColor: accentSubtle }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">Choose Payment Method</h3>
-                <button
-                  type="button"
-                  className={clsx(
-                    "rounded-lg border p-1 transition",
-                    isLightTheme
-                      ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
-                      : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                  )}
-                  onClick={() => { setPaymentMethodSelectionOpen(false); setSelectedPaymentMode(null); }}
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-
-              {tableSession?.paymentStatus === "payment_pending" ? (
-                <div className="mt-6 text-center">
-                  <p className="text-sm opacity-80">Payment verification is already pending at counter.</p>
-                </div>
-              ) : selectedPaymentMode === "online" ? (
-                <div className="mt-6 space-y-4">
-                  <p className="text-[10px] uppercase tracking-[0.16em] opacity-70">UPI Payment</p>
-                  <p className="text-sm font-semibold">{configuredUpiName}</p>
-                  <p className="text-xs opacity-70">{configuredUpiId}</p>
-                  <div
-                    className={clsx(
-                      "flex items-center justify-between rounded-xl border px-3 py-2",
-                      isLightTheme
-                        ? "border-[#C6A57B] bg-[#F8F5F0]"
-                        : "border-zinc-800 bg-black/10",
-                    )}
-                  >
-                    <span className="text-xs opacity-70">Payable Amount</span>
-                    <span className="text-sm font-semibold">{formatMoney(unpaidTotal)}</span>
-                  </div>
-                  {billUpiLink ? (
-                    <>
-                      <button
-                        type="button"
-                        className="cafe-luxe-cta inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold text-zinc-950 transition active:translate-y-px"
-                        style={{
-                          borderColor: withAlpha(WARM_HIGHLIGHT, 0.45),
-                          background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
-                        }}
-                        onClick={() => handleUpiPayClick(billUpiLink)}
-                      >
-                        Pay With Any UPI App
-                      </button>
-                      <button
-                        type="button"
-                        className={clsx(
-                          "inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold transition",
-                          isLightTheme
-                            ? "border-[#C6A57B] bg-[#F8F5F0] text-brand-dark hover:bg-[#E8D9C5]"
-                            : "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800",
-                        )}
-                        onClick={() => handleShowUpiQr(billUpiLink, unpaidTotal)}
-                      >
-                        Pay By QR (Recommended)
-                      </button>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          className={clsx(
-                            "rounded-lg border px-2 py-1 text-[11px] font-medium transition",
-                            isLightTheme
-                              ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
-                              : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                          )}
-                          onClick={() => copyTextWithNotice(configuredUpiId, "UPI ID copied.")}
-                        >
-                          Copy UPI ID
-                        </button>
-                        <button
-                          type="button"
-                          className={clsx(
-                            "rounded-lg border px-2 py-1 text-[11px] font-medium transition",
-                            isLightTheme
-                              ? "border-[#C6A57B] bg-[#F8F5F0]/90 text-brand-dark hover:bg-[#E8D9C5]"
-                              : "border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                          )}
-                          onClick={() => copyTextWithNotice(Number(unpaidTotal).toFixed(2), "Amount copied.")}
-                        >
-                          Copy Amount
-                        </button>
-                      </div>
-                    </>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="cafe-luxe-cta inline-flex h-11 w-full items-center justify-center rounded-xl border px-3 text-sm font-semibold text-zinc-950 transition active:translate-y-px"
-                    style={{
-                      borderColor: withAlpha(ROYAL_NAVY, 0.4),
-                      background: `linear-gradient(180deg, ${WARM_HIGHLIGHT} 0%, ${LUXURY_GOLD} 100%)`,
-                    }}
-                    onClick={() => {
-                      requestCloseBill();
-                      setPaymentMethodSelectionOpen(false);
-                      setSelectedPaymentMode(null);
-                    }}
-                  >
-                    Payment Done
-                  </button>
-                  <p className="text-[11px] leading-relaxed opacity-70">
-                    After payment, your status stays pending until cashier confirms.
-                  </p>
-                </div>
-              ) : (
-                <div className="mt-6 grid grid-cols-1 gap-4">
-                  <motion.button
-                    type="button"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="cafe-luxe-card-strong flex items-center gap-4 rounded-2xl border p-4 text-left transition shadow-lg"
-                    style={{
-                      borderColor: withAlpha(ROYAL_NAVY, 0.3),
-                      background: isLightTheme
-                        ? "linear-gradient(135deg, rgba(232,217,197,0.96) 0%, rgba(232,217,197,0.28) 100%)"
-                        : "linear-gradient(135deg, rgb(39 39 42) 0%, rgb(9 9 11) 100%)",
-                    }}
-                    onClick={() => {
-                      const confirmed = window.confirm("Are you sure you want to request counter payment?");
-                      if (confirmed) {
-                        requestCloseBill();
-                        setPaymentMethodSelectionOpen(false);
-                      }
-                    }}
-                  >
-                    <HandCoins className="h-8 w-8 text-luxury-gold" />
-                    <div>
-                      <h4 className="font-semibold">Pay at Counter</h4>
-                      <p className="text-sm opacity-70">Pay directly to staff</p>
-                    </div>
-                  </motion.button>
-                  <motion.button
-                    type="button"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="cafe-luxe-card-strong flex items-center gap-4 rounded-2xl border p-4 text-left transition shadow-lg"
-                    style={{
-                      borderColor: withAlpha(LUXURY_GOLD, 0.3),
-                      background: isLightTheme
-                        ? "linear-gradient(135deg, rgba(232,217,197,0.96) 0%, rgba(232,217,197,0.28) 100%)"
-                        : "linear-gradient(135deg, rgb(39 39 42) 0%, rgb(9 9 11) 100%)",
-                    }}
-                    onClick={() => setSelectedPaymentMode("online")}
-                  >
-                    <Sparkles className="h-8 w-8 text-luxury-gold" />
-                    <div>
-                      <h4 className="font-semibold">Pay Online</h4>
-                      <p className="text-sm opacity-70">UPI, QR, or app payment</p>
-                    </div>
-                  </motion.button>
-                </div>
-              )}
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
