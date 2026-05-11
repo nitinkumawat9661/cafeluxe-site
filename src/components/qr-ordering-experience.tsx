@@ -4430,8 +4430,8 @@ export default function QrOrderingExperience({
     if (computedSubtotal <= 0 || computedPayableTotal <= 0) {
       setErrorMessage("Cart total is invalid. Please refresh menu and try again.");
       setPlacingOrder(false);
-placeOrderLockRef.current = false;
-;
+      placeOrderLockRef.current = false;
+      return;
     }
 
     // Convert money fields to integers for Appwrite INTEGER schema
@@ -4512,12 +4512,178 @@ placeOrderLockRef.current = false;
       },
     ];
 
-      try {
-        const createdOrder = await createDocumentWithFallback(
-          appwriteConfig.collections.orders,
-          newOrderPayloadCandidates,
+    const handleOrderSuccess = async (createdOrder) => {
+      if (paymentMethod === "UPI") {
+        const paymentPayloadCandidates: Record<string, unknown>[] = [
+          {
+            client_id: clientId,
+            order_id: createdOrder.$id,
+            amount: computedPayableTotal,
+            payment_method: "UPI",
+            payment_status: "PENDING",
+            customer_marked_paid: false,
+            verified_by: "PENDING_CASHIER_CONFIRMATION",
+          },
+        ];
+
+        try {
+          await createDocumentWithFallback(
+            appwriteConfig.collections.payments,
+            paymentPayloadCandidates,
+          );
+        } catch (paymentError) {
+          devError(paymentError);
+          setNoticeMessage(
+            "Order placed. UPI confirmation is pending and will be verified by cashier.",
+          );
+        }
+      }
+
+      setOrderPlacedId(createdOrder.$id);
+      const nextActiveOrderContext: ActiveOrderContext = {
+        id: createdOrder.$id,
+        status: "PLACED",
+        paymentStatus: "UNPAID",
+        updatedAt: nowIso,
+      };
+      setActiveOrderContext(nextActiveOrderContext);
+      activeOrderContextRef.current = nextActiveOrderContext;
+      trackOwnedOrderId(createdOrder.$id, browserIdForOrder);
+      const placedOrderRecord = buildTableOrderRecordFromCart(
+        createdOrder.$id,
+        orderNumber,
+        activeOrderSession!.sessionId,
+        activeOrderSession!.billId,
+        orderRound,
+        tableInfo!.tableNo,
+        paymentMethod,
+        computedSubtotal,
+        computedTaxAmount,
+        computedCgstAmount,
+        computedSgstAmount,
+        computedPayableTotal,
+        nowIso,
+        cartItems,
+        resolvedSelectedModifiersByItem,
+        resolvedSelectedAddonsByItem,
+        trimmedInstructions,
+      );
+      const mergedLocalOrders = mergeTableOrderRecords(currentBillOrders, [placedOrderRecord]);
+      const nextSessionTotal = roundCurrency(sumTableOrderPayableAmount(mergedLocalOrders));
+      setTableOrders(mergedLocalOrders);
+      tableOrdersRef.current = mergedLocalOrders;
+      setTableSession((current) =>
+        current
+          ? {
+              ...current,
+              heartbeatAt: nowIso,
+              totalAmount: nextSessionTotal,
+            }
+          : current,
+      );
+      void updateDocumentWithFallback(
+        appwriteConfig.collections.tableSessions,
+        activeOrderSession!.documentId,
+        [
+          {
+            heartbeat_at: nowIso,
+            total_amount: nextSessionTotal,
+          },
+        ],
+        {
+          scope: {
+            clientId,
+            tableId: tableInfo!.id,
+            lockedBy: activeOrderSession!.lockedBy || browserIdForOrder,
+          },
+        },
+      ).catch((sessionUpdateError) => {
+        devWarn("Table session total update failed:", sessionUpdateError);
+      });
+      persistOwnedOrderIds(
+        mergedLocalOrders.map((record) => record.orderId),
+        browserIdForOrder,
+      );
+      syncOrderSnapshot(mergedLocalOrders);
+      setBillSyncMessage("Order added to your bill.");
+      touchBillActivity(nowIso);
+      showStatusPopup({
+        title: "Order Placed",
+        description: `${orderNumber} has been sent to the kitchen.`,
+        tone: "success",
+      });
+
+      if (typeof window !== "undefined") {
+        const resolvedBrowserId = browserIdForOrder || ensureBrowserCustomerId();
+        const resolvedHistoryStorageKey =
+          customerHistoryStorageKey ||
+          buildCustomerHistoryStorageKey(routeClient, resolvedBrowserId);
+        const orderSummary: CustomerOrderSummary = {
+          orderId: createdOrder.$id,
+          client: clientId,
+          table: tableInfo!.tableNo,
+          totalAmount: computedPayableTotal,
+          itemCount: cartCount,
+          paymentMethod,
+          status: "PLACED",
+          placedAt: nowIso,
+          items: cartItems.map((cartItem) => ({
+            id: cartItem.item.id,
+            qty: cartItem.quantity,
+          })),
+        };
+
+        const currentProfile =
+          customerProfile ??
+          parseCustomerProfile(
+            window.localStorage.getItem(CUSTOMER_PROFILE_KEY),
+            resolvedBrowserId,
+          );
+        const nextProfile = buildNextCustomerProfile(
+          currentProfile,
+          orderSummary,
+          cartItems,
+          resolvedBrowserId,
         );
-        handleOrderSuccess(createdOrder);
+        setCustomerProfile(nextProfile);
+        window.localStorage.setItem(CUSTOMER_PROFILE_KEY, JSON.stringify(nextProfile));
+
+        const currentHistory =
+          parseCustomerOrderHistory(
+            window.localStorage.getItem(resolvedHistoryStorageKey),
+            resolvedBrowserId,
+          );
+        const nextHistory = buildNextCustomerHistory(
+          currentHistory,
+          orderSummary,
+          resolvedBrowserId,
+        );
+        window.localStorage.setItem(
+          resolvedHistoryStorageKey,
+          JSON.stringify(nextHistory),
+        );
+      }
+
+      setCart({});
+      setSelectedModifiersByItem({});
+      setSelectedAddonsByItem({});
+      setKitchenInstructions("");
+      setCartOpen(false);
+      setBillOpen(true);
+
+      if (options?.redirectToMenuAfterSuccess) {
+        setNoticeMessage("Order placed successfully.");
+        navigateToMenuAfterOrder();
+      }
+    };
+
+    try {
+      const createdOrder = await databases.createDocument(
+        appwriteConfig.collections.orders,
+        'unique()',
+        orderPayloadCandidates[0],
+      );
+      await handleOrderSuccess(createdOrder);
     } catch (orderError: any) {
       console.error("ORDER_CREATE_FAILED_FULL", {
         message: orderError?.message,
@@ -4538,11 +4704,11 @@ placeOrderLockRef.current = false;
       });
 
       try {
-        const createdOrder = createDocumentWithFallback(
+        const createdOrder = await createDocumentWithFallback(
           appwriteConfig.collections.orders,
           newOrderPayloadCandidates,
         );
-        handleOrderSuccess(createdOrder);
+        await handleOrderSuccess(createdOrder);
       } catch (retryError) {
         devError(retryError);
         const rawMessage = getErrorMessage(retryError);
@@ -4569,9 +4735,12 @@ placeOrderLockRef.current = false;
           );
         }
       }
+    } finally {
+      setPlacingOrder(false);
+      placeOrderLockRef.current = false;
     }
 
-      if (paymentMethod === "UPI") {
+    if (paymentMethod === "UPI") {
         const paymentPayloadCandidates: Record<string, unknown>[] = [
           {
             client_id: clientId,
