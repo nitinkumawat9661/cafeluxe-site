@@ -7067,6 +7067,213 @@ export default function QrOrderingExperience({
     const latestSettings = await refreshClientSettings();
     const latestTaxConfig = resolveClientTaxConfig(latestSettings);
 
+    const handleOrderSuccess = async (createdOrder) => {
+      const tableNumberForPrint = tableInfo.tableNo || tableLabel;
+      const kotLabel =
+        orderRound > 1 || isAddMore
+          ? `RUNNING ORDER TABLE ${tableNumberForPrint}`
+          : `NEW ORDER TABLE ${tableNumberForPrint}`;
+      const printJobPayload = {
+        client_id: clientId,
+        table_id: tableInfo.id,
+        table_number: tableNumberForPrint,
+        session_id: activeOrderSession.sessionId,
+        bill_id: activeOrderSession.billId,
+        order_id: createdOrder.$id,
+        job_type: "KOT",
+        label: kotLabel,
+        items_json: orderItemsSnapshot,
+        total_amount: computedPayableTotal,
+        status: "pending",
+        printer_type: "KITCHEN",
+        created_at_custom: nowIso,
+      } satisfies Record<string, unknown>;
+
+      try {
+        await createDocumentWithFallback(appwriteConfig.collections.printJobs, [
+          printJobPayload,
+        ]);
+      } catch (printJobError) {
+        devWarn("KOT print job could not be created, but order was placed.", printJobError);
+        setNoticeMessage("KOT print job could not be created, but order was placed.");
+      }
+
+      if (paymentMethod === "UPI") {
+        const paymentPayloadCandidates: Record<string, unknown>[] = [
+          {
+            client_id: clientId,
+            order_id: createdOrder.$id,
+            amount: computedPayableTotal,
+            payment_method: "UPI",
+            payment_status: "PENDING",
+            customer_marked_paid: false,
+            verified_by: "PENDING_CASHIER_CONFIRMATION",
+          },
+        ];
+
+        try {
+          await createDocumentWithFallback(
+            appwriteConfig.collections.payments,
+            paymentPayloadCandidates,
+          );
+        } catch (paymentError) {
+          devError(paymentError);
+          setNoticeMessage(
+            "Order placed. UPI confirmation is pending and will be verified by cashier.",
+          );
+        }
+      }
+
+      setOrderPlacedId(createdOrder.$id);
+      const nextActiveOrderContext: ActiveOrderContext = {
+        id: createdOrder.$id,
+        status: "PLACED",
+        paymentStatus: "UNPAID",
+        updatedAt: nowIso,
+      };
+      setActiveOrderContext(nextActiveOrderContext);
+      activeOrderContextRef.current = nextActiveOrderContext;
+      trackOwnedOrderId(createdOrder.$id, browserIdForOrder);
+      const placedOrderRecord = buildTableOrderRecordFromCart(
+        createdOrder.$id,
+        orderNumber,
+        activeOrderSession.sessionId,
+        activeOrderSession.billId,
+        orderRound,
+        tableInfo.tableNo,
+        paymentMethod,
+        computedSubtotal,
+        computedTaxAmount,
+        computedCgstAmount,
+        computedSgstAmount,
+        computedPayableTotal,
+        nowIso,
+        cartItems,
+        resolvedSelectedModifiersByItem,
+        resolvedSelectedAddonsByItem,
+        trimmedInstructions,
+      );
+      const mergedLocalOrders = mergeTableOrderRecords(currentBillOrders, [placedOrderRecord]);
+      const nextSessionTotal = roundCurrency(sumTableOrderPayableAmount(mergedLocalOrders));
+      setTableOrders(mergedLocalOrders);
+      tableOrdersRef.current = mergedLocalOrders;
+      setTableSession((current) =>
+        current
+          ? {
+              ...current,
+              heartbeatAt: nowIso,
+              totalAmount: nextSessionTotal,
+            }
+          : current,
+      );
+      void updateDocumentWithFallback(
+        appwriteConfig.collections.tableSessions,
+        activeOrderSession.documentId,
+        [
+          {
+            heartbeat_at: nowIso,
+            total_amount: nextSessionTotal,
+          },
+        ],
+        {
+          scope: {
+            clientId,
+            tableId: tableInfo.id,
+            lockedBy: activeOrderSession.lockedBy || browserIdForOrder,
+          },
+        },
+      ).catch((sessionUpdateError) => {
+        devWarn("Table session total update failed:", sessionUpdateError);
+      });
+      persistOwnedOrderIds(
+        mergedLocalOrders.map((record) => record.orderId),
+        browserIdForOrder,
+      );
+      syncOrderSnapshot(mergedLocalOrders);
+      setBillSyncMessage("Order added to your bill.");
+      touchBillActivity(nowIso);
+      showStatusPopup({
+        title: "Order Placed",
+        description: `${orderNumber} has been sent to the kitchen.`,
+        tone: "success",
+      });
+
+      if (typeof window !== "undefined") {
+        const resolvedBrowserId = browserIdForOrder || ensureBrowserCustomerId();
+        const resolvedHistoryStorageKey =
+          customerHistoryStorageKey ||
+          buildCustomerHistoryStorageKey(routeClient, resolvedBrowserId);
+        const orderSummary: CustomerOrderSummary = {
+          orderId: createdOrder.$id,
+          client: clientId,
+          table: tableInfo.tableNo,
+          totalAmount: computedPayableTotal,
+          itemCount: cartCount,
+          paymentMethod,
+          status: "PLACED",
+          placedAt: nowIso,
+          items: cartItems.map((cartItem) => ({
+            id: cartItem.item.id,
+            qty: cartItem.quantity,
+          })),
+        };
+
+        const currentProfile =
+          customerProfile ??
+          parseCustomerProfile(
+            window.localStorage.getItem(CUSTOMER_PROFILE_KEY),
+            resolvedBrowserId,
+          );
+        const nextProfile = buildNextCustomerProfile(
+          currentProfile,
+          orderSummary,
+          cartItems,
+          resolvedBrowserId,
+        );
+        setCustomerProfile(nextProfile);
+        window.localStorage.setItem(CUSTOMER_PROFILE_KEY, JSON.stringify(nextProfile));
+
+        const currentHistory =
+          parseCustomerOrderHistory(
+            window.localStorage.getItem(resolvedHistoryStorageKey),
+            routeClient,
+          );
+        const nextHistory = buildNextCustomerOrderHistory(
+          currentHistory,
+          orderSummary,
+          routeClient,
+        );
+        window.localStorage.setItem(resolvedHistoryStorageKey, JSON.stringify(nextHistory));
+
+        const billScopeKey = buildCustomerBillScopeStorageKey(routeClient, tableInfo.tableNo);
+        const currentBillScope =
+          parseCustomerBillScope(
+            window.localStorage.getItem(billScopeKey),
+            routeClient,
+            tableInfo.tableNo,
+          );
+        const nextBillScope = buildNextCustomerBillScope(
+          currentBillScope,
+          orderSummary,
+          routeClient,
+          tableInfo.tableNo,
+        );
+        window.localStorage.setItem(billScopeKey, JSON.stringify(nextBillScope));
+      }
+
+      setCart({});
+      setSelectedModifiersByItem({});
+      setSelectedAddonsByItem({});
+      setKitchenInstructions("");
+      setCartOpen(false);
+      setBillOpen(true);
+
+      if (options?.redirectToMenuAfterSuccess) {
+        setNoticeMessage("Order placed successfully.");
+        navigateToMenuAfterOrder();
+      }
+    };
+
     const activeOrderSession = await ensureTableSessionForOrder();
     console.log("PLACE_ORDER_SESSION_CHECK", {
       sessionId: activeOrderSession?.sessionId,
@@ -7237,35 +7444,59 @@ export default function QrOrderingExperience({
         appwriteConfig.collections.orders,
         orderPayloadCandidates,
       );
-      const tableNumberForPrint = tableInfo.tableNo || tableLabel;
-      const kotLabel =
-        orderRound > 1 || isAddMore
-          ? `RUNNING ORDER TABLE ${tableNumberForPrint}`
-          : `NEW ORDER TABLE ${tableNumberForPrint}`;
-      const printJobPayload = {
-        client_id: clientId,
-        table_id: tableInfo.id,
-        table_number: tableNumberForPrint,
-        session_id: activeOrderSession.sessionId,
-        bill_id: activeOrderSession.billId,
-        order_id: createdOrder.$id,
-        job_type: "KOT",
-        label: kotLabel,
-        items_json: orderItemsSnapshot,
-        total_amount: computedPayableTotal,
-        status: "pending",
-        printer_type: "KITCHEN",
-        created_at_custom: nowIso,
-      } satisfies Record<string, unknown>;
+      await handleOrderSuccess(createdOrder);
+    } catch (orderError) {
+      console.error("ORDER_CREATE_FAILED_FULL", {
+        message: orderError?.message,
+        code: orderError?.code,
+        type: orderError?.type,
+        response: orderError?.response,
+        payload: orderPayloadCandidates[0]
+      });
+
+      // Retry without money fields
+      const newOrderPayloadCandidates = orderPayloadCandidates.map(payload => {
+        const newPayload = { ...payload };
+        delete newPayload.discount_amount;
+        delete newPayload.tax_amount;
+        delete newPayload.cgst_amount;
+        delete newPayload.sgst_amount;
+        return newPayload;
+      });
 
       try {
-        await createDocumentWithFallback(appwriteConfig.collections.printJobs, [
-          printJobPayload,
-        ]);
-      } catch (printJobError) {
-        devWarn("KOT print job could not be created, but order was placed.", printJobError);
-        setNoticeMessage("KOT print job could not be created, but order was placed.");
+        const createdOrder = await createDocumentWithFallback(
+          appwriteConfig.collections.orders,
+          newOrderPayloadCandidates,
+        );
+        await handleOrderSuccess(createdOrder);
+      } catch (retryError) {
+        devError(retryError);
+        const rawMessage = getErrorMessage(retryError);
+        const message = rawMessage.toLowerCase();
+        if (message.includes("network") || message.includes("fetch")) {
+          setErrorMessage("Network issue detected. Please check your connection and retry.");
+        } else if (
+          message.includes("not authorized") ||
+          message.includes("user_unauthorized") ||
+          message.includes("permission") ||
+          message.includes("missing scope") ||
+          message.includes("401")
+        ) {
+          setErrorMessage("Unable to submit order from this device due to access settings. Please call staff.");
+        } else if (message.includes("missing required attribute")) {
+          setErrorMessage("Order request is missing required billing fields. Please ask staff to sync settings.");
+        } else if (message.includes('"table_id"')) {
+          setErrorMessage(
+            "Table ID could not be resolved. Please rescan the QR and inform staff.",
+          );
+        } else {
+          setErrorMessage(
+            "Unable to place order right now. Please retry in a moment or inform staff.",
+          );
+        }
       }
+    }
 
       if (paymentMethod === "UPI") {
         const paymentPayloadCandidates: Record<string, unknown>[] = [
@@ -7430,29 +7661,258 @@ export default function QrOrderingExperience({
         navigateToMenuAfterOrder();
       }
     } catch (orderError) {
-      devError(orderError);
-      const rawMessage = getErrorMessage(orderError);
-      const message = rawMessage.toLowerCase();
-      if (message.includes("network") || message.includes("fetch")) {
-        setErrorMessage("Network issue detected. Please check your connection and retry.");
-      } else if (
-        message.includes("not authorized") ||
-        message.includes("user_unauthorized") ||
-        message.includes("permission") ||
-        message.includes("missing scope") ||
-        message.includes("401")
-      ) {
-        setErrorMessage("Unable to submit order from this device due to access settings. Please call staff.");
-      } else if (message.includes("missing required attribute")) {
-        setErrorMessage("Order request is missing required billing fields. Please ask staff to sync settings.");
-      } else if (message.includes('"table_id"')) {
-        setErrorMessage(
-          "Table ID could not be resolved. Please rescan the QR and inform staff.",
+      console.error("ORDER_CREATE_FAILED_FULL", {
+        message: orderError?.message,
+        code: orderError?.code,
+        type: orderError?.type,
+        response: orderError?.response,
+        payload: orderPayloadCandidates[0]
+      });
+
+      // Retry without money fields
+      const newOrderPayloadCandidates = orderPayloadCandidates.map(payload => {
+        const newPayload = { ...payload };
+        delete newPayload.discount_amount;
+        delete newPayload.tax_amount;
+        delete newPayload.cgst_amount;
+        delete newPayload.sgst_amount;
+        return newPayload;
+      });
+
+      try {
+        const createdOrder = await createDocumentWithFallback(
+          appwriteConfig.collections.orders,
+          newOrderPayloadCandidates,
         );
-      } else {
-        setErrorMessage(
-          "Unable to place order right now. Please retry in a moment or inform staff.",
+        const tableNumberForPrint = tableInfo.tableNo || tableLabel;
+        const kotLabel =
+          orderRound > 1 || isAddMore
+            ? `RUNNING ORDER TABLE ${tableNumberForPrint}`
+            : `NEW ORDER TABLE ${tableNumberForPrint}`;
+        const printJobPayload = {
+          client_id: clientId,
+          table_id: tableInfo.id,
+          table_number: tableNumberForPrint,
+          session_id: activeOrderSession.sessionId,
+          bill_id: activeOrderSession.billId,
+          order_id: createdOrder.$id,
+          job_type: "KOT",
+          label: kotLabel,
+          items_json: orderItemsSnapshot,
+          total_amount: computedPayableTotal,
+          status: "pending",
+          printer_type: "KITCHEN",
+          created_at_custom: nowIso,
+        } satisfies Record<string, unknown>;
+
+        try {
+          await createDocumentWithFallback(appwriteConfig.collections.printJobs, [
+            printJobPayload,
+          ]);
+        } catch (printJobError) {
+          devWarn("KOT print job could not be created, but order was placed.", printJobError);
+          setNoticeMessage("KOT print job could not be created, but order was placed.");
+        }
+
+        if (paymentMethod === "UPI") {
+          const paymentPayloadCandidates: Record<string, unknown>[] = [
+            {
+              client_id: clientId,
+              order_id: createdOrder.$id,
+              amount: computedPayableTotal,
+              payment_method: "UPI",
+              payment_status: "PENDING",
+              customer_marked_paid: false,
+              verified_by: "PENDING_CASHIER_CONFIRMATION",
+            },
+          ];
+
+          try {
+            await createDocumentWithFallback(
+              appwriteConfig.collections.payments,
+              paymentPayloadCandidates,
+            );
+          } catch (paymentError) {
+            devError(paymentError);
+            setNoticeMessage(
+              "Order placed. UPI confirmation is pending and will be verified by cashier.",
+            );
+          }
+        }
+
+        setOrderPlacedId(createdOrder.$id);
+        const nextActiveOrderContext: ActiveOrderContext = {
+          id: createdOrder.$id,
+          status: "PLACED",
+          paymentStatus: "UNPAID",
+          updatedAt: nowIso,
+        };
+        setActiveOrderContext(nextActiveOrderContext);
+        activeOrderContextRef.current = nextActiveOrderContext;
+        trackOwnedOrderId(createdOrder.$id, browserIdForOrder);
+        const placedOrderRecord = buildTableOrderRecordFromCart(
+          createdOrder.$id,
+          orderNumber,
+          activeOrderSession.sessionId,
+          activeOrderSession.billId,
+          orderRound,
+          tableInfo.tableNo,
+          paymentMethod,
+          computedSubtotal,
+          computedTaxAmount,
+          computedCgstAmount,
+          computedSgstAmount,
+          computedPayableTotal,
+          nowIso,
+          cartItems,
+          resolvedSelectedModifiersByItem,
+          resolvedSelectedAddonsByItem,
+          trimmedInstructions,
         );
+        const mergedLocalOrders = mergeTableOrderRecords(currentBillOrders, [placedOrderRecord]);
+        const nextSessionTotal = roundCurrency(sumTableOrderPayableAmount(mergedLocalOrders));
+        setTableOrders(mergedLocalOrders);
+        tableOrdersRef.current = mergedLocalOrders;
+        setTableSession((current) =>
+          current
+            ? {
+                ...current,
+                heartbeatAt: nowIso,
+                totalAmount: nextSessionTotal,
+              }
+            : current,
+        );
+        void updateDocumentWithFallback(
+          appwriteConfig.collections.tableSessions,
+          activeOrderSession.documentId,
+          [
+            {
+              heartbeat_at: nowIso,
+              total_amount: nextSessionTotal,
+            },
+          ],
+          {
+            scope: {
+              clientId,
+              tableId: tableInfo.id,
+              lockedBy: activeOrderSession.lockedBy || browserIdForOrder,
+            },
+          },
+        ).catch((sessionUpdateError) => {
+          devWarn("Table session total update failed:", sessionUpdateError);
+        });
+        persistOwnedOrderIds(
+          mergedLocalOrders.map((record) => record.orderId),
+          browserIdForOrder,
+        );
+        syncOrderSnapshot(mergedLocalOrders);
+        setBillSyncMessage("Order added to your bill.");
+        touchBillActivity(nowIso);
+        showStatusPopup({
+          title: "Order Placed",
+          description: `${orderNumber} has been sent to the kitchen.`,
+          tone: "success",
+        });
+
+        if (typeof window !== "undefined") {
+          const resolvedBrowserId = browserIdForOrder || ensureBrowserCustomerId();
+          const resolvedHistoryStorageKey =
+            customerHistoryStorageKey ||
+            buildCustomerHistoryStorageKey(routeClient, resolvedBrowserId);
+          const orderSummary: CustomerOrderSummary = {
+            orderId: createdOrder.$id,
+            client: clientId,
+            table: tableInfo.tableNo,
+            totalAmount: computedPayableTotal,
+            itemCount: cartCount,
+            paymentMethod,
+            status: "PLACED",
+            placedAt: nowIso,
+            items: cartItems.map((cartItem) => ({
+              id: cartItem.item.id,
+              qty: cartItem.quantity,
+            })),
+          };
+
+          const currentProfile =
+            customerProfile ??
+            parseCustomerProfile(
+              window.localStorage.getItem(CUSTOMER_PROFILE_KEY),
+              resolvedBrowserId,
+            );
+          const nextProfile = buildNextCustomerProfile(
+            currentProfile,
+            orderSummary,
+            cartItems,
+            resolvedBrowserId,
+          );
+          setCustomerProfile(nextProfile);
+          window.localStorage.setItem(CUSTOMER_PROFILE_KEY, JSON.stringify(nextProfile));
+
+          const currentHistory =
+            parseCustomerOrderHistory(
+              window.localStorage.getItem(resolvedHistoryStorageKey),
+              routeClient,
+            );
+          const nextHistory = buildNextCustomerOrderHistory(
+            currentHistory,
+            orderSummary,
+            routeClient,
+          );
+          window.localStorage.setItem(resolvedHistoryStorageKey, JSON.stringify(nextHistory));
+
+          const billScopeKey = buildCustomerBillScopeStorageKey(routeClient, tableInfo.tableNo);
+          const currentBillScope =
+            parseCustomerBillScope(
+              window.localStorage.getItem(billScopeKey),
+              routeClient,
+              tableInfo.tableNo,
+            );
+          const nextBillScope = buildNextCustomerBillScope(
+            currentBillScope,
+            orderSummary,
+            routeClient,
+            tableInfo.tableNo,
+          );
+          window.localStorage.setItem(billScopeKey, JSON.stringify(nextBillScope));
+        }
+
+        setCart({});
+        setSelectedModifiersByItem({});
+        setSelectedAddonsByItem({});
+        setKitchenInstructions("");
+        setCartOpen(false);
+        setBillOpen(true);
+
+        if (options?.redirectToMenuAfterSuccess) {
+          setNoticeMessage("Order placed successfully.");
+          navigateToMenuAfterOrder();
+        }
+      } catch (retryError) {
+        devError(retryError);
+        const rawMessage = getErrorMessage(retryError);
+        const message = rawMessage.toLowerCase();
+        if (message.includes("network") || message.includes("fetch")) {
+          setErrorMessage("Network issue detected. Please check your connection and retry.");
+        } else if (
+          message.includes("not authorized") ||
+          message.includes("user_unauthorized") ||
+          message.includes("permission") ||
+          message.includes("missing scope") ||
+          message.includes("401")
+        ) {
+          setErrorMessage("Unable to submit order from this device due to access settings. Please call staff.");
+        } else if (message.includes("missing required attribute")) {
+          setErrorMessage("Order request is missing required billing fields. Please ask staff to sync settings.");
+        } else if (message.includes('"table_id"')) {
+          setErrorMessage(
+            "Table ID could not be resolved. Please rescan the QR and inform staff.",
+          );
+        } else {
+          setErrorMessage(
+            "Unable to place order right now. Please retry in a moment or inform staff.",
+          );
+        }
       }
     } finally {
       setPlacingOrder(false);

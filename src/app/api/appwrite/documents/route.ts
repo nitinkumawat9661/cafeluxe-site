@@ -1281,7 +1281,7 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
   const cgstAmount = sanitizeAmount(documentData.cgst_amount, 0, 1_000_000);
   const sgstAmount = sanitizeAmount(documentData.sgst_amount, 0, 1_000_000);
 
-  if (!clientId || !tableId || !orderNumber || subtotal === null || totalAmount === null || discountAmount === null || taxAmount === null || cgstAmount === null || sgstAmount === null) {
+  if (!clientId || !tableId || !orderNumber || subtotal === null || totalAmount === null) {
     return null;
   }
 
@@ -1296,12 +1296,6 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
   const isAddMore = sanitizeBoolean(documentData.is_add_more);
   const kotStatus = sanitizeLowercaseEnum(documentData.kot_status, ALLOWED_KOT_STATUSES);
 
-  // Convert money fields to integers for Appwrite INTEGER schema
-  const discountAmountInt = Math.round(discountAmount);
-  const taxAmountInt = Math.round(taxAmount);
-  const cgstAmountInt = Math.round(cgstAmount);
-  const sgstAmountInt = Math.round(sgstAmount);
-
   const payload: Record<string, unknown> = {
     client_id: clientId,
     table_id: tableId,
@@ -1310,13 +1304,22 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
     payment_status: "UNPAID",
     payment_method: paymentMethod,
     subtotal,
-    discount_amount: discountAmountInt,
-    tax_amount: taxAmountInt,
-    cgst_amount: cgstAmountInt,
-    sgst_amount: sgstAmountInt,
     total_amount: totalAmount,
     created_at_custom: createdAtCustom,
   };
+
+  if (discountAmount !== null) {
+    payload.discount_amount = Math.round(discountAmount);
+  }
+  if (taxAmount !== null) {
+    payload.tax_amount = Math.round(taxAmount);
+  }
+  if (cgstAmount !== null) {
+    payload.cgst_amount = Math.round(cgstAmount);
+  }
+  if (sgstAmount !== null) {
+    payload.sgst_amount = Math.round(sgstAmount);
+  }
 
   if (sessionId) {
     payload.session_id = sessionId;
