@@ -4678,12 +4678,11 @@ export default function QrOrderingExperience({
     };
 
     try {
-      const createdOrder = await databases.createDocument(
+      const createdOrder = await createDocumentWithFallback(
         appwriteConfig.collections.orders,
-        'unique()',
-        orderPayloadCandidates[0],
+        orderPayloadCandidates,
       );
-      await handleOrderSuccess(createdOrder);
+      handleOrderSuccess(createdOrder);
     } catch (orderError: any) {
       console.error("ORDER_CREATE_FAILED_FULL", {
         message: orderError?.message,
@@ -4694,7 +4693,7 @@ export default function QrOrderingExperience({
       });
 
       // Retry without money fields
-      const newOrderPayloadCandidates = orderPayloadCandidates.map(payload => {
+      const fallbackOrderPayloadCandidates = orderPayloadCandidates.map(payload => {
         const newPayload = { ...payload };
         delete newPayload.discount_amount;
         delete newPayload.tax_amount;
@@ -4706,9 +4705,9 @@ export default function QrOrderingExperience({
       try {
         const createdOrder = await createDocumentWithFallback(
           appwriteConfig.collections.orders,
-          newOrderPayloadCandidates,
+          fallbackOrderPayloadCandidates,
         );
-        await handleOrderSuccess(createdOrder);
+        handleOrderSuccess(createdOrder);
       } catch (retryError) {
         devError(retryError);
         const rawMessage = getErrorMessage(retryError);
@@ -4740,16 +4739,158 @@ export default function QrOrderingExperience({
       placeOrderLockRef.current = false;
     }
 
-    if (paymentMethod === "UPI") {
-        const paymentPayloadCandidates: Record<string, unknown>[] = [
-          {
-            client_id: clientId,
-            order_id: createdOrder.$id,
-            amount: computedPayableTotal,
-            payment_method: "UPI",
-            payment_status: "PENDING",
-            customer_marked_paid: false,
-            verified_by: "PENDING_CASHIER_CONFIRMATION",
+  async function copyTextWithNotice(value: string, successMessage: string) {
+    const text = value.trim();
+    if (!text || typeof navigator === "undefined") {
+      return;
+    }
+
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard API unavailable");
+      }
+      await navigator.clipboard.writeText(text);
+      setNoticeMessage(successMessage);
+    } catch {
+      setNoticeMessage(
+        "Unable to copy automatically. Please copy manually from the details shown.",
+      );
+    }
+  }
+
+  function closeUpiQrSheet() {
+    setUpiQrOpen(false);
+  }
+
+  const tableLabel = tableInfo ? tableInfo.displayLabel : formatTableLabel(routeTable);
+  const accentColor = normalizeThemeColor(LUXURY_GOLD, LUXURY_GOLD);
+
+  useEffect(() => {
+    if (!shouldShowCartPanel || isStandaloneCartRoute || typeof document === "undefined") {
+      return;
+    }
+
+    const body = document.body;
+    const documentElement = document.documentElement;
+    const scrollY = window.scrollY;
+    const previousBodyOverflow = body.style.overflow;
+    const previousBodyPosition = body.style.position;
+    const previousBodyTop = body.style.top;
+    const previousBodyWidth = body.style.width;
+    const previousBodyPaddingRight = body.style.paddingRight;
+    const previousOverscrollBehavior = documentElement.style.overscrollBehavior;
+    const scrollbarCompensation = window.innerWidth - documentElement.clientWidth;
+
+    body.style.overflow = "hidden";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+    body.style.paddingRight = `${scrollbarCompensation}px`;
+    documentElement.style.overscrollBehavior = "contain";
+
+    return () => {
+      body.style.overflow = previousBodyOverflow;
+      body.style.position = previousBodyPosition;
+      body.style.top = previousBodyTop;
+      body.style.width = previousBodyWidth;
+      body.style.paddingRight = previousBodyPaddingRight;
+      documentElement.style.overscrollBehavior = previousOverscrollBehavior;
+      window.scrollTo(0, scrollY);
+    };
+  }, [shouldShowCartPanel, isStandaloneCartRoute]);
+
+  useEffect(() => {
+    if (addonPickerOpen || cartOpen || isStandaloneCartRoute || upiQrOpen) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (billOpen) {
+          requestCloseBill();
+        } else if (cartOpen) {
+          closeCartView();
+        }
+      }
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [addonPickerOpen, cartOpen, isStandaloneCartRoute, upiQrOpen, billOpen, requestCloseBill, closeCartView]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setViewportHeight(window.innerHeight);
+    };
+
+    window.addEventListener("resize", handleResize);
+    handleResize();
+
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const upiQrImageSrc = useMemo(() => buildUpiQrImageUrl(upiQrUri), [upiQrUri]);
+  const upiQrAmountNumber = useMemo(() => {
+    const parsed = Number(upiQrAmount);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }, [upiQrAmount]);
+  const appBackground = isLightTheme
+    ? `linear-gradient(180deg, ${PALETTE_BACKGROUND} 0%, ${PALETTE_BACKGROUND} 56%, ${PALETTE_SURFACE} 100%)`
+    : `linear-gradient(180deg, ${PALETTE_TEXT} 0%, ${PALETTE_SECONDARY} 36%, ${PALETTE_TEXT} 100%)`;
+  const panelGradient = isLightTheme
+    ? `linear-gradient(165deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 64%, rgba(232,217,197,0.18) 100%)`
+    : `linear-gradient(165deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
+  const sectionGradient = isLightTheme
+    ? `linear-gradient(160deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
+    : `linear-gradient(160deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
+  const sheetGradient = isLightTheme
+    ? `linear-gradient(176deg, rgba(232,217,197,0.99) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
+    : `linear-gradient(176deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
+  const bottomBarGradient = isLightTheme
+    ? `linear-gradient(170deg, rgba(232,217,197,0.98) 0%, ${PALETTE_SURFACE} 68%, rgba(232,217,197,0.16) 100%)`
+    : `linear-gradient(170deg, ${PALETTE_SECONDARY} 0%, ${PALETTE_TEXT} 100%)`;
+  const overlayShade = isLightTheme ? "rgba(122,109,96,0.2)" : "rgba(0, 0, 0, 0.72)";
+  const contentTextClass = isLightTheme ? "text-brand-dark" : "text-white";
+  const secondaryTextClass = isLightTheme ? "text-brand-accent" : "text-zinc-300";
+  const mutedTextClass = isLightTheme ? "text-zinc-500" : "text-zinc-400";
+  const themeScopeClass = isLightTheme ? "cafe-theme-light" : "";
+  const shouldShowCartPanel = cartOpen || isStandaloneCartRoute;
+  const luxurySpring = prefersReducedMotion
+    ? { duration: 0 }
+    : { type: "spring" as const, stiffness: 300, damping: 32, mass: 0.82 };
+  const gentleSpring = prefersReducedMotion
+    ? { duration: 0 }
+    : { type: "spring" as const, stiffness: 240, damping: 30, mass: 0.9 };
+  const dockSpring = prefersReducedMotion
+    ? { duration: 0 }
+    : { type: "spring" as const, stiffness: 360, damping: 38, mass: 0.72 };
+  const softEase = [0.22, 1, 0.36, 1] as const;
+  const overlayTransition = prefersReducedMotion ? { duration: 0 } : { duration: 0.22, ease: softEase };
+  const motionInitial = prefersReducedMotion ? false : { opacity: 0, y: 14, scale: 0.985 };
+  const motionVisible = { opacity: 1, y: 0, scale: 1 };
+  const motionTransition = luxurySpring;
+  const pressMotion = prefersReducedMotion ? undefined : { scale: 0.985, y: 1 };
+  const hoverLiftMotion = prefersReducedMotion ? undefined : { y: -2, scale: 1.01 };
+  const addFeedbackPulse =
+    recentlyAddedItemId && !prefersReducedMotion
+      ? { scale: [1, 1.012, 1], y: [0, -1, 0] }
+      : undefined;
+  const cartContentVariants = {
+    hidden: prefersReducedMotion ? { opacity: 1 } : { opacity: 1 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: prefersReducedMotion ? 0 : 0.045,
+        delayChildren: prefersReducedMotion ? 0 : 0.08,
+      },
+    },
+  };
+  const cartContentItemVariants = {
+    hidden: prefersReducedMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 },
+    show: { opacity: 1, y: 0, transition: gentleSpring },
+  };
+
+  return (
           },
         ];
 
