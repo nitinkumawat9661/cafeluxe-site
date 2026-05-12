@@ -6267,24 +6267,21 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     type: "KOT",
     label: `KOT ${orderNumber}`,
     items_json: kotOrderItemsSnapshot,
-    total_amount: Math.round(computedPayableTotal),
+    total_amount: Number(Math.round(computedPayableTotal)),
     status: "pending",
     printer_type: "KOT",
     created_at_custom: nowIso,
-    payload_json: JSON.stringify({
-      client_id: clientId,
-      table_id: tableInfo!.id,
-      table_number: tableInfo!.tableNo || tableLabel,
-      session_id: activeOrderSession!.sessionId,
-      bill_id: activeOrderSession!.billId,
-      order_id: createdOrder.$id,
-      order_number: orderNumber,
-      type: "KOT",
-      label: `KOT ${orderNumber}`,
-      items: JSON.parse(kotOrderItemsSnapshot),
-      kitchen_instructions: trimmedInstructions,
-      created_at_custom: nowIso,
-    }),
+  },
+  {
+    bill_id: activeOrderSession!.billId,
+    label: `KOT ${orderNumber}`,
+    items_json: kotOrderItemsSnapshot,
+    status: "pending",
+  },
+  {
+    bill_id: activeOrderSession!.billId,
+    label: `KOT ${orderNumber}`,
+    items_json: kotOrderItemsSnapshot,
   },
 ]);
       } catch (printJobError) {
@@ -9378,6 +9375,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     </div>
   );
 }
+
 
 
 
