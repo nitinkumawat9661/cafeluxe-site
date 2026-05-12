@@ -6511,7 +6511,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     const paymentPayloadCandidates: Record<string, unknown>[] = [
       {
         client_id: routeClient,
-        order_id: unpaidOrders.map(o => o.orderId).join(','), // Aggregate for bill
+        order_id: (billActionOrderId || latestBillOrder?.orderId || aggregatedUnpaidOrder?.orderId || unpaidOrders[0]?.orderId || tableOrders[0]?.orderId || ''),
         amount: billPayableTotal,
         payment_method: billPaymentMethod,
         payment_status: "PENDING",
@@ -9382,6 +9382,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     </div>
   );
 }
+
 
 
 
