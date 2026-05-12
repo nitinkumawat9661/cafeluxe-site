@@ -6258,17 +6258,21 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
         await createDocumentWithFallback("print_jobs", [
           {
             client_id: clientId,
-            table_id: tableInfo!.id,
-            table_number: tableInfo!.tableNo || tableLabel,
             order_id: createdOrder.$id,
             order_number: orderNumber,
-            job_type: "KOT",
-            print_type: "KOT",
+            type: "KOT",
             status: "pending",
-            kot_status: "pending",
-            items_json: kotOrderItemsSnapshot,
-            kitchen_instructions: trimmedInstructions,
-            created_at_custom: nowIso,
+            payload_json: JSON.stringify({
+              client_id: clientId,
+              table_id: tableInfo!.id,
+              table_number: tableInfo!.tableNo || tableLabel,
+              order_id: createdOrder.$id,
+              order_number: orderNumber,
+              type: "KOT",
+              items: JSON.parse(kotOrderItemsSnapshot),
+              kitchen_instructions: trimmedInstructions,
+              created_at_custom: nowIso,
+            }),
           },
           {
             client_id: clientId,
@@ -9377,6 +9381,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     </div>
   );
 }
+
 
 
 
