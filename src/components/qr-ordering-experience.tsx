@@ -6189,11 +6189,11 @@ export default function QrOrderingExperience({
       order_number: orderNumber,
       status: "PLACED",
       payment_status: "UNPAID",
-      subtotal: Math.round(computedSubtotal),
-      tax_amount: Math.round(computedTaxAmount),
-      cgst_amount: Math.round(computedCgstAmount),
-      sgst_amount: Math.round(computedSgstAmount),
-      total_amount: Math.round(computedPayableTotal),
+      subtotal: roundCurrency(computedSubtotal),
+      tax_amount: roundCurrency(computedTaxAmount),
+      cgst_amount: roundCurrency(computedCgstAmount),
+      sgst_amount: roundCurrency(computedSgstAmount),
+      total_amount: roundCurrency(computedPayableTotal),
     };
 
     const kotOrderItemsSnapshot = JSON.stringify(
@@ -6220,11 +6220,11 @@ const kotOrderBasePayload: Record<string, unknown> = {
   kot_status: "pending",
   status: "PLACED",
   payment_status: "UNPAID",
-  subtotal: Math.round(computedSubtotal),
-  tax_amount: Math.round(computedTaxAmount),
-  cgst_amount: Math.round(computedCgstAmount),
-  sgst_amount: Math.round(computedSgstAmount),
-  total_amount: Math.round(computedPayableTotal),
+  subtotal: roundCurrency(computedSubtotal),
+  tax_amount: roundCurrency(computedTaxAmount),
+  cgst_amount: roundCurrency(computedCgstAmount),
+  sgst_amount: roundCurrency(computedSgstAmount),
+  total_amount: roundCurrency(computedPayableTotal),
   discount_amount: 0,
 };
 
@@ -6290,7 +6290,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
           type: "KOT",
           label: `${currentBillOrders.length > 0 ? "RUNNING ORDER" : "NEW ORDER"} TABLE ${tableInfo!.tableNo || tableLabel}`,
           items_json: kitchenItemsJson,
-          total_amount: Math.round(computedPayableTotal),
+          total_amount: roundCurrency(computedPayableTotal),
           status: "pending",
           printer_type: "KITCHEN",
           created_at_custom: nowIso,
@@ -9417,6 +9417,7 @@ if (billPaymentMethod === "UPI") {
     </div>
   );
 }
+
 
 
 
