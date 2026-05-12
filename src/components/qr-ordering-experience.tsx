@@ -6257,9 +6257,21 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
       try {
         await createDocumentWithFallback(appwriteConfig.collections.printJobs, [
   {
+    client_id: clientId,
+    table_id: tableInfo!.id,
+    table_number: tableInfo!.tableNo || tableLabel,
+    session_id: activeOrderSession!.sessionId,
     bill_id: activeOrderSession!.billId,
+    order_id: createdOrder.$id,
+    order_number: orderNumber,
+    job_type: "KOT",
+    type: "KOT",
     label: `KOT ${orderNumber}`,
     items_json: kotOrderItemsSnapshot,
+    total_amount: Math.round(computedPayableTotal),
+    status: "pending",
+    printer_type: "KOT",
+    created_at_custom: nowIso,
   },
 ]);
       } catch (printJobError) {
@@ -9353,6 +9365,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     </div>
   );
 }
+
 
 
 
