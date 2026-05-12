@@ -6162,29 +6162,23 @@ export default function QrOrderingExperience({
       sgst_amount: computedSgstAmount,
       total_amount: computedPayableTotal,
     };
-    const orderDiscountPayload =
-      computedOfferDiscount > 0 ? { discount_amount: computedOfferDiscount } : {};
     const orderPayloadCandidates = [
       {
         ...orderBasePayload,
-        status: "PLACED",
-        payment_status: "UNPAID",
-        payment_method: "COUNTER",
-      },
-      {
-        ...orderBasePayload,
-        status: "PLACED",
-        payment_status: "UNPAID",
-        paymentMethod: "COUNTER",
-      },
-      {
-        ...orderBasePayload,
+        subtotal: Math.round(computedSubtotal),
+        tax_amount: Math.round(computedTaxAmount),
+        cgst_amount: Math.round(computedCgstAmount),
+        sgst_amount: Math.round(computedSgstAmount),
+        total_amount: Math.round(computedPayableTotal),
         status: "PLACED",
         payment_status: "UNPAID",
       },
       {
         ...orderBasePayload,
+        subtotal: Math.round(computedSubtotal),
+        total_amount: Math.round(computedPayableTotal),
         status: "PLACED",
+        payment_status: "UNPAID",
       },
     ];
 
