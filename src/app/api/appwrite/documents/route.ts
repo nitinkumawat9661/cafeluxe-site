@@ -1391,9 +1391,10 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
 }
 
 function sanitizePaymentCreatePayload(documentData: Record<string, unknown>) {
-  const clientId = sanitizeIdentifier(documentData.client_id, 64);
-  const orderId = sanitizeIdentifier(documentData.order_id, 64);
+  const clientId = sanitizeIdentifier(documentData.client_id, 100);
+  const orderId = sanitizeIdentifier(documentData.order_id, 100);
   const amount = sanitizeAmount(documentData.amount, 0.01, 1_000_000);
+
   if (!clientId || !orderId || amount === null) {
     return null;
   }
@@ -1404,7 +1405,17 @@ function sanitizePaymentCreatePayload(documentData: Record<string, unknown>) {
     sanitizeEnum(documentData.payment_status, ALLOWED_PENDING_PAYMENT_STATUSES) || "PENDING";
   const customerMarkedPaid = sanitizeBoolean(documentData.customer_marked_paid) ?? false;
   const verifiedBy =
-    sanitizeIdentifier(documentData.verified_by, 64) || "PENDING_CASHIER_CONFIRMATION";
+    sanitizeIdentifier(documentData.verified_by, 99) || "PENDING_CASHIER_CONFIRMATION";
+
+  const sessionId = sanitizeIdentifier(documentData.session_id, 2000);
+  const billId =
+    sanitizeIdentifier(documentData.bill_id, 2228) || `bill_${orderId}`;
+  const tableNumber =
+    sanitizeText(documentData.table_number, 2999) || "UNKNOWN";
+  const paymentMode =
+    sanitizeText(documentData.payment_mode, 2998) || paymentMethod;
+  const verifiedAt =
+    sanitizeIsoTimestamp(documentData.verified_at) || new Date().toISOString();
 
   return {
     client_id: clientId,
@@ -1414,9 +1425,13 @@ function sanitizePaymentCreatePayload(documentData: Record<string, unknown>) {
     customer_marked_paid: customerMarkedPaid,
     verified_by: verifiedBy,
     amount,
+    session_id: sessionId || "",
+    bill_id: billId,
+    table_number: tableNumber,
+    payment_mode: paymentMode,
+    verified_at: verifiedAt,
   } satisfies Record<string, unknown>;
 }
-
 function sanitizeTableSessionCreatePayload(documentData: Record<string, unknown>) {
   const clientId = sanitizeIdentifier(documentData.client_id, 64);
   const tableId = sanitizeIdentifier(documentData.table_id, 64);
@@ -2029,5 +2044,6 @@ export async function DELETE(request: NextRequest) {
     200,
   );
 }
+
 
 
