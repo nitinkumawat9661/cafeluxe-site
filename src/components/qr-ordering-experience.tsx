@@ -5055,6 +5055,30 @@ export default function QrOrderingExperience({
     normalizedCurrency === "INR"
       ? `₹${Number(value || 0).toFixed(2)}`
       : `${normalizedCurrency} ${Number(value || 0).toFixed(2)}`;
+
+  const offerCategoryRefsByItemId = useMemo(() => {
+    const map = new Map<string, string[]>();
+
+    for (const item of menuItems) {
+      const matchedCategoryRefs = categories
+        .filter((category) => matchesCategory(item, category))
+        .flatMap((category) => [
+          category.id,
+          category.name,
+          category.slug,
+          toSafeString(category.raw.category_id),
+          toSafeString(category.raw.categoryId),
+          toSafeString(category.raw.code),
+        ]);
+
+      map.set(
+        item.id,
+        Array.from(new Set([...item.categoryRefs, ...matchedCategoryRefs].filter(Boolean))),
+      );
+    }
+
+    return map;
+  }, [categories, menuItems]);
   const cartOfferEvaluationLines = useMemo(() => {
     return cartItems.map((cartItem) => {
       const selected = pricedCustomizationsByItem[cartItem.item.id] ?? [];
@@ -5066,10 +5090,10 @@ export default function QrOrderingExperience({
         quantity: cartItem.quantity,
         unitPrice,
         lineTotal: roundCurrency(unitPrice * cartItem.quantity),
-        categoryRefs: cartItem.item.categoryRefs,
+        categoryRefs: offerCategoryRefsByItemId.get(cartItem.item.id) ?? cartItem.item.categoryRefs,
       } satisfies OfferEvaluationLine;
     });
-  }, [cartItems, pricedCustomizationsByItem]);
+  }, [cartItems, offerCategoryRefsByItemId, pricedCustomizationsByItem]);
   const autoPromotions = useMemo(
     () => offersToday.filter((offer) => resolveOfferApplicationLevel(offer) === "promotion"),
     [offersToday],
@@ -5111,7 +5135,7 @@ export default function QrOrderingExperience({
         quantity: 1,
         unitPrice: item.price,
         lineTotal,
-        categoryRefs: item.categoryRefs,
+        categoryRefs: offerCategoryRefsByItemId.get(item.id) ?? item.categoryRefs,
       } satisfies OfferEvaluationLine;
       const currentOrItemSubtotal = Math.max(subtotal, lineTotal);
       const [preview] = evaluateApplicableOffers(autoPromotions, [line], currentOrItemSubtotal);
@@ -5121,7 +5145,7 @@ export default function QrOrderingExperience({
     }
 
     return previews;
-  }, [autoPromotions, menuItems, subtotal]);
+  }, [autoPromotions, menuItems, offerCategoryRefsByItemId, subtotal]);
   const cartCouponCandidates = useMemo(
     () => evaluateApplicableOffers(cartLevelOffers, cartOfferEvaluationLines, subtotal),
     [cartLevelOffers, cartOfferEvaluationLines, subtotal],
@@ -5339,7 +5363,7 @@ export default function QrOrderingExperience({
         quantity: lineItem.quantity,
         unitPrice: lineItem.unitPrice,
         lineTotal: lineItem.lineTotal,
-        categoryRefs: menuItem?.categoryRefs ?? [],
+        categoryRefs: menuItem ? offerCategoryRefsByItemId.get(menuItem.id) ?? menuItem.categoryRefs : [],
       } satisfies OfferEvaluationLine;
     });
   }, [menuItemLookup, unpaidMergedItems]);
@@ -5366,7 +5390,7 @@ export default function QrOrderingExperience({
         quantity: lineItem.quantity,
         unitPrice: lineItem.unitPrice,
         lineTotal: lineItem.lineTotal,
-        categoryRefs: menuItem?.categoryRefs ?? [],
+        categoryRefs: menuItem ? offerCategoryRefsByItemId.get(menuItem.id) ?? menuItem.categoryRefs : [],
       } satisfies OfferEvaluationLine;
     });
   }, [currentBillItems, menuItemLookup]);
@@ -9421,6 +9445,9 @@ if (billPaymentMethod === "UPI") {
     </div>
   );
 }
+
+
+
 
 
 
