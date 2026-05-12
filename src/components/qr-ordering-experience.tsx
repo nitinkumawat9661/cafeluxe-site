@@ -6089,6 +6089,19 @@ export default function QrOrderingExperience({
       setCustomerBrowserId(browserIdForOrder);
     }
     const trimmedInstructions = sanitizeInstructionText(kitchenInstructions);
+
+    const orderItemsPayload = JSON.stringify(
+      cartItems.map((cartItem) => ({
+        item_id: cartItem.item.id,
+        name: cartItem.item.name,
+        quantity: cartItem.quantity,
+        unit_price: Math.round(cartItem.item.price),
+        total_price: Math.round(cartItem.item.price * cartItem.quantity),
+        modifiers: resolvedSelectedModifiersByItem[cartItem.item.id] ?? [],
+        addons: resolvedSelectedAddonsByItem[cartItem.item.id] ?? [],
+      })),
+    );
+
     const compactItems = cartItems.map((cartItem) => ({
       ...(() => {
         const selectedBaseModifiers =
@@ -6150,36 +6163,38 @@ export default function QrOrderingExperience({
       return;
     }
 
-    const orderBasePayload = {
-      client_id: clientId,
-      table_id: tableInfo.id,
-      order_number: orderNumber,
-      status: "PLACED",
-      payment_status: "UNPAID",
-      subtotal: Math.round(computedSubtotal),
-      tax_amount: Math.round(computedTaxAmount),
-      cgst_amount: Math.round(computedCgstAmount),
-      sgst_amount: Math.round(computedSgstAmount),
-      total_amount: Math.round(computedPayableTotal),
-    };
     const orderPayloadCandidates = [
       {
-        ...orderBasePayload,
+        client_id: clientId,
+        table_id: tableInfo!.id,
+        table_no: tableInfo!.tableNo,
+        order_number: orderNumber,
+        status: "PLACED",
+        payment_status: "UNPAID",
         subtotal: Math.round(computedSubtotal),
         tax_amount: Math.round(computedTaxAmount),
         cgst_amount: Math.round(computedCgstAmount),
         sgst_amount: Math.round(computedSgstAmount),
         total_amount: Math.round(computedPayableTotal),
-        status: "PLACED",
-        payment_status: "UNPAID",
+        instructions: trimmedInstructions,
+        items: orderItemsPayload,
+        created_at: nowIso,
+        updated_at: nowIso,
       },
       {
-        ...orderBasePayload,
-        subtotal: Math.round(computedSubtotal),
-        total_amount: Math.round(computedPayableTotal),
+        client_id: clientId,
+        table_id: tableInfo!.id,
+        table_no: tableInfo!.tableNo,
+        order_number: orderNumber,
         status: "PLACED",
         payment_status: "UNPAID",
-      },
+        subtotal: Math.round(computedSubtotal),
+        total_amount: Math.round(computedPayableTotal),
+        instructions: trimmedInstructions,
+        items: orderItemsPayload,
+        created_at: nowIso,
+        updated_at: nowIso,
+      }
     ];
 
     console.log("ORDER_PAYLOAD_DEBUG", orderPayloadCandidates[0]);
