@@ -6156,11 +6156,11 @@ export default function QrOrderingExperience({
       order_number: orderNumber,
       status: "PLACED",
       payment_status: "UNPAID",
-      subtotal: computedSubtotal,
-      tax_amount: computedTaxAmount,
-      cgst_amount: computedCgstAmount,
-      sgst_amount: computedSgstAmount,
-      total_amount: computedPayableTotal,
+      subtotal: Math.round(computedSubtotal),
+      tax_amount: Math.round(computedTaxAmount),
+      cgst_amount: Math.round(computedCgstAmount),
+      sgst_amount: Math.round(computedSgstAmount),
+      total_amount: Math.round(computedPayableTotal),
     };
     const orderPayloadCandidates = [
       {
@@ -9266,3 +9266,4 @@ export default function QrOrderingExperience({
     </div>
   );
 }
+
