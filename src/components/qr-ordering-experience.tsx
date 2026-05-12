@@ -6256,40 +6256,37 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     const createKotPrintJob = async (createdOrder: any) => {
       try {
         await createDocumentWithFallback("print_jobs", [
-          {
-            client_id: clientId,
-            order_id: createdOrder.$id,
-            order_number: orderNumber,
-            type: "KOT",
-            status: "pending",
-            payload_json: JSON.stringify({
-              client_id: clientId,
-              table_id: tableInfo!.id,
-              table_number: tableInfo!.tableNo || tableLabel,
-              order_id: createdOrder.$id,
-              order_number: orderNumber,
-              type: "KOT",
-              items: JSON.parse(kotOrderItemsSnapshot),
-              kitchen_instructions: trimmedInstructions,
-              created_at_custom: nowIso,
-            }),
-          },
-          {
-            client_id: clientId,
-            order_id: createdOrder.$id,
-            order_number: orderNumber,
-            type: "KOT",
-            status: "pending",
-            payload_json: JSON.stringify({
-              order_id: createdOrder.$id,
-              order_number: orderNumber,
-              table_number: tableInfo!.tableNo || tableLabel,
-              items: JSON.parse(kotOrderItemsSnapshot),
-              kitchen_instructions: trimmedInstructions,
-            }),
-            created_at_custom: nowIso,
-          },
-        ]);
+  {
+    client_id: clientId,
+    table_id: tableInfo!.id,
+    table_number: tableInfo!.tableNo || tableLabel,
+    session_id: activeOrderSession!.sessionId,
+    bill_id: activeOrderSession!.billId,
+    order_id: createdOrder.$id,
+    order_number: orderNumber,
+    type: "KOT",
+    label: `KOT ${orderNumber}`,
+    items_json: kotOrderItemsSnapshot,
+    total_amount: Math.round(computedPayableTotal),
+    status: "pending",
+    printer_type: "KOT",
+    created_at_custom: nowIso,
+    payload_json: JSON.stringify({
+      client_id: clientId,
+      table_id: tableInfo!.id,
+      table_number: tableInfo!.tableNo || tableLabel,
+      session_id: activeOrderSession!.sessionId,
+      bill_id: activeOrderSession!.billId,
+      order_id: createdOrder.$id,
+      order_number: orderNumber,
+      type: "KOT",
+      label: `KOT ${orderNumber}`,
+      items: JSON.parse(kotOrderItemsSnapshot),
+      kitchen_instructions: trimmedInstructions,
+      created_at_custom: nowIso,
+    }),
+  },
+]);
       } catch (printJobError) {
         console.warn("KOT_PRINT_JOB_CREATE_FAILED", printJobError);
       }
@@ -9381,6 +9378,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     </div>
   );
 }
+
 
 
 
