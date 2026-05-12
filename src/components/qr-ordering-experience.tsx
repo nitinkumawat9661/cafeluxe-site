@@ -6518,8 +6518,12 @@ const billPayableTotal = sumTableOrderPayableAmount(unpaidOrders);
       {
         client_id: routeClient,
         order_id: (billActionOrderId || latestBillOrder?.orderId || aggregatedUnpaidOrder?.orderId || unpaidOrders[0]?.orderId || tableOrders[0]?.orderId || ""),
+        session_id: activeSessionStorageKey,
+        bill_id: activeBillStorageKey,
+        table_number: tableInfo?.tableNo || tableLabel,
         amount: billPayableTotal,
         payment_method: billPaymentMethod,
+        payment_mode: billPaymentMethod,
         payment_status: "PENDING",
         customer_marked_paid: false,
         verified_by: "PENDING_CASHIER_CONFIRMATION",
@@ -6527,13 +6531,20 @@ const billPayableTotal = sumTableOrderPayableAmount(unpaidOrders);
       {
         client_id: routeClient,
         order_id: (billActionOrderId || latestBillOrder?.orderId || aggregatedUnpaidOrder?.orderId || unpaidOrders[0]?.orderId || tableOrders[0]?.orderId || ""),
+        session_id: activeSessionStorageKey,
+        bill_id: activeBillStorageKey,
+        table_number: tableInfo?.tableNo || tableLabel,
         amount: billPayableTotal,
         payment_method: billPaymentMethod,
+        payment_mode: billPaymentMethod,
         payment_status: "PENDING",
       },
       {
         client_id: routeClient,
         order_id: (billActionOrderId || latestBillOrder?.orderId || aggregatedUnpaidOrder?.orderId || unpaidOrders[0]?.orderId || tableOrders[0]?.orderId || ""),
+        session_id: activeSessionStorageKey,
+        bill_id: activeBillStorageKey,
+        table_number: tableInfo?.tableNo || tableLabel,
         amount: billPayableTotal,
       },
     ];
@@ -9404,6 +9415,7 @@ if (billPaymentMethod === "UPI") {
     </div>
   );
 }
+
 
 
 
