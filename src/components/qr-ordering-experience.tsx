@@ -5051,6 +5051,10 @@ export default function QrOrderingExperience({
   );
   const preDiscountTotal = roundCurrency(subtotal + taxAmount);
   const formatMoney = (value: number) => formatInr(value, normalizedCurrency);
+  const formatTaxMoney = (value: number) =>
+    normalizedCurrency === "INR"
+      ? `₹${Number(value || 0).toFixed(2)}`
+      : `${normalizedCurrency} ${Number(value || 0).toFixed(2)}`;
   const cartOfferEvaluationLines = useMemo(() => {
     return cartItems.map((cartItem) => {
       const selected = pricedCustomizationsByItem[cartItem.item.id] ?? [];
@@ -7877,7 +7881,7 @@ if (billPaymentMethod === "UPI") {
                                 CGST ({cgstPercentage}%)
                               </span>
                               <span className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
-                                {formatMoney(currentBillCgstAmount)}
+                                {formatTaxMoney(currentBillCgstAmount)}
                               </span>
                             </div>
                             <div className="flex items-center justify-between">
@@ -7885,7 +7889,7 @@ if (billPaymentMethod === "UPI") {
                                 SGST ({sgstPercentage}%)
                               </span>
                               <span className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>
-                                {formatMoney(currentBillSgstAmount)}
+                                {formatTaxMoney(currentBillSgstAmount)}
                               </span>
                             </div>
                           </>
@@ -8966,11 +8970,11 @@ if (billPaymentMethod === "UPI") {
                     <>
                       <div className="flex items-center justify-between">
                         <span className="opacity-80">CGST ({cgstPercentage}%)</span>
-                        <span className="font-semibold">{formatMoney(cgstAmount)}</span>
+                        <span className="font-semibold">{formatTaxMoney(cgstAmount)}</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="opacity-80">SGST ({sgstPercentage}%)</span>
-                        <span className="font-semibold">{formatMoney(sgstAmount)}</span>
+                        <span className="font-semibold">{formatTaxMoney(sgstAmount)}</span>
                       </div>
                     </>
                   ) : null}
@@ -9417,6 +9421,7 @@ if (billPaymentMethod === "UPI") {
     </div>
   );
 }
+
 
 
 
