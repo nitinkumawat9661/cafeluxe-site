@@ -6254,31 +6254,48 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
 ];
 
     const createKotPrintJob = async (createdOrder: any) => {
-      try {
-        await createDocumentWithFallback(appwriteConfig.collections.printJobs, [
-  {
-    client_id: clientId,
-    table_id: tableInfo!.id,
-    table_number: tableInfo!.tableNo || tableLabel,
-    session_id: activeOrderSession!.sessionId,
-    bill_id: activeOrderSession!.billId,
-    order_id: createdOrder.$id,
-    order_number: orderNumber,
-    job_type: "KOT",
-    type: "KOT",
-    label: `KOT ${orderNumber}`,
-    items_json: kotOrderItemsSnapshot,
-    total_amount: Math.round(computedPayableTotal),
-    status: "pending",
-    printer_type: "KOT",
-    created_at_custom: nowIso,
-  },
-]);
-      } catch (printJobError) {
-        console.warn("KOT_PRINT_JOB_CREATE_FAILED", printJobError);
-      }
-    };
+      const kitchenItemsJson = JSON.stringify(
+        cartItems.map((cartItem) => {
+          const selectedModifiers = resolvedSelectedModifiersByItem[cartItem.item.id] ?? [];
+          const selectedAddons = resolvedSelectedAddonsByItem[cartItem.item.id] ?? [];
+          const modifiersTotalPerUnit = selectedModifiers.reduce((sum, item) => sum + toAmount(item.price), 0);
+          const addonsTotalPerUnit = selectedAddons.reduce((sum, item) => sum + toAmount(item.price), 0);
+          const unitPrice = Math.round(cartItem.item.price + modifiersTotalPerUnit + addonsTotalPerUnit);
+          return {
+            item_id: cartItem.item.id,
+            item_name: cartItem.item.name,
+            item_name_hi: cartItem.item.nameHi || cartItem.item.name,
+            base_unit_price: Math.round(cartItem.item.price),
+            unit_price: unitPrice,
+            quantity: cartItem.quantity,
+            modifiers_total_per_unit: Math.round(modifiersTotalPerUnit),
+            modifiers: selectedModifiers,
+            selected_addons: selectedAddons,
+            addons_total_per_unit: Math.round(addonsTotalPerUnit),
+            line_total: Math.round(unitPrice * cartItem.quantity),
+          };
+        }),
+      );
 
+      await createDocumentWithFallback(appwriteConfig.collections.printJobs, [
+        {
+          client_id: clientId,
+          table_id: tableInfo!.id,
+          table_number: tableInfo!.tableNo || tableLabel,
+          session_id: activeOrderSession!.sessionId,
+          bill_id: activeOrderSession!.billId,
+          order_id: createdOrder.$id,
+          order_number: orderNumber,
+          type: "KOT",
+          label: `${currentBillOrders.length > 0 ? "RUNNING ORDER" : "NEW ORDER"} TABLE ${tableInfo!.tableNo || tableLabel}`,
+          items_json: kitchenItemsJson,
+          total_amount: Math.round(computedPayableTotal),
+          status: "pending",
+          printer_type: "KITCHEN",
+          created_at_custom: nowIso,
+        },
+      ]);
+    };
 
     console.log("ORDER_PAYLOAD_DEBUG", orderPayloadCandidates[0]);
 
@@ -9365,6 +9382,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     </div>
   );
 }
+
 
 
 
