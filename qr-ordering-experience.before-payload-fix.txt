@@ -6195,63 +6195,25 @@ export default function QrOrderingExperience({
       total_amount: Math.round(computedPayableTotal),
     };
 
-    const kotOrderItemsSnapshot = JSON.stringify(
-  cartItems.map((cartItem) => ({
-    item_id: cartItem.item.id,
-    name: cartItem.item.name,
-    quantity: cartItem.quantity,
-    unit_price: Math.round(cartItem.item.price),
-    total_price: Math.round(cartItem.item.price * cartItem.quantity),
-    modifiers: resolvedSelectedModifiersByItem[cartItem.item.id] ?? [],
-    addons: resolvedSelectedAddonsByItem[cartItem.item.id] ?? [],
-  })),
-);
-
-const kotOrderBasePayload: Record<string, unknown> = {
-  client_id: clientId,
-  table_id: tableInfo!.id,
-  order_number: orderNumber,
-  session_id: activeOrderSession!.sessionId,
-  bill_id: activeOrderSession!.billId,
-  table_number: tableInfo!.tableNo || tableLabel,
-  order_round: orderRound,
-  is_add_more: currentBillOrders.length > 0,
-  kot_status: "pending",
-  status: "PLACED",
-  payment_status: "UNPAID",
-  subtotal: Math.round(computedSubtotal),
-  tax_amount: Math.round(computedTaxAmount),
-  cgst_amount: Math.round(computedCgstAmount),
-  sgst_amount: Math.round(computedSgstAmount),
-  total_amount: Math.round(computedPayableTotal),
-  discount_amount: 0,
-};
-
-const orderPayloadCandidates: Record<string, unknown>[] = [
-  {
-    ...kotOrderBasePayload,
-    payment_method: "COUNTER",
-    items_json: kotOrderItemsSnapshot,
-    kitchen_instructions: trimmedInstructions,
-    created_at_custom: nowIso,
-  },
-  {
-    ...kotOrderBasePayload,
-    items_json: kotOrderItemsSnapshot,
-    kitchen_instructions: trimmedInstructions,
-    created_at_custom: nowIso,
-  },
-  {
-    ...kotOrderBasePayload,
-    order_items: kotOrderItemsSnapshot,
-    notes: trimmedInstructions,
-    created_at_custom: nowIso,
-  },
-  {
-    ...kotOrderBasePayload,
-    created_at_custom: nowIso,
-  },
-];
+    const orderPayloadCandidates = [
+      {
+        ...baseOrderPayload,
+        table_number: tableInfo!.tableNo,
+        items_json: orderItemsSnapshot,
+        kitchen_instructions: trimmedInstructions,
+        created_at_custom: nowIso,
+      },
+      {
+        ...baseOrderPayload,
+        table_number: tableInfo!.tableNo,
+        order_items: orderItemsSnapshot,
+        notes: trimmedInstructions,
+        created_at_custom: nowIso,
+      },
+      {
+        ...baseOrderPayload,
+      },
+    ];
 
     console.log("ORDER_PAYLOAD_DEBUG", orderPayloadCandidates[0]);
 
@@ -9337,5 +9299,4 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     </div>
   );
 }
-
 
