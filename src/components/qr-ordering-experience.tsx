@@ -6253,6 +6253,45 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
   },
 ];
 
+    const createKotPrintJob = async (createdOrder: AppwriteDocument) => {
+      try {
+        await createDocumentWithFallback("print_jobs", [
+          {
+            client_id: clientId,
+            table_id: tableInfo!.id,
+            table_number: tableInfo!.tableNo || tableLabel,
+            order_id: createdOrder.$id,
+            order_number: orderNumber,
+            job_type: "KOT",
+            print_type: "KOT",
+            status: "pending",
+            kot_status: "pending",
+            items_json: kotOrderItemsSnapshot,
+            kitchen_instructions: trimmedInstructions,
+            created_at_custom: nowIso,
+          },
+          {
+            client_id: clientId,
+            order_id: createdOrder.$id,
+            order_number: orderNumber,
+            type: "KOT",
+            status: "pending",
+            payload_json: JSON.stringify({
+              order_id: createdOrder.$id,
+              order_number: orderNumber,
+              table_number: tableInfo!.tableNo || tableLabel,
+              items: JSON.parse(kotOrderItemsSnapshot),
+              kitchen_instructions: trimmedInstructions,
+            }),
+            created_at_custom: nowIso,
+          },
+        ]);
+      } catch (printJobError) {
+        console.warn("KOT_PRINT_JOB_CREATE_FAILED", printJobError);
+      }
+    };
+
+
     console.log("ORDER_PAYLOAD_DEBUG", orderPayloadCandidates[0]);
 
     try {
@@ -9337,5 +9376,6 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     </div>
   );
 }
+
 
 
