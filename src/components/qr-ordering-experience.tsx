@@ -6253,7 +6253,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
   },
 ];
 
-    const createKotPrintJob = async (createdOrder: AppwriteDocument) => {
+    const createKotPrintJob = async (createdOrder: any) => {
       try {
         await createDocumentWithFallback("print_jobs", [
           {
@@ -9376,6 +9376,8 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     </div>
   );
 }
+
+
 
 
 
