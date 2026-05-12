@@ -1536,50 +1536,44 @@ function sanitizePrintJobCreatePayload(documentData: Record<string, unknown>) {
   const sessionId = sanitizeIdentifier(documentData.session_id, 96);
   const billId = sanitizeIdentifier(documentData.bill_id, 96);
   const orderId = sanitizeIdentifier(documentData.order_id, 64);
+  const orderNumber = sanitizeIdentifier(documentData.order_number, 96);
   const jobType =
-    sanitizeEnum(documentData.job_type, ALLOWED_PRINT_JOB_TYPES) ||
-    sanitizeEnum(documentData.type, ALLOWED_PRINT_JOB_TYPES);
+    sanitizeEnum(documentData.type, ALLOWED_PRINT_JOB_TYPES) ||
+    sanitizeEnum(documentData.job_type, ALLOWED_PRINT_JOB_TYPES);
   const label = sanitizeText(documentData.label, 160);
   const itemsJson = sanitizeJsonSnapshotString(documentData.items_json);
   const totalAmount = sanitizeAmount(documentData.total_amount, 0, 1_000_000) ?? 0;
   const status =
     sanitizeLowercaseEnum(documentData.status, ALLOWED_PRINT_JOB_STATUSES) || "pending";
-  const printerType = sanitizeEnum(documentData.printer_type, ALLOWED_PRINTER_TYPES) || "KOT";
+  const printerType =
+    sanitizeEnum(documentData.printer_type, ALLOWED_PRINTER_TYPES) || "KOT";
   const createdAtCustom =
     sanitizeIsoTimestamp(documentData.created_at_custom) || new Date().toISOString();
 
-  if (
-    !clientId ||
-    !tableId ||
-    !tableNumber ||
-    !sessionId ||
-    !billId ||
-    !orderId ||
-    jobType !== "KOT" ||
-    !label ||
-    !itemsJson ||
-    false
-  ) {
+  if (!billId || !label || !itemsJson) {
     return null;
   }
 
-  return {
-    client_id: clientId,
-    table_id: tableId,
-    table_number: tableNumber,
-    session_id: sessionId,
+  const payload: Record<string, unknown> = {
     bill_id: billId,
-    order_id: orderId,
-    type: "KOT",
     label,
     items_json: itemsJson,
-    total_amount: totalAmount,
+    type: jobType === "KOT" ? "KOT" : "KOT",
     status,
     printer_type: printerType,
+    total_amount: totalAmount,
     created_at_custom: createdAtCustom,
-  } satisfies Record<string, unknown>;
-}
+  };
 
+  if (clientId) payload.client_id = clientId;
+  if (tableId) payload.table_id = tableId;
+  if (tableNumber) payload.table_number = tableNumber;
+  if (sessionId) payload.session_id = sessionId;
+  if (orderId) payload.order_id = orderId;
+  if (orderNumber) payload.order_number = orderNumber;
+
+  return payload;
+}
 function sanitizeOrderPaymentSwitchPatch(documentData: Record<string, unknown>) {
   const keys = Object.keys(documentData);
   if (keys.length === 0) {
@@ -2035,4 +2029,5 @@ export async function DELETE(request: NextRequest) {
     200,
   );
 }
+
 
