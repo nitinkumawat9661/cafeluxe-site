@@ -1275,7 +1275,7 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
   const tableId = sanitizeIdentifier(documentData.table_id, 64);
   const orderNumber = sanitizeIdentifier(documentData.order_number, 96);
   const subtotal = sanitizeAmount(documentData.subtotal, 0, 1_000_000);
-  const totalAmount = sanitizeAmount(documentData.total_amount, 0, 1_000_000);
+  const totalAmount = sanitizeAmount(documentData.total_amount, 0, 1_000_000) ?? 0;
   const discountAmount = sanitizeAmount(documentData.discount_amount, 0, 1_000_000);
   const taxAmount = sanitizeAmount(documentData.tax_amount, 0, 1_000_000);
   const cgstAmount = sanitizeAmount(documentData.cgst_amount, 0, 1_000_000);
@@ -1434,7 +1434,7 @@ function sanitizeTableSessionCreatePayload(documentData: Record<string, unknown>
   const nowIso = new Date().toISOString();
   const heartbeatAt = sanitizeIsoTimestamp(documentData.heartbeat_at) || nowIso;
   const openedAt = sanitizeIsoTimestamp(documentData.opened_at) || nowIso;
-  const totalAmount = sanitizeAmount(documentData.total_amount, 0, 1_000_000);
+  const totalAmount = sanitizeAmount(documentData.total_amount, 0, 1_000_000) ?? 0;
 
   if (!clientId || !tableId || !tableNumber || !sessionId || !billId || !lockedBy) {
     return null;
@@ -1519,7 +1519,7 @@ function sanitizeTableSessionUpdatePayload(documentData: Record<string, unknown>
   }
 
   if (Object.hasOwn(documentData, "total_amount")) {
-    const totalAmount = sanitizeAmount(documentData.total_amount, 0, 1_000_000);
+    const totalAmount = sanitizeAmount(documentData.total_amount, 0, 1_000_000) ?? 0;
     if (totalAmount === null) {
       return null;
     }
@@ -1536,13 +1536,15 @@ function sanitizePrintJobCreatePayload(documentData: Record<string, unknown>) {
   const sessionId = sanitizeIdentifier(documentData.session_id, 96);
   const billId = sanitizeIdentifier(documentData.bill_id, 96);
   const orderId = sanitizeIdentifier(documentData.order_id, 64);
-  const jobType = sanitizeEnum(documentData.job_type, ALLOWED_PRINT_JOB_TYPES);
+  const jobType =
+    sanitizeEnum(documentData.job_type, ALLOWED_PRINT_JOB_TYPES) ||
+    sanitizeEnum(documentData.type, ALLOWED_PRINT_JOB_TYPES);
   const label = sanitizeText(documentData.label, 160);
   const itemsJson = sanitizeJsonSnapshotString(documentData.items_json);
-  const totalAmount = sanitizeAmount(documentData.total_amount, 0, 1_000_000);
+  const totalAmount = sanitizeAmount(documentData.total_amount, 0, 1_000_000) ?? 0;
   const status =
     sanitizeLowercaseEnum(documentData.status, ALLOWED_PRINT_JOB_STATUSES) || "pending";
-  const printerType = sanitizeEnum(documentData.printer_type, ALLOWED_PRINTER_TYPES);
+  const printerType = sanitizeEnum(documentData.printer_type, ALLOWED_PRINTER_TYPES) || "KOT";
   const createdAtCustom =
     sanitizeIsoTimestamp(documentData.created_at_custom) || new Date().toISOString();
 
@@ -1556,8 +1558,7 @@ function sanitizePrintJobCreatePayload(documentData: Record<string, unknown>) {
     jobType !== "KOT" ||
     !label ||
     !itemsJson ||
-    totalAmount === null ||
-    !printerType
+    false
   ) {
     return null;
   }
@@ -1569,7 +1570,7 @@ function sanitizePrintJobCreatePayload(documentData: Record<string, unknown>) {
     session_id: sessionId,
     bill_id: billId,
     order_id: orderId,
-    job_type: "KOT",
+    type: "KOT",
     label,
     items_json: itemsJson,
     total_amount: totalAmount,
@@ -2034,3 +2035,4 @@ export async function DELETE(request: NextRequest) {
     200,
   );
 }
+
