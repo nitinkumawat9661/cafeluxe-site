@@ -1483,11 +1483,10 @@ function evaluateBxgyOffer(
   const effectiveBuyCriteria = hasCriteriaTokens(buyCriteria)
     ? buyCriteria
     : scopedCriteriaResult.criteria;
-  if (!hasCriteriaTokens(effectiveBuyCriteria)) {
-    return null;
-  }
 
-  const buyLines = filterOfferLinesByCriteria(scopeLines, effectiveBuyCriteria);
+  const buyLines = hasCriteriaTokens(effectiveBuyCriteria)
+    ? filterOfferLinesByCriteria(scopeLines, effectiveBuyCriteria)
+    : scopeLines;
   const buyQuantity = buyLines.reduce((sum, line) => sum + line.quantity, 0);
   if (buyQuantity < buyQty) {
     return null;
@@ -5108,9 +5107,15 @@ export default function QrOrderingExperience({
   );
   const matchedItemOffers = useMemo(
     () =>
-      cartOfferEvaluationLines
-        .map((line) => pickBestItemWiseOfferForLine(line, autoPromotions, subtotal))
-        .filter((entry): entry is ItemWiseOfferMatch => !!entry),
+      evaluateApplicableOffers(autoPromotions, cartOfferEvaluationLines, subtotal)
+        .filter((offer) => Number(offer.estimatedBenefit ?? 0) > 0)
+        .map((offer) => ({
+          itemId: `cart_offer_${offer.offerId}`,
+          itemName: "Cart",
+          quantity: cartOfferEvaluationLines.reduce((sum, line) => sum + line.quantity, 0),
+          offer,
+          discountAmount: roundCurrency(Number(offer.estimatedBenefit ?? 0)),
+        } satisfies ItemWiseOfferMatch)),
     [autoPromotions, cartOfferEvaluationLines, subtotal],
   );
   const matchedItemOfferByItemId = useMemo(
@@ -5399,12 +5404,22 @@ export default function QrOrderingExperience({
     [billOfferEvaluationLines, currentBillSubtotal, offersToday],
   );
   const currentBillOrders = hasAggregatedUnpaidBill ? unpaidOrders : tableOrders;
-  const billPayableTotal = useMemo(
-    () => sumTableOrderPayableAmount(currentBillOrders),
-    [currentBillOrders],
+  const billOfferDiscountAmount = useMemo(
+    () =>
+      roundCurrency(
+        Math.min(
+          currentBillFinalTotal,
+          applicableBillOffers.reduce(
+            (sum, offer) => sum + Number(offer.estimatedBenefit ?? 0),
+            0,
+          ),
+        ),
+      ),
+    [applicableBillOffers, currentBillFinalTotal],
   );
-  const billOfferDiscountAmount = roundCurrency(
-    Math.max(0, currentBillFinalTotal - billPayableTotal),
+  const billPayableTotal = useMemo(
+    () => roundCurrency(Math.max(0, currentBillFinalTotal - billOfferDiscountAmount)),
+    [billOfferDiscountAmount, currentBillFinalTotal],
   );
   const currentBillInstructions = useMemo(() => {
     if (!hasAggregatedUnpaidBill) {
@@ -6185,13 +6200,9 @@ export default function QrOrderingExperience({
       ? Math.round((computedSubtotal * sgstPercentage) / 100 * 100) / 100
       : 0;
     const computedTotal = roundCurrency(computedSubtotal + computedTaxAmount);
-    const computedOfferDiscount = roundCurrency(
-      Math.min(computedTotal, Math.max(0, totalDiscountAmount)),
-    );
-    const computedPayableTotal = roundCurrency(
-      Math.max(0, computedTotal - computedOfferDiscount),
-    );
-
+    // Offers are applied only on final bill/cart, not on each KOT/order.
+    const computedOfferDiscount = 0;
+    const computedPayableTotal = roundCurrency(computedTotal);
     if (computedSubtotal <= 0 || computedPayableTotal <= 0) {
       setErrorMessage("Cart total is invalid. Please refresh menu and try again.");
       setPlacingOrder(false);
@@ -6253,7 +6264,7 @@ const kotOrderBasePayload: Record<string, unknown> = {
   cgst_amount: roundCurrency(computedCgstAmount),
   sgst_amount: roundCurrency(computedSgstAmount),
   total_amount: roundCurrency(computedPayableTotal),
-  discount_amount: 0,
+  discount_amount: computedOfferDiscount,
 };
 
 const orderPayloadCandidates: Record<string, unknown>[] = [
@@ -6542,7 +6553,6 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
       setNoticeMessage("Payment request already sent. Please wait for cashier confirmation.");
       return;
     }
-const billPayableTotal = sumTableOrderPayableAmount(unpaidOrders);
     const paymentPayloadCandidates: Record<string, unknown>[] = [
       {
         client_id: routeClient,
@@ -9445,6 +9455,12 @@ if (billPaymentMethod === "UPI") {
     </div>
   );
 }
+
+
+
+
+
+
 
 
 
