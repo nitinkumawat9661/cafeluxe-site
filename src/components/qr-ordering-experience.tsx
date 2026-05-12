@@ -5853,6 +5853,7 @@ export default function QrOrderingExperience({
         payment_status: "PENDING",
         customer_marked_paid: false,
         verified_by: "PENDING_CASHIER_CONFIRMATION",
+        verified_at: new Date().toISOString(),
       },
     ];
 
@@ -6508,7 +6509,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
   async function handleBillPaymentConfirm() {
     setBillPaymentModalOpen(false);
     
-    const activeBillPaymentKey = "cafeluxe_payment_request_$routeClient_$routeTable_$activeBillStorageKey";
+    const activeBillPaymentKey = `cafeluxe_payment_request_${routeClient}_${routeTable}_${activeBillStorageKey}`;
     if (typeof window !== "undefined" && window.localStorage.getItem(activeBillPaymentKey) === "pending") {
       setNoticeMessage("Payment request already sent. Please wait for cashier confirmation.");
       return;
@@ -6527,6 +6528,7 @@ const billPayableTotal = sumTableOrderPayableAmount(unpaidOrders);
         payment_status: "PENDING",
         customer_marked_paid: false,
         verified_by: "PENDING_CASHIER_CONFIRMATION",
+        verified_at: new Date().toISOString(),
       },
       {
         client_id: routeClient,
@@ -9415,6 +9417,8 @@ if (billPaymentMethod === "UPI") {
     </div>
   );
 }
+
+
 
 
 
