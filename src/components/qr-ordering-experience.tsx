@@ -6257,28 +6257,6 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
       try {
         await createDocumentWithFallback("print_jobs", [
   {
-    client_id: clientId,
-    table_id: tableInfo!.id,
-    table_number: tableInfo!.tableNo || tableLabel,
-    session_id: activeOrderSession!.sessionId,
-    bill_id: activeOrderSession!.billId,
-    order_id: createdOrder.$id,
-    order_number: orderNumber,
-    type: "KOT",
-    label: `KOT ${orderNumber}`,
-    items_json: kotOrderItemsSnapshot,
-    total_amount: Number(Math.round(computedPayableTotal)),
-    status: "pending",
-    printer_type: "KOT",
-    created_at_custom: nowIso,
-  },
-  {
-    bill_id: activeOrderSession!.billId,
-    label: `KOT ${orderNumber}`,
-    items_json: kotOrderItemsSnapshot,
-    status: "pending",
-  },
-  {
     bill_id: activeOrderSession!.billId,
     label: `KOT ${orderNumber}`,
     items_json: kotOrderItemsSnapshot,
@@ -9375,6 +9353,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     </div>
   );
 }
+
 
 
 
