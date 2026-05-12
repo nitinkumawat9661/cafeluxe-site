@@ -6302,6 +6302,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
 
 
 
+      await createKotPrintJob(createdOrder);
       setOrderPlacedId(createdOrder.$id);
       const nextActiveOrderContext: ActiveOrderContext = {
         id: createdOrder.$id,
@@ -9376,6 +9377,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     </div>
   );
 }
+
 
 
 
