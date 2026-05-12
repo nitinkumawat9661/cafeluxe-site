@@ -1309,16 +1309,16 @@ function sanitizeOrderCreatePayload(documentData: Record<string, unknown>) {
   };
 
   if (discountAmount !== null) {
-    payload.discount_amount = Math.round(discountAmount);
+    payload.discount_amount = discountAmount;
   }
   if (taxAmount !== null) {
-    payload.tax_amount = Math.round(taxAmount);
+    payload.tax_amount = taxAmount;
   }
   if (cgstAmount !== null) {
-    payload.cgst_amount = Math.round(cgstAmount);
+    payload.cgst_amount = cgstAmount;
   }
   if (sgstAmount !== null) {
-    payload.sgst_amount = Math.round(sgstAmount);
+    payload.sgst_amount = sgstAmount;
   }
 
   if (sessionId) {
@@ -2044,6 +2044,7 @@ export async function DELETE(request: NextRequest) {
     200,
   );
 }
+
 
 
 
