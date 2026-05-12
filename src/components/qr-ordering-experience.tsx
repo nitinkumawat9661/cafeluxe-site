@@ -6090,6 +6090,13 @@ export default function QrOrderingExperience({
     }
     const trimmedInstructions = sanitizeInstructionText(kitchenInstructions);
 
+    const activeOrderSession = {
+      sessionId: activeSessionStorageKey,
+      billId: activeBillStorageKey,
+    };
+    const orderRound = 1;
+    const isAddMore = false;
+
     const orderItemsPayload = JSON.stringify(
       cartItems.map((cartItem) => ({
         item_id: cartItem.item.id,
@@ -6163,38 +6170,55 @@ export default function QrOrderingExperience({
       return;
     }
 
+    const baseOrderPayload = {
+      client_id: clientId,
+      table_id: tableInfo!.id,
+      order_number: orderNumber,
+      session_id: activeOrderSession!.sessionId,
+      bill_id: activeOrderSession!.billId,
+      table_number: tableInfo!.tableNo || tableLabel,
+      order_round: orderRound,
+      is_add_more: isAddMore,
+      kot_status: "pending",
+      status: "PLACED",
+      payment_status: "UNPAID",
+      subtotal: Math.round(computedSubtotal),
+      tax_amount: Math.round(computedTaxAmount),
+      cgst_amount: Math.round(computedCgstAmount),
+      sgst_amount: Math.round(computedSgstAmount),
+      total_amount: Math.round(computedPayableTotal),
+      discount_amount: Math.round(computedOfferDiscount || 0),
+    };
+
     const orderPayloadCandidates = [
       {
-        client_id: clientId,
-        table_id: tableInfo!.id,
-        table_no: tableInfo!.tableNo,
-        order_number: orderNumber,
-        status: "PLACED",
-        payment_status: "UNPAID",
-        subtotal: Math.round(computedSubtotal),
-        tax_amount: Math.round(computedTaxAmount),
-        cgst_amount: Math.round(computedCgstAmount),
-        sgst_amount: Math.round(computedSgstAmount),
-        total_amount: Math.round(computedPayableTotal),
-        instructions: trimmedInstructions,
-        items: orderItemsPayload,
-        created_at: nowIso,
-        updated_at: nowIso,
+        ...baseOrderPayload,
+        created_at_custom: nowIso,
+        items_json: orderItemsSnapshot,
+        kitchen_instructions: trimmedInstructions,
       },
       {
-        client_id: clientId,
-        table_id: tableInfo!.id,
-        table_no: tableInfo!.tableNo,
-        order_number: orderNumber,
-        status: "PLACED",
-        payment_status: "UNPAID",
-        subtotal: Math.round(computedSubtotal),
-        total_amount: Math.round(computedPayableTotal),
-        instructions: trimmedInstructions,
-        items: orderItemsPayload,
-        created_at: nowIso,
-        updated_at: nowIso,
-      }
+        ...baseOrderPayload,
+        created_at_custom: nowIso,
+        order_items: orderItemsSnapshot,
+        kitchen_instructions: trimmedInstructions,
+      },
+      {
+        ...baseOrderPayload,
+        created_at_custom: nowIso,
+        items_json: orderItemsSnapshot,
+        notes: trimmedInstructions,
+      },
+      {
+        ...baseOrderPayload,
+        created_at_custom: nowIso,
+        order_items: orderItemsSnapshot,
+        notes: trimmedInstructions,
+      },
+      {
+        ...baseOrderPayload,
+        created_at_custom: nowIso,
+      },
     ];
 
     console.log("ORDER_PAYLOAD_DEBUG", orderPayloadCandidates[0]);
