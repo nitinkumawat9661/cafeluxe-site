@@ -6164,53 +6164,31 @@ export default function QrOrderingExperience({
     };
     const orderDiscountPayload =
       computedOfferDiscount > 0 ? { discount_amount: computedOfferDiscount } : {};
-    const orderPayloadCandidates: Record<string, unknown>[] = [
+    const orderPayloadCandidates = [
       {
         ...orderBasePayload,
-        ...orderDiscountPayload,
+        status: "PLACED",
+        payment_status: "UNPAID",
         payment_method: "COUNTER",
-        created_at_custom: nowIso,
-        items_json: orderItemsSnapshot,
-        kitchen_instructions: trimmedInstructions,
       },
       {
         ...orderBasePayload,
-        ...orderDiscountPayload,
-        payment_method: "COUNTER",
-        created_at_custom: nowIso,
-        order_items: orderItemsSnapshot,
-        kitchen_instructions: trimmedInstructions,
+        status: "PLACED",
+        payment_status: "UNPAID",
+        paymentMethod: "COUNTER",
       },
       {
         ...orderBasePayload,
-        ...orderDiscountPayload,
-        payment_method: "COUNTER",
-        created_at_custom: nowIso,
-        items_json: orderItemsSnapshot,
-        notes: trimmedInstructions,
+        status: "PLACED",
+        payment_status: "UNPAID",
       },
       {
         ...orderBasePayload,
-        ...orderDiscountPayload,
-        payment_method: "COUNTER",
-        created_at_custom: nowIso,
-        order_items: orderItemsSnapshot,
-        notes: trimmedInstructions,
-      },
-      {
-        ...orderBasePayload,
-        ...orderDiscountPayload,
-        payment_method: "COUNTER",
-        created_at_custom: nowIso,
-        items: compactItems,
-        instructions: trimmedInstructions,
-      },
-      {
-        ...orderBasePayload,
-        payment_method: "COUNTER",
-        created_at_custom: nowIso,
+        status: "PLACED",
       },
     ];
+
+    console.log("ORDER_PAYLOAD_DEBUG", orderPayloadCandidates[0]);
 
     try {
       const createdOrder = await createDocumentWithFallback(
@@ -6324,30 +6302,16 @@ export default function QrOrderingExperience({
         navigateToMenuAfterOrder();
       }
     } catch (orderError) {
-      devError(orderError);
-      const rawMessage = getErrorMessage(orderError);
-      const message = rawMessage.toLowerCase();
-      if (message.includes("network") || message.includes("fetch")) {
-        setErrorMessage("Network issue detected. Please check your connection and retry.");
-      } else if (
-        message.includes("not authorized") ||
-        message.includes("user_unauthorized") ||
-        message.includes("permission") ||
-        message.includes("missing scope") ||
-        message.includes("401")
-      ) {
-        setErrorMessage("Unable to submit order from this device due to access settings. Please call staff.");
-      } else if (message.includes("missing required attribute")) {
-        setErrorMessage("Order request is missing required billing fields. Please ask staff to sync settings.");
-      } else if (message.includes('"table_id"')) {
-        setErrorMessage(
-          "Table ID could not be resolved. Please rescan the QR and inform staff.",
-        );
-      } else {
-        setErrorMessage(
-          "Unable to place order right now. Please retry in a moment or inform staff.",
-        );
-      }
+      console.error("PLACE_ORDER_FAILED", {
+        message: (orderError as any)?.message,
+        code: (orderError as any)?.code,
+        type: (orderError as any)?.type,
+        response: (orderError as any)?.response,
+        payload: orderPayloadCandidates[0],
+      });
+      setErrorMessage((orderError as any)?.message || "Order failed. Please try again.");
+      setPlacingOrder(false);
+      placeOrderLockRef.current = false;
     } finally {
       setPlacingOrder(false);
       placeOrderLockRef.current = false;
