@@ -6142,7 +6142,7 @@ export default function QrOrderingExperience({
         };
       })(),
     }));
-    const orderItemsSnapshot = JSON.stringify(compactItems);
+
     const computedSubtotal = Math.round(
       compactItems.reduce((sum, entry) => sum + toAmount(entry.line_total), 0) * 100,
     ) / 100;
@@ -6170,16 +6170,22 @@ export default function QrOrderingExperience({
       return;
     }
 
+    const orderItemsSnapshot = JSON.stringify(
+      cartItems.map((cartItem) => ({
+        item_id: cartItem.item.id,
+        name: cartItem.item.name,
+        quantity: cartItem.quantity,
+        unit_price: Math.round(cartItem.item.price),
+        total_price: Math.round(cartItem.item.price * cartItem.quantity),
+        modifiers: resolvedSelectedModifiersByItem[cartItem.item.id] ?? [],
+        addons: resolvedSelectedAddonsByItem[cartItem.item.id] ?? [],
+      })),
+    );
+
     const baseOrderPayload = {
       client_id: clientId,
       table_id: tableInfo!.id,
       order_number: orderNumber,
-      session_id: activeOrderSession!.sessionId,
-      bill_id: activeOrderSession!.billId,
-      table_number: tableInfo!.tableNo || tableLabel,
-      order_round: orderRound,
-      is_add_more: isAddMore,
-      kot_status: "pending",
       status: "PLACED",
       payment_status: "UNPAID",
       subtotal: Math.round(computedSubtotal),
@@ -6187,37 +6193,25 @@ export default function QrOrderingExperience({
       cgst_amount: Math.round(computedCgstAmount),
       sgst_amount: Math.round(computedSgstAmount),
       total_amount: Math.round(computedPayableTotal),
-      discount_amount: Math.round(computedOfferDiscount || 0),
     };
 
     const orderPayloadCandidates = [
       {
         ...baseOrderPayload,
-        created_at_custom: nowIso,
+        table_number: tableInfo!.tableNo,
         items_json: orderItemsSnapshot,
         kitchen_instructions: trimmedInstructions,
+        created_at_custom: nowIso,
       },
       {
         ...baseOrderPayload,
-        created_at_custom: nowIso,
-        order_items: orderItemsSnapshot,
-        kitchen_instructions: trimmedInstructions,
-      },
-      {
-        ...baseOrderPayload,
-        created_at_custom: nowIso,
-        items_json: orderItemsSnapshot,
-        notes: trimmedInstructions,
-      },
-      {
-        ...baseOrderPayload,
-        created_at_custom: nowIso,
+        table_number: tableInfo!.tableNo,
         order_items: orderItemsSnapshot,
         notes: trimmedInstructions,
+        created_at_custom: nowIso,
       },
       {
         ...baseOrderPayload,
-        created_at_custom: nowIso,
       },
     ];
 
