@@ -6507,7 +6507,13 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
 
   async function handleBillPaymentConfirm() {
     setBillPaymentModalOpen(false);
-    const billPayableTotal = sumTableOrderPayableAmount(unpaidOrders);
+    
+    const activeBillPaymentKey = "cafeluxe_payment_request_$routeClient_$routeTable_$activeBillStorageKey";
+    if (typeof window !== "undefined" && window.localStorage.getItem(activeBillPaymentKey) === "pending") {
+      setNoticeMessage("Payment request already sent. Please wait for cashier confirmation.");
+      return;
+    }
+const billPayableTotal = sumTableOrderPayableAmount(unpaidOrders);
     const paymentPayloadCandidates: Record<string, unknown>[] = [
       {
         client_id: routeClient,
@@ -6536,7 +6542,11 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
         appwriteConfig.collections.payments,
         paymentPayloadCandidates,
       );
-      if (billPaymentMethod === "UPI") {
+      
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(activeBillPaymentKey, "pending");
+      }
+if (billPaymentMethod === "UPI") {
         // Show UPI QR
         const billUpiLink = buildUpiPaymentLink({
           upiId: configuredUpiId,
@@ -9394,6 +9404,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     </div>
   );
 }
+
 
 
 
