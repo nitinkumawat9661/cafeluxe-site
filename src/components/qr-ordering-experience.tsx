@@ -6255,7 +6255,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
 
     const createKotPrintJob = async (createdOrder: any) => {
       try {
-        await createDocumentWithFallback("print_jobs", [
+        await createDocumentWithFallback(appwriteConfig.collections.printJobs, [
   {
     bill_id: activeOrderSession!.billId,
     label: `KOT ${orderNumber}`,
@@ -9353,6 +9353,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     </div>
   );
 }
+
 
 
 
