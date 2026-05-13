@@ -1,20 +1,9 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "CafeLuxe QR Ordering",
-  description: "Premium mobile-first QR restaurant ordering.",
+  title: "Nanu Da Dhaba QR Ordering",
+  description: "QR ordering for Nanu Da Dhaba.",
 };
 
 export default function RootLayout({
@@ -25,7 +14,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full bg-brand-bg antialiased`}
+      className="h-full bg-brand-bg antialiased"
     >
       <body className="min-h-full bg-brand-bg text-brand-dark flex flex-col">
         {children}

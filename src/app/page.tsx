@@ -165,7 +165,7 @@ export default function Home() {
     };
   }, [reloadKey]);
 
-  const restaurantName = settings?.restaurantName?.trim() || "Cafe Luxe";
+  const restaurantName = settings?.restaurantName?.trim() || "Nanu Da Dhaba";
   const supportPhone = settings?.supportPhone?.trim() || "";
 
   return (

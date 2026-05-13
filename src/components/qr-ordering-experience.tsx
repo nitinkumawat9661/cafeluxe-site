@@ -4830,8 +4830,31 @@ export default function QrOrderingExperience({
         }
       }
     }
+    const preferredCategoryOrder = [
+      "Starters",
+      "Main Course",
+      "Dal",
+      "Roti / Naan",
+      "Paratha",
+      "Rice",
+      "Halka-Fulka",
+      "Burger & Sandwich",
+      "Kids Menu",
+      "Soup",
+      "Raita & Salad",
+      "Beverages",
+    ];
+
+    const getCategoryRank = (name: string) => {
+      const index = preferredCategoryOrder.findIndex(
+        (entry) => entry.toLowerCase() === name.trim().toLowerCase(),
+      );
+      return index === -1 ? 999 : index;
+    };
+
     return Array.from(groups.values()).sort(
       (a, b) =>
+        getCategoryRank(a.category.name) - getCategoryRank(b.category.name) ||
         a.category.sortOrder - b.category.sortOrder ||
         a.category.name.localeCompare(b.category.name),
     );
@@ -6622,7 +6645,7 @@ if (billPaymentMethod === "UPI") {
   const goldGlow = withAlpha(LUXURY_GOLD, isLightTheme ? 0.22 : 0.34);
   const heroImageUrl = clientSettings.heroImageUrl || branding?.heroImageUrl || "";
   const logoUrl = clientSettings.logoUrl || branding?.logoUrl || "";
-  const headerLogoSrc = logoUrl || "/logo/cafe-luxe-logo.png";
+  const headerLogoSrc = "/logo/cafe_luxe_logo.png";
   const tagline = clientSettings.tagline || branding?.tagline || "";
   const supportPhone = clientSettings.supportPhone;
   const supportPhoneDialValue = supportPhone.replace(/[^0-9+]/g, "");
@@ -6861,12 +6884,12 @@ if (billPaymentMethod === "UPI") {
                     )}
                     style={{ color: isLightTheme ? PALETTE_TEXT : PALETTE_BACKGROUND }}
                   >
-                    Cafe Luxe
+                    Nanu Da Dhaba
                   </h1>
                   <p className={clsx("mt-1.5 text-[10px] font-medium uppercase tracking-[0.24em] sm:text-[10.5px]", mutedTextClass)}>
                     Premium Table Ordering
                   </p>
-                  {restaurantName && restaurantName.toLowerCase() !== "cafe luxe" ? (
+                  {restaurantName && restaurantName.toLowerCase() !== "nanu da dhaba" ? (
                     <p className={clsx("mt-1 truncate text-xs", mutedTextClass)}>{restaurantName}</p>
                   ) : null}
                 </div>

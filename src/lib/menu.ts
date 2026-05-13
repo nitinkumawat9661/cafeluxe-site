@@ -1032,9 +1032,19 @@ export function parseMenuItems(docs: AppwriteDocument[], client: string) {
       const categoryRefs = getFieldStringList(doc, categoryRefKeys);
       const imageFileId = resolveMenuItemImageFileId(doc);
       const imageBucketId = resolveMenuItemImageBucketId(doc);
+      const directImageSrc = resolveAssetUrl(
+        doc.image ??
+          doc.imageUrl ??
+          doc.image_url ??
+          doc.photo ??
+          doc.thumbnail ??
+          doc.imageId ??
+          doc.image_id ??
+          "",
+      );
       const finalImageSrc = imageFileId
         ? buildBucketFileViewUrl(imageFileId, imageBucketId)
-        : "";
+        : directImageSrc;
       return {
         id: doc.$id,
         name,

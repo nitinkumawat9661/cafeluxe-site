@@ -35,7 +35,7 @@ export async function generateMetadata({
   params: RouteParams;
 }): Promise<Metadata> {
   const { client, table } = await params;
-  const safeClient = sanitizeRouteParam(client, 64) || "Cafe Luxe";
+  const safeClient = sanitizeRouteParam(client, 64) || "Nanu Da Dhaba";
   const safeTable = sanitizeRouteParam(table, 32) || "Table";
   const prettyClient = safeClient
     .split(/[-_\s]+/)
