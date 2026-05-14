@@ -124,6 +124,8 @@ type BillLineItem = {
 type TableOrderRecord = {
   orderId: string;
   orderNumber: string;
+  sessionId: string;
+  billId: string;
   tableNo: string;
   status: string;
   paymentStatus: string;
@@ -297,7 +299,7 @@ const CUSTOMER_BROWSER_ID_KEY = "customer_browser_id";
 const CUSTOMER_PROFILE_KEY = "customer_profile";
 const CUSTOMER_ORDER_HISTORY_PREFIX = "customer_order_history";
 const CUSTOMER_BILL_SCOPE_PREFIX = "customer_bill_scope";
-const CLIENT_CACHE_RESET_MARKER_KEY = "cafeluxe_cache_reset_20260424";
+const CLIENT_CACHE_RESET_MARKER_KEY = "cafeluxe_cache_reset_20260514_session_fix_v2";
 const CUSTOMER_PROFILE_VERSION = 1;
 const CUSTOMER_ORDER_HISTORY_VERSION = 1;
 const CUSTOMER_BILL_SCOPE_VERSION = 1;
@@ -2969,6 +2971,8 @@ function parseTableOrderRecord(value: unknown) {
       toSafeString(source.orderNumber) ||
       toSafeString(source.order_number) ||
       `ORD-${orderId.slice(-6).toUpperCase()}`,
+    sessionId: toSafeString(source.sessionId ?? source.session_id),
+    billId: toSafeString(source.billId ?? source.bill_id),
     tableNo: toSafeString(source.tableNo) || toSafeString(source.table_no),
     status: toSafeString(source.status) || "PLACED",
     paymentStatus: toSafeString(source.paymentStatus ?? source.payment_status) || "UNPAID",
@@ -3440,6 +3444,8 @@ function parseOrderRecordFromDocument(doc: Record<string, unknown>): TableOrderR
   return {
     orderId,
     orderNumber: toSafeString(doc.order_number) || `ORD-${orderId.slice(-6).toUpperCase()}`,
+    sessionId: toSafeString(doc.session_id ?? doc.sessionId),
+    billId: toSafeString(doc.bill_id ?? doc.billId),
     tableNo: toSafeString(doc.table_no),
     status: toSafeString(doc.status) || "PLACED",
     paymentStatus: toSafeString(doc.payment_status) || "UNPAID",
@@ -3595,10 +3601,14 @@ function buildTableOrderRecordFromCart(
   selectedModifiersByItem: Record<string, SelectedModifier[]>,
   selectedAddonsByItem: Record<string, SelectedAddon[]>,
   kitchenInstructions: string,
+  sessionId: string = "",
+  billId: string = "",
 ) {
   return {
     orderId,
     orderNumber,
+    sessionId,
+    billId,
     tableNo,
     status: "PLACED",
     paymentStatus: "UNPAID",
@@ -6157,10 +6167,24 @@ export default function QrOrderingExperience({
     }
     const trimmedInstructions = sanitizeInstructionText(kitchenInstructions);
 
-    const activeOrderSession = {
-      sessionId: activeSessionStorageKey,
-      billId: activeBillStorageKey,
-    };
+    const reusableOpenOrderForSession = currentBillOrders.find(
+      (order) =>
+        !isOrderClosed(order.status, order.paymentStatus) &&
+        !!order.sessionId &&
+        !!order.billId,
+    );
+
+    const freshSessionToken = `${normalizeRouteToken(clientId)}_${normalizeRouteToken(tableInfo!.tableNo || routeTable)}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+    const activeOrderSession = reusableOpenOrderForSession
+      ? {
+          sessionId: reusableOpenOrderForSession.sessionId,
+          billId: reusableOpenOrderForSession.billId,
+        }
+      : {
+          sessionId: `session_${freshSessionToken}`,
+          billId: `bill_${freshSessionToken}`,
+        };
     const orderRound = 1;
     const isAddMore = false;
 
@@ -6278,7 +6302,7 @@ const kotOrderBasePayload: Record<string, unknown> = {
   bill_id: activeOrderSession!.billId,
   table_number: tableInfo!.tableNo || tableLabel,
   order_round: orderRound,
-  is_add_more: currentBillOrders.length > 0,
+  is_add_more: !!reusableOpenOrderForSession,
   kot_status: "pending",
   status: "PLACED",
   payment_status: "UNPAID",
@@ -6350,7 +6374,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
           order_id: createdOrder.$id,
           order_number: orderNumber,
           type: "KOT",
-          label: `${currentBillOrders.length > 0 ? "RUNNING ORDER" : "NEW ORDER"} TABLE ${tableInfo!.tableNo || tableLabel}`,
+          label: `${reusableOpenOrderForSession ? "RUNNING ORDER" : "NEW ORDER"} TABLE ${tableInfo!.tableNo || tableLabel}`,
           items_json: kitchenItemsJson,
           total_amount: roundCurrency(computedPayableTotal),
           status: "pending",
@@ -6396,6 +6420,8 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
         resolvedSelectedModifiersByItem,
         resolvedSelectedAddonsByItem,
         trimmedInstructions,
+        activeOrderSession.sessionId,
+        activeOrderSession.billId,
       );
       const mergedLocalOrders = mergeTableOrderRecords(tableOrdersRef.current, [placedOrderRecord]);
       setTableOrders(mergedLocalOrders);
@@ -6571,17 +6597,37 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
   async function handleBillPaymentConfirm() {
     setBillPaymentModalOpen(false);
     
-    const activeBillPaymentKey = `cafeluxe_payment_request_${routeClient}_${routeTable}_${activeBillStorageKey}`;
+    const paymentRequestFingerprint = [
+      billActionOrderId ||
+        latestBillOrder?.orderId ||
+        aggregatedUnpaidOrder?.orderId ||
+        unpaidOrders.map((order) => order.orderId).join("_") ||
+        tableOrders.map((order) => order.orderId).join("_") ||
+        "no_order",
+      Math.round(billPayableTotal * 100),
+    ].join("_");
+
+    const activeBillPaymentKey = `cafeluxe_payment_request_${routeClient}_${routeTable}_${activeBillStorageKey}_${paymentRequestFingerprint}`;
     if (typeof window !== "undefined" && window.localStorage.getItem(activeBillPaymentKey) === "pending") {
       setNoticeMessage("Payment request already sent. Please wait for cashier confirmation.");
       return;
     }
+    const paymentTargetOrder =
+      (billActionOrderId ? tableOrders.find((order) => order.orderId === billActionOrderId) : null) ||
+      latestBillOrder ||
+      aggregatedUnpaidOrder ||
+      unpaidOrders[0] ||
+      tableOrders[0] ||
+      null;
+
+    const paymentSessionId = paymentTargetOrder?.sessionId || activeSessionStorageKey;
+    const paymentBillId = paymentTargetOrder?.billId || activeBillStorageKey;
     const paymentPayloadCandidates: Record<string, unknown>[] = [
       {
         client_id: routeClient,
         order_id: (billActionOrderId || latestBillOrder?.orderId || aggregatedUnpaidOrder?.orderId || unpaidOrders[0]?.orderId || tableOrders[0]?.orderId || ""),
-        session_id: activeSessionStorageKey,
-        bill_id: activeBillStorageKey,
+        session_id: paymentSessionId,
+        bill_id: paymentBillId,
         table_number: tableInfo?.tableNo || tableLabel,
         amount: billPayableTotal,
         payment_method: billPaymentMethod,
@@ -6594,8 +6640,8 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
       {
         client_id: routeClient,
         order_id: (billActionOrderId || latestBillOrder?.orderId || aggregatedUnpaidOrder?.orderId || unpaidOrders[0]?.orderId || tableOrders[0]?.orderId || ""),
-        session_id: activeSessionStorageKey,
-        bill_id: activeBillStorageKey,
+        session_id: paymentSessionId,
+        bill_id: paymentBillId,
         table_number: tableInfo?.tableNo || tableLabel,
         amount: billPayableTotal,
         payment_method: billPaymentMethod,
@@ -6605,8 +6651,8 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
       {
         client_id: routeClient,
         order_id: (billActionOrderId || latestBillOrder?.orderId || aggregatedUnpaidOrder?.orderId || unpaidOrders[0]?.orderId || tableOrders[0]?.orderId || ""),
-        session_id: activeSessionStorageKey,
-        bill_id: activeBillStorageKey,
+        session_id: paymentSessionId,
+        bill_id: paymentBillId,
         table_number: tableInfo?.tableNo || tableLabel,
         amount: billPayableTotal,
       },
@@ -9478,6 +9524,15 @@ if (billPaymentMethod === "UPI") {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
 
 
 

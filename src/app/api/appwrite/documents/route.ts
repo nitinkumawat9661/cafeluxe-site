@@ -161,9 +161,9 @@ const ALLOWED_TABLE_SESSION_PAYMENT_STATUSES = new Set([
   "completed",
 ]);
 const ALLOWED_KOT_STATUSES = new Set(["pending", "sent", "printed", "completed"]);
-const ALLOWED_PRINT_JOB_TYPES = new Set(["KOT"]);
+const ALLOWED_PRINT_JOB_TYPES = new Set(["KOT", "BILL"]);
 const ALLOWED_PRINT_JOB_STATUSES = new Set(["pending"]);
-const ALLOWED_PRINTER_TYPES = new Set(["KITCHEN"]);
+const ALLOWED_PRINTER_TYPES = new Set(["KITCHEN", "BILLING"]);
 
 const MAX_BODY_SIZE_BYTES = 48 * 1024;
 const MAX_QUERY_COUNT = 10;
@@ -1561,7 +1561,8 @@ function sanitizePrintJobCreatePayload(documentData: Record<string, unknown>) {
   const status =
     sanitizeLowercaseEnum(documentData.status, ALLOWED_PRINT_JOB_STATUSES) || "pending";
   const printerType =
-    sanitizeEnum(documentData.printer_type, ALLOWED_PRINTER_TYPES) || "KOT";
+    sanitizeEnum(documentData.printer_type, ALLOWED_PRINTER_TYPES) ||
+    (jobType === "BILL" ? "BILLING" : "KITCHEN");
   const createdAtCustom =
     sanitizeIsoTimestamp(documentData.created_at_custom) || new Date().toISOString();
 
@@ -1573,7 +1574,7 @@ function sanitizePrintJobCreatePayload(documentData: Record<string, unknown>) {
     bill_id: billId,
     label,
     items_json: itemsJson,
-    type: jobType === "KOT" ? "KOT" : "KOT",
+    type: jobType || "KOT",
     status,
     printer_type: printerType,
     total_amount: totalAmount,
@@ -2044,6 +2045,8 @@ export async function DELETE(request: NextRequest) {
     200,
   );
 }
+
+
 
 
 
