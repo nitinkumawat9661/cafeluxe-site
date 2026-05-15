@@ -23,10 +23,29 @@ export default function MasterDashboard() {
           </p>
         </div>
 
+        <nav className="sticky top-3 z-30 mt-4 rounded-3xl border border-white/10 bg-[#041421]/90 p-3 shadow-2xl backdrop-blur">
+          <div className="flex gap-2 overflow-x-auto">
+            {[
+              ["Restaurants", "#restaurants"],
+              ["Plans", "#plans"],
+              ["Alerts", "#alerts"],
+              ["Health", "#health"],
+              ["Sales", "#sales"],
+              ["Staff", "#staff"],
+              ["Feedback", "#feedback"],
+              ["QR", "#qr"],
+              ["Support", "#support"],
+            ].map(([label, href]) => (
+              <a key={href} href={href} className="shrink-0 rounded-full bg-white/10 px-4 py-2 text-sm text-white/75 hover:bg-[#86B9B0] hover:text-[#041421]">
+                {label}
+              </a>
+            ))}
+          </div>
+        </nav>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]">Client Management</p>
+              <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="restaurants" className="scroll-mt-28" />Client Management</p>
               <h2 className="mt-2 text-2xl font-semibold">Restaurants</h2>
               <p className="mt-2 text-sm text-white/60">Static foundation. Backend connection will be added next.</p>
             </div>
@@ -97,7 +116,7 @@ export default function MasterDashboard() {
           </div>
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
-          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]">Subscription Control</p>
+          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="plans" className="scroll-mt-28" />Subscription Control</p>
           <h2 className="mt-2 text-2xl font-semibold">Plans & Feature Access</h2>
           <p className="mt-2 text-sm text-white/60">Static foundation. Backend plan locking will be connected later.</p>
 
@@ -120,7 +139,7 @@ export default function MasterDashboard() {
           </div>
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
-          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]">Error Monitoring</p>
+          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="alerts" className="scroll-mt-28" />Error Monitoring</p>
           <h2 className="mt-2 text-2xl font-semibold">Alerts & System Health</h2>
           <p className="mt-2 text-sm text-white/60">Static foundation. Live app, website, printer, and Appwrite alerts will be connected later.</p>
 
@@ -148,7 +167,7 @@ export default function MasterDashboard() {
           </div>
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
-          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]">Device Health</p>
+          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="health" className="scroll-mt-28" />Device Health</p>
           <h2 className="mt-2 text-2xl font-semibold">Printer & App Monitoring</h2>
           <p className="mt-2 text-sm text-white/60">Static foundation. Live device heartbeat and printer status will be connected later.</p>
 
@@ -179,7 +198,7 @@ export default function MasterDashboard() {
           </div>
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
-          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]">Sales Analytics</p>
+          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="sales" className="scroll-mt-28" />Sales Analytics</p>
           <h2 className="mt-2 text-2xl font-semibold">Business Overview</h2>
           <p className="mt-2 text-sm text-white/60">Static foundation. Live sales, orders, and payment analytics will be connected later.</p>
 
@@ -210,7 +229,7 @@ export default function MasterDashboard() {
           </div>
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
-          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]">Staff Control</p>
+          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="staff" className="scroll-mt-28" />Staff Control</p>
           <h2 className="mt-2 text-2xl font-semibold">Roles & Permissions</h2>
           <p className="mt-2 text-sm text-white/60">Static foundation. Staff accounts and permission locking will be connected later.</p>
 
@@ -233,7 +252,7 @@ export default function MasterDashboard() {
           </div>
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
-          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]">Customer Voice</p>
+          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="feedback" className="scroll-mt-28" />Customer Voice</p>
           <h2 className="mt-2 text-2xl font-semibold">Feedback & Ratings</h2>
           <p className="mt-2 text-sm text-white/60">Static foundation. Live customer feedback and rating moderation will be connected later.</p>
 
@@ -262,7 +281,7 @@ export default function MasterDashboard() {
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]">QR Management</p>
+              <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="qr" className="scroll-mt-28" />QR Management</p>
               <h2 className="mt-2 text-2xl font-semibold">Branded Table QR Codes</h2>
               <p className="mt-2 text-sm text-white/60">Static foundation. Logo-based QR preview and download will be connected next.</p>
             </div>
@@ -286,7 +305,7 @@ export default function MasterDashboard() {
           </div>
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
-          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]">Support Desk</p>
+          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="support" className="scroll-mt-28" />Support Desk</p>
           <h2 className="mt-2 text-2xl font-semibold">Client Tickets</h2>
           <p className="mt-2 text-sm text-white/60">Static foundation. Live issue tickets and support notes will be connected later.</p>
 
@@ -311,6 +330,7 @@ export default function MasterDashboard() {
     </main>
   );
 }
+
 
 
 
