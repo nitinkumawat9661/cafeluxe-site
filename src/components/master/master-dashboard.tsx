@@ -1,3 +1,4 @@
+import MasterSalesLive from "@/components/master/master-sales-live";
 import BrandedQrCard from "@/components/master/branded-qr-card";
 
 const restaurants = [
@@ -202,31 +203,7 @@ export default function MasterDashboard() {
           <h2 className="mt-2 text-2xl font-semibold">Business Overview</h2>
           <p className="mt-2 text-sm text-white/60">Static foundation. Live sales, orders, and payment analytics will be connected later.</p>
 
-          <div className="mt-5 grid gap-4 lg:grid-cols-4">
-            <article className="rounded-3xl border border-white/10 bg-black/10 p-4">
-              <p className="text-sm text-white/55">Today Sales</p>
-              <h3 className="mt-2 text-2xl font-semibold text-emerald-100">₹0</h3>
-              <p className="mt-2 text-sm text-white/60">Live total later.</p>
-            </article>
-
-            <article className="rounded-3xl border border-white/10 bg-black/10 p-4">
-              <p className="text-sm text-white/55">Today Orders</p>
-              <h3 className="mt-2 text-2xl font-semibold">0</h3>
-              <p className="mt-2 text-sm text-white/60">Order count later.</p>
-            </article>
-
-            <article className="rounded-3xl border border-white/10 bg-black/10 p-4">
-              <p className="text-sm text-white/55">Most Sold Item</p>
-              <h3 className="mt-2 text-2xl font-semibold text-yellow-100">Bundi Raita</h3>
-              <p className="mt-2 text-sm text-white/60">From popular items logic later.</p>
-            </article>
-
-            <article className="rounded-3xl border border-white/10 bg-black/10 p-4">
-              <p className="text-sm text-white/55">Payments</p>
-              <h3 className="mt-2 text-2xl font-semibold text-blue-100">Cash / UPI</h3>
-              <p className="mt-2 text-sm text-white/60">Breakdown later.</p>
-            </article>
-          </div>
+          <MasterSalesLive clientId="trustfirst_demo" />
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="staff" className="scroll-mt-28" />Staff Control</p>
@@ -330,6 +307,7 @@ export default function MasterDashboard() {
     </main>
   );
 }
+
 
 
 
