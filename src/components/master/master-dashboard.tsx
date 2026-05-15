@@ -96,10 +96,39 @@ export default function MasterDashboard() {
             </article>
           </div>
         </section>
+        <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
+          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]">Error Monitoring</p>
+          <h2 className="mt-2 text-2xl font-semibold">Alerts & System Health</h2>
+          <p className="mt-2 text-sm text-white/60">Static foundation. Live app, website, printer, and Appwrite alerts will be connected later.</p>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-3">
+            <article className="rounded-3xl border border-red-300/20 bg-red-500/10 p-4">
+              <p className="text-sm text-red-200">Critical</p>
+              <h3 className="mt-2 text-xl font-semibold">Printer Offline</h3>
+              <p className="mt-2 text-sm text-white/60">Source: Android / Kitchen Printer</p>
+              <span className="mt-4 inline-flex rounded-full bg-red-400/15 px-3 py-1 text-sm text-red-100">Open</span>
+            </article>
+
+            <article className="rounded-3xl border border-yellow-300/20 bg-yellow-500/10 p-4">
+              <p className="text-sm text-yellow-100">Warning</p>
+              <h3 className="mt-2 text-xl font-semibold">Order Sync Delay</h3>
+              <p className="mt-2 text-sm text-white/60">Source: Website / Appwrite</p>
+              <span className="mt-4 inline-flex rounded-full bg-yellow-400/15 px-3 py-1 text-sm text-yellow-100">Watching</span>
+            </article>
+
+            <article className="rounded-3xl border border-emerald-300/20 bg-emerald-500/10 p-4">
+              <p className="text-sm text-emerald-100">Info</p>
+              <h3 className="mt-2 text-xl font-semibold">System Healthy</h3>
+              <p className="mt-2 text-sm text-white/60">Source: Master Dashboard</p>
+              <span className="mt-4 inline-flex rounded-full bg-emerald-400/15 px-3 py-1 text-sm text-emerald-100">Solved</span>
+            </article>
+          </div>
+        </section>
       </section>
     </main>
   );
 }
+
 
 
 
