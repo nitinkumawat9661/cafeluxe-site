@@ -1,3 +1,4 @@
+import MasterHealthLive from "@/components/master/master-health-live";
 import MasterSalesLive from "@/components/master/master-sales-live";
 import BrandedQrCard from "@/components/master/branded-qr-card";
 
@@ -170,33 +171,9 @@ export default function MasterDashboard() {
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="health" className="scroll-mt-28" />Device Health</p>
           <h2 className="mt-2 text-2xl font-semibold">Printer & App Monitoring</h2>
-          <p className="mt-2 text-sm text-white/60">Static foundation. Live device heartbeat and printer status will be connected later.</p>
+          <p className="mt-2 text-sm text-white/60">Live status from Appwrite orders and print jobs.</p>
 
-          <div className="mt-5 grid gap-4 lg:grid-cols-4">
-            <article className="rounded-3xl border border-emerald-300/20 bg-emerald-500/10 p-4">
-              <p className="text-sm text-white/55">Kitchen Printer</p>
-              <h3 className="mt-2 text-xl font-semibold text-emerald-100">Online</h3>
-              <p className="mt-2 text-sm text-white/60">Last KOT: Recently printed</p>
-            </article>
-
-            <article className="rounded-3xl border border-emerald-300/20 bg-emerald-500/10 p-4">
-              <p className="text-sm text-white/55">Bill Printer</p>
-              <h3 className="mt-2 text-xl font-semibold text-emerald-100">Online</h3>
-              <p className="mt-2 text-sm text-white/60">Last bill: Recently printed</p>
-            </article>
-
-            <article className="rounded-3xl border border-blue-300/20 bg-blue-500/10 p-4">
-              <p className="text-sm text-white/55">Android Staff App</p>
-              <h3 className="mt-2 text-xl font-semibold text-blue-100">Active</h3>
-              <p className="mt-2 text-sm text-white/60">Last sync: Placeholder</p>
-            </article>
-
-            <article className="rounded-3xl border border-emerald-300/20 bg-emerald-500/10 p-4">
-              <p className="text-sm text-white/55">Website Ordering</p>
-              <h3 className="mt-2 text-xl font-semibold text-emerald-100">Enabled</h3>
-              <p className="mt-2 text-sm text-white/60">QR ordering route healthy.</p>
-            </article>
-          </div>
+          <MasterHealthLive clientId="trustfirst_demo" />
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="sales" className="scroll-mt-28" />Sales Analytics</p>
@@ -307,6 +284,7 @@ export default function MasterDashboard() {
     </main>
   );
 }
+
 
 
 
