@@ -43,13 +43,13 @@ export default function MasterDashboard() {
                 <p className="text-sm text-white/70">Tables: {restaurant.tables}</p>
                 <span className="w-fit rounded-full bg-emerald-400/15 px-3 py-1 text-sm text-emerald-200">{restaurant.status}</span>
                 <span className="w-fit rounded-full bg-yellow-400/15 px-3 py-1 text-sm text-yellow-100">{restaurant.plan}</span>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2 lg:justify-end">
                   <a href={restaurant.qrPath} className="rounded-xl border border-white/10 px-3 py-2 text-sm text-white/80">Open QR</a>
-                  <details className="relative">
+                  <details className="w-full min-w-72 lg:min-w-80">
                     <summary className="cursor-pointer rounded-xl bg-white/10 px-3 py-2 text-sm">
                       Manage
                     </summary>
-                    <div className="absolute right-0 top-full z-50 mt-3 w-72 rounded-2xl border border-white/10 bg-[#06202b] p-4 shadow-2xl">
+                    <div className="mt-3 w-full rounded-2xl border border-white/10 bg-[#06202b] p-4 shadow-2xl">
                       <p className="font-semibold">{restaurant.name}</p>
                       <p className="mt-1 text-xs text-white/55">Client ID: {restaurant.clientId}</p>
                       <div className="mt-4 space-y-2 text-sm text-white/75">
@@ -100,6 +100,7 @@ export default function MasterDashboard() {
     </main>
   );
 }
+
 
 
 
