@@ -236,10 +236,49 @@ export default function MasterDashboard() {
             ))}
           </div>
         </section>
+        <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]">QR Management</p>
+              <h2 className="mt-2 text-2xl font-semibold">Branded Table QR Codes</h2>
+              <p className="mt-2 text-sm text-white/60">Static foundation. Logo-based QR preview and download will be connected next.</p>
+            </div>
+            <button className="rounded-2xl bg-[#86B9B0] px-5 py-3 text-sm font-semibold text-[#041421]">
+              Bulk Download Soon
+            </button>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-4">
+            {["01", "02", "03", "06"].map((tableNo) => {
+              const qrPath = `/c/trustfirst_demo/t/${tableNo}`;
+              return (
+                <article key={tableNo} className="rounded-3xl border border-white/10 bg-black/10 p-4">
+                  <div className="rounded-2xl border border-dashed border-white/20 bg-white/10 p-5 text-center">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#86B9B0] text-lg font-bold text-[#041421]">
+                      CL
+                    </div>
+                    <p className="mt-3 text-xs text-white/55">Logo + QR Preview</p>
+                  </div>
+                  <h3 className="mt-4 text-xl font-semibold">Table {tableNo}</h3>
+                  <p className="mt-2 break-all text-xs text-white/55">{qrPath}</p>
+                  <div className="mt-4 grid gap-2">
+                    <a href={qrPath} className="rounded-xl bg-[#86B9B0] px-3 py-2 text-center text-sm font-semibold text-[#041421]">
+                      Open QR Link
+                    </a>
+                    <button className="rounded-xl border border-white/10 px-3 py-2 text-sm text-white/70">
+                      Download Soon
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
       </section>
     </main>
   );
 }
+
 
 
 
