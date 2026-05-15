@@ -73,9 +73,34 @@ export default function MasterDashboard() {
             ))}
           </div>
         </section>
+        <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
+          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]">Subscription Control</p>
+          <h2 className="mt-2 text-2xl font-semibold">Plans & Feature Access</h2>
+          <p className="mt-2 text-sm text-white/60">Static foundation. Backend plan locking will be connected later.</p>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-3">
+            <article className="rounded-3xl border border-white/10 bg-black/10 p-4">
+              <p className="text-sm text-white/55">Current Plan</p>
+              <h3 className="mt-2 text-2xl font-semibold text-yellow-100">Demo Plan</h3>
+              <p className="mt-2 text-sm text-white/60">Expires: Not set</p>
+            </article>
+            <article className="rounded-3xl border border-white/10 bg-black/10 p-4">
+              <p className="text-sm text-white/55">Ordering Status</p>
+              <h3 className="mt-2 text-2xl font-semibold text-emerald-200">Enabled</h3>
+              <p className="mt-2 text-sm text-white/60">QR ordering is currently allowed.</p>
+            </article>
+            <article className="rounded-3xl border border-white/10 bg-black/10 p-4">
+              <p className="text-sm text-white/55">Payment Status</p>
+              <h3 className="mt-2 text-2xl font-semibold text-orange-100">Pending</h3>
+              <p className="mt-2 text-sm text-white/60">Manual subscription tracking for now.</p>
+            </article>
+          </div>
+        </section>
       </section>
     </main>
   );
 }
+
+
 
 
