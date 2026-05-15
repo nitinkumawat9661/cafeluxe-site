@@ -186,10 +186,34 @@ export default function MasterDashboard() {
             </article>
           </div>
         </section>
+        <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
+          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]">Staff Control</p>
+          <h2 className="mt-2 text-2xl font-semibold">Roles & Permissions</h2>
+          <p className="mt-2 text-sm text-white/60">Static foundation. Staff accounts and permission locking will be connected later.</p>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-4">
+            {[
+              { role: "Owner", status: "Active", permissions: "Full Access" },
+              { role: "Manager", status: "Active", permissions: "Menu, Records, Payments" },
+              { role: "Cashier", status: "Pending", permissions: "Billing, Payments" },
+              { role: "Kitchen", status: "Pending", permissions: "KOT, Order Status" },
+            ].map((staff) => (
+              <article key={staff.role} className="rounded-3xl border border-white/10 bg-black/10 p-4">
+                <p className="text-sm text-white/55">Role</p>
+                <h3 className="mt-2 text-xl font-semibold">{staff.role}</h3>
+                <span className="mt-3 inline-flex rounded-full bg-[#86B9B0]/15 px-3 py-1 text-sm text-[#D0D6D6]">
+                  {staff.status}
+                </span>
+                <p className="mt-3 text-sm text-white/60">{staff.permissions}</p>
+              </article>
+            ))}
+          </div>
+        </section>
       </section>
     </main>
   );
 }
+
 
 
 
