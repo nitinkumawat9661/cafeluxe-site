@@ -7,6 +7,8 @@ type SalesData = {
   todayOrders: number;
   mostSoldItem: { name: string; qty: number } | null;
   paymentBreakdown: Record<string, number>;
+  businessDate?: string;
+  isToday?: boolean;
 };
 
 export default function MasterSalesLive({ clientId }: { clientId: string }) {
@@ -20,12 +22,14 @@ export default function MasterSalesLive({ clientId }: { clientId: string }) {
   }, [clientId]);
 
   const payments = data?.paymentBreakdown ?? {};
+  const salesLabel = data?.isToday === false ? "Latest Sales Day" : "Today Sales";
 
   return (
     <div className="mt-5 grid gap-4 lg:grid-cols-4">
       <article className="rounded-3xl border border-white/10 bg-black/10 p-4">
-        <p className="text-sm text-white/55">Today Sales</p>
+        <p className="text-sm text-white/55">{salesLabel}</p>
         <h3 className="mt-2 text-2xl font-semibold text-emerald-100">₹{(data?.todaySales ?? 0).toFixed(2)}</h3>
+        {data?.businessDate ? <p className="mt-2 text-xs text-white/50">Date: {data.businessDate}</p> : null}
       </article>
       <article className="rounded-3xl border border-white/10 bg-black/10 p-4">
         <p className="text-sm text-white/55">Today Orders</p>
@@ -45,3 +49,4 @@ export default function MasterSalesLive({ clientId }: { clientId: string }) {
     </div>
   );
 }
+
