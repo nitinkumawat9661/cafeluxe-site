@@ -285,10 +285,33 @@ export default function MasterDashboard() {
             })}
           </div>
         </section>
+        <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
+          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]">Support Desk</p>
+          <h2 className="mt-2 text-2xl font-semibold">Client Tickets</h2>
+          <p className="mt-2 text-sm text-white/60">Static foundation. Live issue tickets and support notes will be connected later.</p>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-3">
+            {[
+              { title: "Printer not connecting", source: "Android App / Printer", priority: "High", status: "Open" },
+              { title: "QR page slow loading", source: "Website", priority: "Medium", status: "In Progress" },
+              { title: "Menu price update request", source: "Restaurant", priority: "Low", status: "Solved" },
+            ].map((ticket) => (
+              <article key={ticket.title} className="rounded-3xl border border-white/10 bg-black/10 p-4">
+                <p className="text-sm text-[#86B9B0]">{ticket.source}</p>
+                <h3 className="mt-2 text-lg font-semibold">{ticket.title}</h3>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <span className="rounded-full bg-orange-400/15 px-3 py-1 text-sm text-orange-100">{ticket.priority}</span>
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-sm text-white/70">{ticket.status}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
       </section>
     </main>
   );
 }
+
 
 
 
