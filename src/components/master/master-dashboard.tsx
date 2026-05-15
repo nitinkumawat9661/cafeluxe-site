@@ -30,9 +30,30 @@ export default function MasterDashboard() {
               <h2 className="mt-2 text-2xl font-semibold">Restaurants</h2>
               <p className="mt-2 text-sm text-white/60">Static foundation. Backend connection will be added next.</p>
             </div>
-            <button className="rounded-2xl bg-[#86B9B0] px-5 py-3 text-sm font-semibold text-[#041421]">
-              Add Restaurant
-            </button>
+            <details className="w-full sm:w-auto">
+              <summary className="cursor-pointer rounded-2xl bg-[#86B9B0] px-5 py-3 text-center text-sm font-semibold text-[#041421]">
+                Add Restaurant
+              </summary>
+              <div className="mt-4 rounded-3xl border border-white/10 bg-[#06202b] p-5 shadow-2xl sm:w-[520px]">
+                <h3 className="text-xl font-semibold">Restaurant Setup Wizard</h3>
+                <p className="mt-2 text-sm text-white/60">Static setup form. Backend creation will be connected later.</p>
+
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  <input className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm outline-none" placeholder="Restaurant name" />
+                  <input className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm outline-none" placeholder="Client ID" />
+                  <input className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm outline-none" placeholder="Table count" />
+                  <select className="rounded-2xl border border-white/10 bg-[#06202b] px-4 py-3 text-sm outline-none">
+                    <option>Demo Plan</option>
+                    <option>Paid Plan</option>
+                    <option>Trial Plan</option>
+                  </select>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-dashed border-white/15 p-4 text-sm text-white/60">
+                  Logo upload + branded QR generation placeholder
+                </div>
+              </div>
+            </details>
           </div>
 
           <div className="mt-5 overflow-visible rounded-3xl border border-white/10">
@@ -268,6 +289,8 @@ export default function MasterDashboard() {
     </main>
   );
 }
+
+
 
 
 
