@@ -33,7 +33,7 @@ export default function MasterDashboard() {
             </button>
           </div>
 
-          <div className="mt-5 overflow-hidden rounded-3xl border border-white/10">
+          <div className="mt-5 overflow-visible rounded-3xl border border-white/10">
             {restaurants.map((restaurant) => (
               <div key={restaurant.clientId} className="grid gap-4 border-b border-white/10 bg-black/10 p-4 last:border-b-0 lg:grid-cols-[1.4fr_1fr_0.8fr_0.8fr_1fr] lg:items-center">
                 <div>
@@ -45,7 +45,29 @@ export default function MasterDashboard() {
                 <span className="w-fit rounded-full bg-yellow-400/15 px-3 py-1 text-sm text-yellow-100">{restaurant.plan}</span>
                 <div className="flex gap-2">
                   <a href={restaurant.qrPath} className="rounded-xl border border-white/10 px-3 py-2 text-sm text-white/80">Open QR</a>
-                  <button className="rounded-xl bg-white/10 px-3 py-2 text-sm">Manage</button>
+                  <details className="relative">
+                    <summary className="cursor-pointer rounded-xl bg-white/10 px-3 py-2 text-sm">
+                      Manage
+                    </summary>
+                    <div className="absolute right-0 top-full z-50 mt-3 w-72 rounded-2xl border border-white/10 bg-[#06202b] p-4 shadow-2xl">
+                      <p className="font-semibold">{restaurant.name}</p>
+                      <p className="mt-1 text-xs text-white/55">Client ID: {restaurant.clientId}</p>
+                      <div className="mt-4 space-y-2 text-sm text-white/75">
+                        <p>Plan: {restaurant.plan}</p>
+                        <p>Status: {restaurant.status}</p>
+                        <p>Tables: {restaurant.tables}</p>
+                        <p>QR Path: {restaurant.qrPath}</p>
+                      </div>
+                      <div className="mt-4 grid gap-2">
+                        <a href={restaurant.qrPath} className="rounded-xl bg-[#86B9B0] px-3 py-2 text-center text-sm font-semibold text-[#041421]">
+                          Open QR Page
+                        </a>
+                        <button className="rounded-xl border border-white/10 px-3 py-2 text-sm text-white/70">
+                          Edit Details Soon
+                        </button>
+                      </div>
+                    </div>
+                  </details>
                 </div>
               </div>
             ))}
@@ -55,3 +77,5 @@ export default function MasterDashboard() {
     </main>
   );
 }
+
+
