@@ -3503,30 +3503,19 @@ async function fetchTableOrderRecords(clientId: string, tableId: string) {
 
 async function fetchClientSalesRank(clientId: string) {
   try {
-    const orderDocs = await fetchAllDocuments(appwriteConfig.collections.orders, {
-      pageSize: 50,
-      maxDocs: 300,
-      queries: [
-        Query.equal("client_id", [clientId]),
-        Query.orderDesc("$createdAt"),
-      ],
-      timeoutMs: BILL_SYNC_TIMEOUT_MS,
+    const response = await fetch(`/api/popular-items?clientId=${encodeURIComponent(clientId)}`, {
+      method: "GET",
+      cache: "no-store",
     });
 
-    const rank: Record<string, number> = {};
-    for (const doc of orderDocs) {
-      const record = parseOrderRecordFromDocument(doc);
-      if (!record) continue;
-      for (const item of record.items) {
-        if (!item.itemId) continue;
-        rank[item.itemId] = (rank[item.itemId] ?? 0) + Math.max(0, item.quantity);
-      }
+    if (!response.ok) {
+      return {};
     }
-    return rank;
+
+    const payload = (await response.json()) as { rank?: Record<string, number> };
+    return payload.rank && typeof payload.rank === "object" ? payload.rank : {};
   } catch (error) {
-    if (!isUnauthorizedError(error) && !isRecoverableQueryFailure(error)) {
-      devWarn("Popular item rank fetch failed:", error);
-    }
+    devWarn("Popular item rank fetch failed:", error);
     return {};
   }
 }
@@ -9594,6 +9583,7 @@ if (billPaymentMethod === "UPI") {
     </div>
   );
 }
+
 
 
 
