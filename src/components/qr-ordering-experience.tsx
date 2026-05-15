@@ -3501,6 +3501,35 @@ async function fetchTableOrderRecords(clientId: string, tableId: string) {
   }
 }
 
+async function fetchClientSalesRank(clientId: string) {
+  try {
+    const orderDocs = await fetchAllDocuments(appwriteConfig.collections.orders, {
+      pageSize: 50,
+      maxDocs: 300,
+      queries: [
+        Query.equal("client_id", [clientId]),
+        Query.orderDesc("$createdAt"),
+      ],
+      timeoutMs: BILL_SYNC_TIMEOUT_MS,
+    });
+
+    const rank: Record<string, number> = {};
+    for (const doc of orderDocs) {
+      const record = parseOrderRecordFromDocument(doc);
+      if (!record) continue;
+      for (const item of record.items) {
+        if (!item.itemId) continue;
+        rank[item.itemId] = (rank[item.itemId] ?? 0) + Math.max(0, item.quantity);
+      }
+    }
+    return rank;
+  } catch (error) {
+    if (!isUnauthorizedError(error) && !isRecoverableQueryFailure(error)) {
+      devWarn("Popular item rank fetch failed:", error);
+    }
+    return {};
+  }
+}
 function uniqueNonEmpty(values: string[]) {
   return Array.from(
     new Set(
@@ -3719,6 +3748,7 @@ export default function QrOrderingExperience({
   const [tableInfo, setTableInfo] = useState<RestaurantTable | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [salesRankByItemId, setSalesRankByItemId] = useState<Record<string, number>>({});
   const [offersToday, setOffersToday] = useState<Offer[]>([]);
 
   const [searchText, setSearchText] = useState("");
@@ -4775,6 +4805,17 @@ export default function QrOrderingExperience({
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    void fetchClientSalesRank(routeClient).then((rank) => {
+      if (!cancelled) setSalesRankByItemId(rank);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [routeClient, reloadKey]);
   const deferredSearchText = useDeferredValue(searchText);
   const visibleItems = useMemo(() => {
     const normalizedSearch = deferredSearchText.trim().toLowerCase();
@@ -4783,21 +4824,24 @@ export default function QrOrderingExperience({
         ? null
         : categories.find((category) => category.id === activeCategory) ?? null;
 
-    return menuItems.filter((item) => {
-      const inCategory = !selectedCategory || matchesCategory(item, selectedCategory);
+    const originalIndex = new Map(menuItems.map((item, index) => [item.id, index]));
 
-      if (!inCategory) {
-        return false;
-      }
+    return menuItems
+      .filter((item) => {
+        const inCategory = !selectedCategory || matchesCategory(item, selectedCategory);
+        if (!inCategory) return false;
 
-      if (!normalizedSearch) {
-        return true;
-      }
+        if (!normalizedSearch) return true;
 
-      const haystack = `${item.name} ${item.nameHi} ${item.description}`.toLowerCase();
-      return haystack.includes(normalizedSearch);
-    });
-  }, [activeCategory, categories, deferredSearchText, menuItems]);
+        const haystack = `${item.name} ${item.nameHi} ${item.description}`.toLowerCase();
+        return haystack.includes(normalizedSearch);
+      })
+      .sort((a, b) => {
+        const soldDiff = (salesRankByItemId[b.id] ?? 0) - (salesRankByItemId[a.id] ?? 0);
+        if (soldDiff !== 0) return soldDiff;
+        return (originalIndex.get(a.id) ?? 0) - (originalIndex.get(b.id) ?? 0);
+      });
+  }, [activeCategory, categories, deferredSearchText, menuItems, salesRankByItemId]);
 
   const groupedItems = useMemo(() => {
     const groups = new Map<string, { category: Category; items: MenuItem[] }>();
@@ -4862,13 +4906,41 @@ export default function QrOrderingExperience({
       return index === -1 ? 999 : index;
     };
 
-    return Array.from(groups.values()).sort(
+    const sortedGroups = Array.from(groups.values()).sort(
       (a, b) =>
         getCategoryRank(a.category.name) - getCategoryRank(b.category.name) ||
         a.category.sortOrder - b.category.sortOrder ||
         a.category.name.localeCompare(b.category.name),
     );
-  }, [activeCategory, visibleItems, categories]);
+
+    const mostLovedItems =
+      activeCategory === "all" && deferredSearchText.trim().length === 0
+        ? visibleItems
+            .filter((item) => (salesRankByItemId[item.id] ?? 0) > 0)
+            .slice(0, 8)
+        : [];
+
+    if (mostLovedItems.length === 0) {
+      return sortedGroups;
+    }
+
+    return [
+      {
+        category: {
+          id: "most-loved",
+          name: "Most Loved",
+          nameHi: "Most Loved",
+          description: "",
+          image: "",
+          slug: "most-loved",
+          sortOrder: -999,
+          raw: { $id: "most-loved" },
+        } satisfies Category,
+        items: mostLovedItems,
+      },
+      ...sortedGroups,
+    ];
+  }, [activeCategory, visibleItems, categories, deferredSearchText, salesRankByItemId]);
 
   const cartItems = useMemo(() => {
     const items: CartItem[] = [];
@@ -6495,11 +6567,9 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
       setSelectedAddonsByItem({});
       setKitchenInstructions("");
       setCartOpen(false);
-
-      if (options?.redirectToMenuAfterSuccess) {
-        setNoticeMessage("Order placed successfully.");
-        navigateToMenuAfterOrder();
-      }
+      setBillOpen(false);
+      setNoticeMessage("Order placed successfully. You can add more items from the menu.");
+      navigateToMenuAfterOrder();
     } catch (orderError) {
       console.error("PLACE_ORDER_FAILED", {
         message: (orderError as any)?.message,
@@ -9524,6 +9594,9 @@ if (billPaymentMethod === "UPI") {
     </div>
   );
 }
+
+
+
 
 
 
