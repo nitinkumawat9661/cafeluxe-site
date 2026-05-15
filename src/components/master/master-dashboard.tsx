@@ -1,3 +1,5 @@
+import BrandedQrCard from "@/components/master/branded-qr-card";
+
 const restaurants = [
   {
     name: "Nanu Da Dhaba",
@@ -252,24 +254,12 @@ export default function MasterDashboard() {
             {["01", "02", "03", "06"].map((tableNo) => {
               const qrPath = `/c/trustfirst_demo/t/${tableNo}`;
               return (
-                <article key={tableNo} className="rounded-3xl border border-white/10 bg-black/10 p-4">
-                  <div className="rounded-2xl border border-dashed border-white/20 bg-white/10 p-5 text-center">
-                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#86B9B0] text-lg font-bold text-[#041421]">
-                      CL
-                    </div>
-                    <p className="mt-3 text-xs text-white/55">Logo + QR Preview</p>
-                  </div>
-                  <h3 className="mt-4 text-xl font-semibold">Table {tableNo}</h3>
-                  <p className="mt-2 break-all text-xs text-white/55">{qrPath}</p>
-                  <div className="mt-4 grid gap-2">
-                    <a href={qrPath} className="rounded-xl bg-[#86B9B0] px-3 py-2 text-center text-sm font-semibold text-[#041421]">
-                      Open QR Link
-                    </a>
-                    <button className="rounded-xl border border-white/10 px-3 py-2 text-sm text-white/70">
-                      Download Soon
-                    </button>
-                  </div>
-                </article>
+                <BrandedQrCard
+                  key={tableNo}
+                  restaurantName="Nanu Da Dhaba"
+                  tableNo={tableNo}
+                  qrPath={qrPath}
+                />
               );
             })}
           </div>
@@ -278,6 +268,7 @@ export default function MasterDashboard() {
     </main>
   );
 }
+
 
 
 
