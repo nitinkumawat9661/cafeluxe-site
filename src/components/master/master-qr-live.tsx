@@ -2,18 +2,10 @@
 
 import { useEffect, useState } from "react";
 import BrandedQrCard from "@/components/master/branded-qr-card";
+import { buildBrandedQrDataUrl } from "@/lib/qr-branding";
 
-type QrTable = {
-  tableNo: string;
-  tableCode: string;
-  qrPath: string;
-};
-
-type QrData = {
-  restaurantName: string;
-  logoUrl: string;
-  tables: QrTable[];
-};
+type QrTable = { tableNo: string; tableCode: string; qrPath: string };
+type QrData = { restaurantName: string; logoUrl: string; tables: QrTable[] };
 
 const fallbackData: QrData = {
   restaurantName: "Nanu Da Dhaba",
@@ -27,29 +19,41 @@ const fallbackData: QrData = {
 
 export default function MasterQrLive({ clientId }: { clientId: string }) {
   const [data, setData] = useState<QrData>(fallbackData);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     fetch(`/api/master/qr-tables?clientId=${encodeURIComponent(clientId)}`, { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((nextData) => {
-        if (Array.isArray(nextData?.tables) && nextData.tables.length > 0) {
-          setData(nextData);
-        }
+        if (Array.isArray(nextData?.tables) && nextData.tables.length > 0) setData(nextData);
       })
       .catch(() => setData(fallbackData));
   }, [clientId]);
 
+  async function downloadAll() {
+    setDownloading(true);
+    for (const table of data.tables) {
+      const src = await buildBrandedQrDataUrl(table.qrPath, data.logoUrl);
+      if (!src) continue;
+      const link = document.createElement("a");
+      link.href = src;
+      link.download = `${clientId}-table-${table.tableNo}-qr.png`;
+      link.click();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    setDownloading(false);
+  }
+
   return (
-    <div className="mt-5 grid gap-4 lg:grid-cols-4">
-      {data.tables.map((table) => (
-        <BrandedQrCard
-          key={table.tableCode || table.tableNo}
-          restaurantName={data.restaurantName}
-          tableNo={table.tableNo}
-          qrPath={table.qrPath}
-          logoUrl={data.logoUrl}
-        />
-      ))}
-    </div>
+    <>
+      <button onClick={downloadAll} disabled={downloading} className="mt-5 rounded-2xl bg-[#86B9B0] px-5 py-3 text-sm font-semibold text-[#041421] disabled:opacity-50">
+        {downloading ? "Downloading..." : `Download All QR PNGs (${data.tables.length})`}
+      </button>
+      <div className="mt-5 grid gap-4 lg:grid-cols-4">
+        {data.tables.map((table) => (
+          <BrandedQrCard key={table.tableCode || table.tableNo} restaurantName={data.restaurantName} tableNo={table.tableNo} qrPath={table.qrPath} logoUrl={data.logoUrl} />
+        ))}
+      </div>
+    </>
   );
 }
