@@ -1,6 +1,7 @@
 import MasterHealthLive from "@/components/master/master-health-live";
 import MasterAlertsLive from "@/components/master/master-alerts-live";
 import MasterPlansLive from "@/components/master/master-plans-live";
+import MasterStaffLive from "@/components/master/master-staff-live";
 import MasterRestaurantsLive from "@/components/master/master-restaurants-live";
 import MasterOnboardingWizard from "@/components/master/master-onboarding-wizard";
 import MasterSalesLive from "@/components/master/master-sales-live";
@@ -93,25 +94,9 @@ export default function MasterDashboard() {
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="staff" className="scroll-mt-28" />Staff Control</p>
           <h2 className="mt-2 text-2xl font-semibold">Roles & Permissions</h2>
-          <p className="mt-2 text-sm text-white/60">Static foundation. Staff accounts and permission locking will be connected later.</p>
+          <p className="mt-2 text-sm text-white/60">Live staff roles from Appwrite users. Waiter is shown as a placeholder until added.</p>
 
-          <div className="mt-5 grid gap-4 lg:grid-cols-4">
-            {[
-              { role: "Owner", status: "Active", permissions: "Full Access" },
-              { role: "Manager", status: "Active", permissions: "Menu, Records, Payments" },
-              { role: "Cashier", status: "Pending", permissions: "Billing, Payments" },
-              { role: "Kitchen", status: "Pending", permissions: "KOT, Order Status" },
-            ].map((staff) => (
-              <article key={staff.role} className="rounded-3xl border border-white/10 bg-black/10 p-4">
-                <p className="text-sm text-white/55">Role</p>
-                <h3 className="mt-2 text-xl font-semibold">{staff.role}</h3>
-                <span className="mt-3 inline-flex rounded-full bg-[#86B9B0]/15 px-3 py-1 text-sm text-[#D0D6D6]">
-                  {staff.status}
-                </span>
-                <p className="mt-3 text-sm text-white/60">{staff.permissions}</p>
-              </article>
-            ))}
-          </div>
+          <MasterStaffLive clientId="trustfirst_demo" />
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="feedback" className="scroll-mt-28" />Customer Voice</p>
@@ -145,6 +130,7 @@ export default function MasterDashboard() {
     </main>
   );
 }
+
 
 
 
