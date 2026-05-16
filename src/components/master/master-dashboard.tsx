@@ -110,11 +110,8 @@ export default function MasterDashboard() {
             <div>
               <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="qr" className="scroll-mt-28" />QR Management</p>
               <h2 className="mt-2 text-2xl font-semibold">Branded Table QR Codes</h2>
-              <p className="mt-2 text-sm text-white/60">Static foundation. Logo-based QR preview and download will be connected next.</p>
+              <p className="mt-2 text-sm text-white/60">Live branded QR preview, single PNG download, and bulk PNG download from Appwrite table data.</p>
             </div>
-            <button className="rounded-2xl bg-[#86B9B0] px-5 py-3 text-sm font-semibold text-[#041421]">
-              Bulk Download Soon
-            </button>
           </div>
 
           <MasterQrLive clientId="trustfirst_demo" />
@@ -130,30 +127,3 @@ export default function MasterDashboard() {
     </main>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
