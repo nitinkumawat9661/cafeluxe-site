@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isMasterAuthenticated, masterUnauthorized } from "@/lib/master-auth";
 import { Client, Databases, ID, Query } from "node-appwrite";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const COOKIE_NAME = "cafeluxe_master_auth";
 
 function clean(value: string | undefined) {
   const text = String(value ?? "").trim();
@@ -32,7 +32,9 @@ function tableCode(index: number) {
 }
 
 export async function POST(request: NextRequest) {
-  if (request.cookies.get(COOKIE_NAME)?.value !== "ok") return json("Master login required.", 401);
+  if (!isMasterAuthenticated(request)) {
+    return masterUnauthorized();
+  }
   if (!endpoint || !projectId || !apiKey) return json("Server Appwrite config missing.", 500);
 
   const body = await request.json().catch(() => null);

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isMasterAuthenticated, masterUnauthorized } from "@/lib/master-auth";
 import { Client, Databases, Query } from "node-appwrite";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +33,11 @@ async function safeList(databases: Databases, collectionId: string, queries: str
 }
 
 export async function GET(request: NextRequest) {
+  if (!isMasterAuthenticated(request)) {
+    return masterUnauthorized();
+  }
+
+
   const clientId = safeString(request.nextUrl.searchParams.get("clientId"));
   if (!clientId) return NextResponse.json({ message: "clientId is required" }, { status: 400 });
 

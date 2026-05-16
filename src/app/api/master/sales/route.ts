@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isMasterAuthenticated, masterUnauthorized } from "@/lib/master-auth";
 import { Client, Databases, Query } from "node-appwrite";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +49,11 @@ function docDate(doc: Record<string, any>) {
 }
 
 export async function GET(request: NextRequest) {
+  if (!isMasterAuthenticated(request)) {
+    return masterUnauthorized();
+  }
+
+
   try {
     const clientId = safeString(request.nextUrl.searchParams.get("clientId"));
     if (!clientId) {
