@@ -36,6 +36,12 @@ function restaurantNameFromSettings(docs: Record<string, any>[], clientId: strin
   return safeString(direct?.restaurantName ?? direct?.name ?? direct?.title) || clientId.replace(/_/g, " ");
 }
 
+
+function restaurantLogoFromSettings(docs: Record<string, any>[], clientId: string) {
+  const parsed = parseClientSettings(docs as any[], clientId);
+  return safeString(parsed.logoUrl);
+}
+
 export async function GET(_request: NextRequest) {
   const client = new Client().setEndpoint(endpoint).setProject(projectId).setKey(apiKey);
   const databases = new Databases(client);
@@ -48,7 +54,7 @@ export async function GET(_request: NextRequest) {
   const tableDocs = (tables?.documents ?? []) as Record<string, any>[];
   const settingDocs = (settings?.documents ?? []) as Record<string, any>[];
 
-  const clients = new Map<string, { clientId: string; name: string; tables: number; status: string; plan: string; qrPath: string }>();
+  const clients = new Map<string, { clientId: string; name: string; logoUrl: string; tables: number; status: string; plan: string; qrPath: string }>();
 
   for (const doc of tableDocs) {
     const clientId = getClientId(doc);
@@ -57,6 +63,7 @@ export async function GET(_request: NextRequest) {
     const current = clients.get(clientId) ?? {
       clientId,
       name: restaurantNameFromSettings(settingDocs, clientId),
+      logoUrl: restaurantLogoFromSettings(settingDocs, clientId),
       tables: 0,
       status: "Active",
       plan: "Demo",
