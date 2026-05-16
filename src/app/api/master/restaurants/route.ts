@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isMasterAuthenticated, masterUnauthorized } from "@/lib/master-auth";
 import { Client, Databases, Query } from "node-appwrite";
 import { parseClientSettings } from "@/lib/menu";
 
@@ -42,7 +43,12 @@ function restaurantLogoFromSettings(docs: Record<string, any>[], clientId: strin
   return safeString(parsed.logoUrl);
 }
 
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
+  if (!isMasterAuthenticated(request)) {
+    return masterUnauthorized();
+  }
+
+
   const client = new Client().setEndpoint(endpoint).setProject(projectId).setKey(apiKey);
   const databases = new Databases(client);
 
@@ -77,4 +83,3 @@ export async function GET(_request: NextRequest) {
     restaurants: Array.from(clients.values()).sort((a, b) => a.name.localeCompare(b.name)),
   });
 }
-

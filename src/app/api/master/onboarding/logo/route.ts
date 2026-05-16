@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isMasterAuthenticated, masterUnauthorized } from "@/lib/master-auth";
 import { Client, Storage } from "node-appwrite";
 import { InputFile } from "node-appwrite/file";
 import { randomBytes } from "node:crypto";
@@ -6,7 +7,6 @@ import { randomBytes } from "node:crypto";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const COOKIE_NAME = "cafeluxe_master_auth";
 const DEFAULT_BUCKET_ID = "restaurant-assets";
 
 function clean(value: string | undefined) {
@@ -25,8 +25,8 @@ function json(message: string, status: number) {
 }
 
 export async function POST(request: NextRequest) {
-  if (request.cookies.get(COOKIE_NAME)?.value !== "ok") {
-    return json("Master login required.", 401);
+  if (!isMasterAuthenticated(request)) {
+    return masterUnauthorized();
   }
 
   if (!endpoint || !projectId || !apiKey) {
@@ -67,4 +67,3 @@ export async function POST(request: NextRequest) {
     logoUrl: `/api/appwrite/assets?fileId=${encodeURIComponent(uploaded.$id)}&bucketId=${encodeURIComponent(bucketId)}`,
   });
 }
-

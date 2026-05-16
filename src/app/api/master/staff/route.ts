@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isMasterAuthenticated, masterUnauthorized } from "@/lib/master-auth";
 import { Client, Databases, Query } from "node-appwrite";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const COOKIE_NAME = "cafeluxe_master_auth";
 const endpoint = process.env.APPWRITE_ENDPOINT || process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || "";
 const projectId = process.env.APPWRITE_PROJECT_ID || process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || "";
 const apiKey = process.env.APPWRITE_API_KEY || "";
@@ -23,9 +23,10 @@ function permissions(role: string) {
 }
 
 export async function GET(request: NextRequest) {
-  if (request.cookies.get(COOKIE_NAME)?.value !== "ok") {
-    return NextResponse.json({ message: "Master login required." }, { status: 401 });
+  if (!isMasterAuthenticated(request)) {
+    return masterUnauthorized();
   }
+
 
   const clientId = s(request.nextUrl.searchParams.get("clientId")) || "trustfirst_demo";
   const client = new Client().setEndpoint(endpoint).setProject(projectId).setKey(apiKey);
