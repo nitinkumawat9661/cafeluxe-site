@@ -54,25 +54,25 @@ export default function BrandedQrCard({ restaurantName, tableNo, qrPath, logoUrl
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const box = 118;
+      const box = 146;
       const x = (canvas.width - box) / 2;
       const y = (canvas.height - box) / 2;
 
       ctx.fillStyle = "#ffffff";
-      drawRoundRect(ctx, x, y, box, box, 24);
+      drawRoundRect(ctx, x, y, box, box, 26);
       ctx.fill();
 
       if (logoUrl) {
         try {
           const logo = await loadImage(logoUrl);
           ctx.save();
-          drawRoundRect(ctx, x + 14, y + 14, box - 28, box - 28, 18);
+          drawRoundRect(ctx, x + 7, y + 7, box - 14, box - 14, 22);
           ctx.clip();
-          ctx.drawImage(logo, x + 14, y + 14, box - 28, box - 28);
+          ctx.drawImage(logo, x + 7, y + 7, box - 14, box - 14);
           ctx.restore();
         } catch {
           ctx.fillStyle = "#86B9B0";
-          drawRoundRect(ctx, x + 14, y + 14, box - 28, box - 28, 18);
+          drawRoundRect(ctx, x + 7, y + 7, box - 14, box - 14, 22);
           ctx.fill();
           ctx.fillStyle = "#041421";
           ctx.font = "bold 34px sans-serif";
@@ -82,7 +82,7 @@ export default function BrandedQrCard({ restaurantName, tableNo, qrPath, logoUrl
         }
       } else {
         ctx.fillStyle = "#86B9B0";
-        drawRoundRect(ctx, x + 14, y + 14, box - 28, box - 28, 18);
+        drawRoundRect(ctx, x + 7, y + 7, box - 14, box - 14, 22);
         ctx.fill();
         ctx.fillStyle = "#041421";
         ctx.font = "bold 34px sans-serif";
@@ -121,3 +121,4 @@ export default function BrandedQrCard({ restaurantName, tableNo, qrPath, logoUrl
     </article>
   );
 }
+
