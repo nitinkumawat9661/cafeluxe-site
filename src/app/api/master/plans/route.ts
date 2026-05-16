@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isMasterAuthenticated, masterUnauthorized } from "@/lib/master-auth";
-import { Client, Databases, Query } from "node-appwrite";
+import { Client, Databases, ID, Query } from "node-appwrite";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,31 +9,63 @@ const endpoint = process.env.APPWRITE_ENDPOINT || process.env.NEXT_PUBLIC_APPWRI
 const projectId = process.env.APPWRITE_PROJECT_ID || process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || "";
 const apiKey = process.env.APPWRITE_API_KEY || "";
 const databaseId = process.env.APPWRITE_DATABASE_ID || process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || "trustfirst-main-db";
+const settingsCollectionId = process.env.APPWRITE_SETTINGS_COLLECTION_ID || "settings";
 
 function safeString(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function safeText(value: unknown, max = 120) {
+  return safeString(value).replace(/[\u0000-\u001F\u007F]/g, "").slice(0, max);
 }
 
 function settingValue(docs: Record<string, any>[], key: string, fallback: string) {
   return safeString(docs.find((doc) => safeString(doc.key) === key)?.value) || fallback;
 }
 
-export async function GET(request: NextRequest) {
-  if (!isMasterAuthenticated(request)) {
-    return masterUnauthorized();
-  }
+function json(message: string, status: number) {
+  return NextResponse.json({ message }, { status });
+}
 
-
-  const clientId = safeString(request.nextUrl.searchParams.get("clientId")) || "trustfirst_demo";
+function databasesClient() {
   const client = new Client().setEndpoint(endpoint).setProject(projectId).setKey(apiKey);
-  const databases = new Databases(client);
+  return new Databases(client);
+}
 
-  const result = await databases.listDocuments({
+async function listSettings(databases: Databases, clientId: string) {
+  return databases.listDocuments({
     databaseId,
-    collectionId: "settings",
+    collectionId: settingsCollectionId,
     queries: [Query.equal("client_id", [clientId]), Query.limit(100)],
   });
+}
 
+async function upsertSetting(databases: Databases, docs: Record<string, any>[], clientId: string, key: string, value: string) {
+  const current = docs.find((doc) => safeString(doc.key) === key);
+
+  if (current?.$id) {
+    return databases.updateDocument({
+      databaseId,
+      collectionId: settingsCollectionId,
+      documentId: current.$id,
+      data: { value },
+    });
+  }
+
+  return databases.createDocument({
+    databaseId,
+    collectionId: settingsCollectionId,
+    documentId: ID.unique(),
+    data: { client_id: clientId, key, value },
+  });
+}
+
+export async function GET(request: NextRequest) {
+  if (!isMasterAuthenticated(request)) return masterUnauthorized();
+
+  const clientId = safeString(request.nextUrl.searchParams.get("clientId")) || "trustfirst_demo";
+  const databases = databasesClient();
+  const result = await listSettings(databases, clientId);
   const docs = result.documents as Record<string, any>[];
 
   return NextResponse.json({
@@ -42,4 +74,27 @@ export async function GET(request: NextRequest) {
     paymentStatus: settingValue(docs, "payment_status", "Pending"),
     expiresAt: settingValue(docs, "plan_expires_at", "Not set"),
   });
+}
+
+export async function POST(request: NextRequest) {
+  if (!isMasterAuthenticated(request)) return masterUnauthorized();
+  if (!endpoint || !projectId || !apiKey) return json("Server Appwrite config missing.", 500);
+
+  const body = await request.json().catch(() => null);
+  const clientId = safeText(body?.clientId, 64) || "trustfirst_demo";
+
+  const updates = {
+    plan: safeText(body?.plan, 40) || "Demo",
+    ordering_status: safeText(body?.orderingStatus, 40) || "Enabled",
+    payment_status: safeText(body?.paymentStatus, 40) || "Pending",
+    plan_expires_at: safeText(body?.expiresAt, 80) || "Not set",
+  };
+
+  const databases = databasesClient();
+  const result = await listSettings(databases, clientId);
+  const docs = result.documents as Record<string, any>[];
+
+  await Promise.all(Object.entries(updates).map(([key, value]) => upsertSetting(databases, docs, clientId, key, value)));
+
+  return NextResponse.json({ ok: true, clientId, ...updates });
 }
