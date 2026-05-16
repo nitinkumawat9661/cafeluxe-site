@@ -4,6 +4,7 @@ import MasterOnboardingWizard from "@/components/master/master-onboarding-wizard
 import MasterSalesLive from "@/components/master/master-sales-live";
 import MasterQrLive from "@/components/master/master-qr-live";
 import MasterSupportLive from "@/components/master/master-support-live";
+import MasterFeedbackLive from "@/components/master/master-feedback-live";
 
 
 export default function MasterDashboard() {
@@ -150,29 +151,9 @@ export default function MasterDashboard() {
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="feedback" className="scroll-mt-28" />Customer Voice</p>
           <h2 className="mt-2 text-2xl font-semibold">Feedback & Ratings</h2>
-          <p className="mt-2 text-sm text-white/60">Static foundation. Live customer feedback and rating moderation will be connected later.</p>
+          <p className="mt-2 text-sm text-white/60">Live customer feedback from Appwrite notifications.</p>
 
-          <div className="mt-5 grid gap-4 lg:grid-cols-4">
-            <article className="rounded-3xl border border-white/10 bg-black/10 p-4">
-              <p className="text-sm text-white/55">Average Rating</p>
-              <h3 className="mt-2 text-2xl font-semibold text-yellow-100">4.8 / 5</h3>
-              <p className="mt-2 text-sm text-white/60">From QR feedback later.</p>
-            </article>
-
-            {[
-              { type: "Praise", text: "Food quality was excellent.", status: "Reviewed" },
-              { type: "Suggestion", text: "Add more combo options.", status: "New" },
-              { type: "Complaint", text: "Service was delayed.", status: "Open" },
-            ].map((item) => (
-              <article key={item.type} className="rounded-3xl border border-white/10 bg-black/10 p-4">
-                <p className="text-sm text-[#86B9B0]">{item.type}</p>
-                <h3 className="mt-2 text-base font-semibold">{item.text}</h3>
-                <span className="mt-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-sm text-white/70">
-                  {item.status}
-                </span>
-              </article>
-            ))}
-          </div>
+          <MasterFeedbackLive clientId="trustfirst_demo" />
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -199,6 +180,7 @@ export default function MasterDashboard() {
     </main>
   );
 }
+
 
 
 
