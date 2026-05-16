@@ -1,5 +1,6 @@
 import MasterHealthLive from "@/components/master/master-health-live";
 import MasterRestaurantsLive from "@/components/master/master-restaurants-live";
+import MasterOnboardingWizard from "@/components/master/master-onboarding-wizard";
 import MasterSalesLive from "@/components/master/master-sales-live";
 import MasterQrLive from "@/components/master/master-qr-live";
 
@@ -48,22 +49,9 @@ export default function MasterDashboard() {
               </summary>
               <div className="mt-4 rounded-3xl border border-white/10 bg-[#06202b] p-5 shadow-2xl sm:w-[520px]">
                 <h3 className="text-xl font-semibold">Restaurant Setup Wizard</h3>
-                <p className="mt-2 text-sm text-white/60">Static setup form. Backend creation will be connected later.</p>
+                <p className="mt-2 text-sm text-white/60">Upload a restaurant logo and save it directly into Appwrite settings.</p>
 
-                <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                  <input className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm outline-none" placeholder="Restaurant name" />
-                  <input className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm outline-none" placeholder="Client ID" />
-                  <input className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm outline-none" placeholder="Table count" />
-                  <select className="rounded-2xl border border-white/10 bg-[#06202b] px-4 py-3 text-sm outline-none">
-                    <option>Demo Plan</option>
-                    <option>Paid Plan</option>
-                    <option>Trial Plan</option>
-                  </select>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-dashed border-white/15 p-4 text-sm text-white/60">
-                  Logo upload + branded QR generation placeholder
-                </div>
+                <MasterOnboardingWizard />
               </div>
             </details>
           </div>
@@ -225,6 +213,7 @@ export default function MasterDashboard() {
     </main>
   );
 }
+
 
 
 
