@@ -43,9 +43,8 @@ export function createMasterSessionValue() {
   return `${payload}.${sign(payload)}`;
 }
 
-export function isMasterAuthenticated(request: NextRequest) {
+export function isMasterSessionTokenValid(token: string) {
   const secret = sessionSecret();
-  const token = request.cookies.get(MASTER_COOKIE_NAME)?.value ?? "";
   if (!secret || !token) return false;
 
   const parts = token.split(".");
@@ -57,6 +56,10 @@ export function isMasterAuthenticated(request: NextRequest) {
   if (!nonce || !signature) return false;
 
   return safeEqual(sign(`${expiresRaw}.${nonce}`), signature);
+}
+
+export function isMasterAuthenticated(request: NextRequest) {
+  return isMasterSessionTokenValid(request.cookies.get(MASTER_COOKIE_NAME)?.value ?? "");
 }
 
 export function masterUnauthorized() {
