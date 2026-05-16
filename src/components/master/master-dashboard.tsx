@@ -1,7 +1,7 @@
 import MasterHealthLive from "@/components/master/master-health-live";
 import MasterRestaurantsLive from "@/components/master/master-restaurants-live";
 import MasterSalesLive from "@/components/master/master-sales-live";
-import BrandedQrCard from "@/components/master/branded-qr-card";
+import MasterQrLive from "@/components/master/master-qr-live";
 
 
 export default function MasterDashboard() {
@@ -197,19 +197,7 @@ export default function MasterDashboard() {
             </button>
           </div>
 
-          <div className="mt-5 grid gap-4 lg:grid-cols-4">
-            {["01", "02", "03", "06"].map((tableNo) => {
-              const qrPath = `/c/trustfirst_demo/t/${tableNo}`;
-              return (
-                <BrandedQrCard
-                  key={tableNo}
-                  restaurantName="Nanu Da Dhaba"
-                  tableNo={tableNo}
-                  qrPath={qrPath}
-                />
-              );
-            })}
-          </div>
+          <MasterQrLive clientId="trustfirst_demo" />
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="support" className="scroll-mt-28" />Support Desk</p>
@@ -237,6 +225,7 @@ export default function MasterDashboard() {
     </main>
   );
 }
+
 
 
 
