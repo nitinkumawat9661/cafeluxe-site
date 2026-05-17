@@ -3835,6 +3835,62 @@ export default function QrOrderingExperience({
 
   const isLightTheme = true;
 
+  function reportClientIssue(input: { message: string; source: string; stack?: string; severity?: string }) {
+    if (typeof window === "undefined") return;
+
+    const message = String(input.message || "").trim().slice(0, 700);
+    if (!message) return;
+
+    const key = `cafeluxe_error_alert_${normalizeRouteToken(routeClient)}_${normalizeRouteToken(routeTable)}_${input.source}_${message.slice(0, 80)}`;
+    const lastSent = Number(window.sessionStorage.getItem(key) || 0);
+    if (Date.now() - lastSent < 120000) return;
+    window.sessionStorage.setItem(key, String(Date.now()));
+
+    fetch("/api/alerts/error", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientId: routeClient,
+        tableNo: routeTable,
+        severity: input.severity || "error",
+        source: input.source,
+        page: window.location.pathname,
+        message,
+        stack: input.stack || "",
+        userAgent: window.navigator.userAgent,
+      }),
+    }).catch(() => {});
+  }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onError = (event: ErrorEvent) => {
+      reportClientIssue({
+        message: event.message || "Browser runtime error",
+        source: "customer_window_error",
+        stack: event.error?.stack || "",
+      });
+    };
+
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      reportClientIssue({
+        message: reason instanceof Error ? reason.message : String(reason || "Unhandled promise rejection"),
+        source: "customer_unhandled_rejection",
+        stack: reason instanceof Error ? reason.stack || "" : "",
+      });
+    };
+
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
+
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
+    };
+  }, [routeClient, routeTable]);
+
   function touchBillActivity(activityAt = new Date().toISOString()) {
     setBillLastActivityAt(activityAt);
     billLastActivityRef.current = activityAt;
