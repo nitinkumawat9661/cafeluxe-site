@@ -47,6 +47,10 @@ export async function GET(request: NextRequest) {
       type: safeString(payload.type) || safeString(doc.type) || "Feedback",
       text: safeString(payload.text || payload.message || payload.title) || "Feedback received",
       rating: Number(payload.rating || 0),
+      tableNo: safeString(payload.tableNo || payload.table_no),
+      source: safeString(payload.source),
+      customerName: safeString(payload.customerName || payload.name),
+      title: safeString(payload.title),
       status: doc.read ? "Reviewed" : "New",
       createdAt: doc.$createdAt,
     }));

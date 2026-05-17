@@ -7,6 +7,10 @@ type FeedbackItem = {
   type: string;
   text: string;
   rating: number;
+  tableNo?: string;
+  source?: string;
+  customerName?: string;
+  title?: string;
   status: string;
   createdAt: string;
 };
@@ -55,8 +59,14 @@ export default function MasterFeedbackLive({ clientId }: { clientId: string }) {
 
       {data.feedback.map((item) => (
         <article key={item.id} className="rounded-3xl border border-white/10 bg-black/10 p-4">
-          <p className="text-sm text-[#86B9B0]">{item.type}</p>
-          <h3 className="mt-2 text-base font-semibold">{item.text}</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-[#86B9B0]/15 px-3 py-1 text-sm font-semibold text-[#86B9B0]">
+              {item.tableNo ? `Table ${item.tableNo}` : item.source || item.type}
+            </span>
+            <span className="rounded-full bg-yellow-400/15 px-3 py-1 text-sm text-yellow-100">★ {item.rating || 0}/5</span>
+          </div>
+          <h3 className="mt-3 text-base font-semibold">{item.text}</h3>
+          {item.customerName ? <p className="mt-2 text-sm text-white/55">By {item.customerName}</p> : null}
           <span className="mt-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-sm text-white/70">{item.status}</span>
         </article>
       ))}
