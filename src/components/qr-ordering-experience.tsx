@@ -3768,6 +3768,14 @@ export default function QrOrderingExperience({
   const [billSyncMessage, setBillSyncMessage] = useState("");
   const [statusPopup, setStatusPopup] = useState<StatusPopupState | null>(null);
   const [orderPlacedId, setOrderPlacedId] = useState("");
+  const [feedbackRating, setFeedbackRating] = useState(5);
+  const [feedbackName, setFeedbackName] = useState("");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [feedbackSending, setFeedbackSending] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [feedbackError, setFeedbackError] = useState("");
+  const [feedbackAlreadySubmitted, setFeedbackAlreadySubmitted] = useState(false);
+  const [feedbackPromptOpen, setFeedbackPromptOpen] = useState(false);
   const [billActionOrderId, setBillActionOrderId] = useState("");
   const [billPaymentModalOpen, setBillPaymentModalOpen] = useState(false);
   const [billPaymentMethod, setBillPaymentMethod] = useState<PaymentMethod>("COUNTER");
@@ -3784,6 +3792,7 @@ export default function QrOrderingExperience({
   const billLastActivityRef = useRef("");
   const orderSyncSnapshotRef = useRef<Record<string, { status: string; paymentStatus: string }>>({});
   const shownKitchenStatusAlertKeysRef = useRef<Set<string>>(new Set());
+  const generatedFeedbackTextsRef = useRef<Set<string>>(new Set());
   const ownedOrderIdsRef = useRef<Set<string>>(new Set());
   const persistedCartStateRef = useRef<string | null>(null);
   const persistedBillStateRef = useRef<string | null>(null);
@@ -6184,6 +6193,75 @@ export default function QrOrderingExperience({
     }
   }
 
+  const feedbackStorageKey = `cafeluxe_feedback_submitted_${normalizeRouteToken(routeClient)}_${normalizeRouteToken(routeTable)}`;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setFeedbackAlreadySubmitted(window.localStorage.getItem(feedbackStorageKey) === "true");
+  }, [feedbackStorageKey]);
+
+  function generateFeedbackText(rating: number) {
+    const safeRating = Math.max(1, Math.min(5, Math.round(rating || 5)));
+    const banks: Record<number, string[][]> = {
+      1: [["The visit was disappointing", "This experience needs serious improvement", "I expected better service"], ["food quality", "service speed", "order handling"], ["Please improve this for future customers", "This should be handled better next time", "I hope the team fixes this soon"]],
+      2: [["The experience was below expectations", "The visit was not very smooth", "Some parts of the service felt weak"], ["food timing", "staff response", "ordering process"], ["There is clear room for improvement", "It can be much better", "I hope it improves next time"]],
+      3: [["The experience was decent", "The visit was okay overall", "It was an average experience"], ["food and service", "ordering flow", "table service"], ["A few improvements can make it better", "It was fine but can improve", "Overall it was manageable"]],
+      4: [["Good experience overall", "I liked the visit", "The service felt smooth"], ["food taste", "table ordering", "staff response"], ["I would like to visit again", "It was a nice experience", "Everything felt well managed"]],
+      5: [["Excellent experience", "Loved the food and service", "Very smooth and premium experience"], ["quick ordering", "fresh food", "staff behaviour"], ["I would definitely recommend it", "I would love to visit again", "Everything felt perfect"]],
+    };
+    const pick = (items: string[]) => items[Math.floor(Math.random() * items.length)];
+    for (let i = 0; i < 30; i++) {
+      const parts = banks[safeRating].map(pick);
+      const text = `${parts[0]}. ${parts[1][0].toUpperCase() + parts[1].slice(1)} was noticeable. ${parts[2]}.`;
+      if (!generatedFeedbackTextsRef.current.has(text)) {
+        generatedFeedbackTextsRef.current.add(text);
+        return text;
+      }
+    }
+    return `${pick(banks[safeRating][0])}. ${pick(banks[safeRating][2])}.`;
+  }
+
+  function refreshGeneratedFeedback(nextRating = feedbackRating) {
+    setFeedbackMessage(generateFeedbackText(nextRating));
+    setFeedbackSent(false);
+    setFeedbackError("");
+  }
+  async function submitCustomerFeedback() {
+    if (!tableInfo || feedbackSending || feedbackAlreadySubmitted) return;
+
+    const finalMessage = feedbackMessage.trim() || generateFeedbackText(feedbackRating);
+    setFeedbackSending(true);
+    setFeedbackError("");
+
+    try {
+      const res = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: tableInfo.clientId || routeClient,
+          tableNo: routeTable || tableInfo.tableNo,
+          name: feedbackName,
+          rating: feedbackRating,
+          message: finalMessage,
+          orderId: orderPlacedId,
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.message || "Feedback submit failed.");
+
+      setFeedbackSent(true);
+      setFeedbackAlreadySubmitted(true);
+      setFeedbackPromptOpen(false);
+      setFeedbackMessage(finalMessage);
+      if (typeof window !== "undefined") window.localStorage.setItem(feedbackStorageKey, "true");
+    } catch (error) {
+      setFeedbackError(error instanceof Error ? error.message : "Feedback submit failed.");
+    } finally {
+      setFeedbackSending(false);
+    }
+  }
+
   function navigateToMenuAfterOrder() {
     if (isStandaloneCartRoute) {
       window.setTimeout(() => {
@@ -6669,6 +6747,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     const activeBillPaymentKey = `cafeluxe_payment_request_${routeClient}_${routeTable}_${activeBillStorageKey}_${paymentRequestFingerprint}`;
     if (typeof window !== "undefined" && window.localStorage.getItem(activeBillPaymentKey) === "pending") {
       setNoticeMessage("Payment request already sent. Please wait for cashier confirmation.");
+      if (!feedbackAlreadySubmitted) setFeedbackPromptOpen(true);
       return;
     }
     const paymentTargetOrder =
@@ -6725,6 +6804,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
       if (typeof window !== "undefined") {
         window.localStorage.setItem(activeBillPaymentKey, "pending");
       }
+      if (!feedbackAlreadySubmitted) setFeedbackPromptOpen(true);
 if (billPaymentMethod === "UPI") {
         // Show UPI QR
         const billUpiLink = buildUpiPaymentLink({
@@ -7120,6 +7200,39 @@ if (billPaymentMethod === "UPI") {
                   ) : null}
                 </div>
               ) : null}
+            </div>
+          </div>
+        ) : null}
+
+
+        {feedbackPromptOpen && !feedbackAlreadySubmitted ? (
+          <div className="fixed inset-0 z-[999] flex items-center justify-center px-4 py-6">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-md" />
+            <div className="relative w-full max-w-[390px] overflow-hidden rounded-[1.7rem] border border-amber-300/55 bg-[#15110b] text-white shadow-[0_30px_100px_-18px_rgba(245,158,11,0.95)]">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(251,191,36,0.34),transparent_46%)]" />
+              <div className="relative p-5">
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400 text-2xl shadow-lg shadow-amber-500/30">★</div>
+                <p className="text-center text-[11px] font-bold uppercase tracking-[0.22em] text-amber-100/75">Quick Review</p>
+                <h3 className="mt-1 text-center text-xl font-black">Rate your experience</h3>
+                <p className="mt-1 text-center text-xs text-white/60">Help us improve your table ordering experience.</p>
+
+                <div className="mt-4 flex justify-center gap-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button key={star} type="button" onClick={() => { setFeedbackRating(star); refreshGeneratedFeedback(star); }} className={clsx("h-10 w-10 rounded-2xl text-base font-black transition active:scale-95", star <= feedbackRating ? "bg-amber-400 text-black shadow-lg shadow-amber-500/30" : "bg-white/10 text-white/50")}>★</button>
+                  ))}
+                </div>
+
+                <input value={feedbackName} onChange={(e) => setFeedbackName(e.target.value)} placeholder="Name optional" className="mt-4 w-full rounded-2xl border border-amber-200/20 bg-black/35 px-4 py-3 text-sm text-white outline-none placeholder:text-white/45" />
+                <textarea value={feedbackMessage} onChange={(e) => { setFeedbackMessage(e.target.value); setFeedbackSent(false); }} placeholder="Generate unique review or write your own" rows={3} className="mt-2 w-full resize-none rounded-2xl border border-amber-200/20 bg-black/35 px-4 py-3 text-sm text-white outline-none placeholder:text-white/45" />
+
+                <div className="mt-4 grid gap-2">
+                  <button type="button" onClick={() => refreshGeneratedFeedback()} className="rounded-2xl border border-amber-300/25 bg-white/10 px-4 py-3 text-sm font-bold text-white">Generate Unique Review</button>
+                  <button type="button" onClick={() => void submitCustomerFeedback()} disabled={feedbackSending || feedbackSent} className="rounded-2xl bg-amber-400 px-4 py-3 text-sm font-black text-black shadow-lg shadow-amber-500/30 disabled:opacity-60">{feedbackSending ? "Sending..." : feedbackSent ? "Sent" : "Submit Feedback"}</button>
+                </div>
+
+                {feedbackError ? <p className="mt-2 text-center text-xs text-red-300">{feedbackError}</p> : null}
+                {feedbackSent ? <p className="mt-2 text-center text-xs text-emerald-300">Feedback submitted. Thank you.</p> : null}
+              </div>
             </div>
           </div>
         ) : null}
@@ -9583,49 +9696,3 @@ if (billPaymentMethod === "UPI") {
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

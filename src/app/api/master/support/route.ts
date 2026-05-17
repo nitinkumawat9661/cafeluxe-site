@@ -41,10 +41,12 @@ export async function GET(request: NextRequest) {
   const result = await databases.listDocuments({
     databaseId,
     collectionId: notificationsCollectionId,
-    queries: [Query.equal("client_id", [clientId]), Query.orderDesc("$createdAt"), Query.limit(20)],
+    queries: [Query.equal("client_id", [clientId]), Query.orderDesc("$createdAt"), Query.limit(100)],
   });
 
-  const tickets = result.documents.map((doc) => {
+  const ticketTypes = new Set(["support", "ticket", "restaurant_issue", "client_issue"]);
+
+  const tickets = result.documents.filter((doc) => ticketTypes.has(safeString(doc.type))).map((doc) => {
     const payload = parsePayload(doc.payload);
     return {
       id: doc.$id,
