@@ -19,7 +19,7 @@ const fallbackRestaurants: Restaurant[] = [
     plan: "Demo",
     status: "Active",
     tables: 12,
-    qrPath: "/c/trustfirst_demo/t/06",
+    qrPath: `/c/${defaultClientId}/t/06`,
   },
 ];
 
