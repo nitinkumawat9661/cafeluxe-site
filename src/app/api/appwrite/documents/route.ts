@@ -655,6 +655,13 @@ function parseNormalizedQuery(query: string) {
   }
 }
 
+function hasClientScopeFilter(queries: string[]) {
+  return queries.some((query) => {
+    const parsed = parseNormalizedQuery(query);
+    return parsed?.method === "equal" && parsed.attribute === "client_id" && parsed.values.length > 0;
+  });
+}
+
 function hasClientTableScopeFilters(queries: string[]) {
   let hasClientFilter = false;
   let hasTableFilter = false;
@@ -1776,10 +1783,17 @@ export async function GET(request: NextRequest) {
   }
 
   if (
-    [ORDERS_COLLECTION_ID, TABLE_SESSIONS_COLLECTION_ID].includes(collectionId) &&
+    [ORDERS_COLLECTION_ID, TABLE_SESSIONS_COLLECTION_ID, PRINT_JOBS_COLLECTION_ID].includes(collectionId) &&
     !hasClientTableScopeFilters(queries)
   ) {
     return jsonError("Scoped reads require client and table filters.", 400);
+  }
+
+  if (
+    [PAYMENTS_COLLECTION_ID, "notifications"].includes(collectionId) &&
+    !hasClientScopeFilter(queries)
+  ) {
+    return jsonError("Scoped reads require client filter.", 400);
   }
 
   try {
