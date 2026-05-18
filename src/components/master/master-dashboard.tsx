@@ -1,4 +1,5 @@
 import MasterHealthLive from "@/components/master/master-health-live";
+import { defaultClientId } from "@/lib/tenant";
 import MasterAlertsLive from "@/components/master/master-alerts-live";
 import MasterPlansLive from "@/components/master/master-plans-live";
 import MasterStaffLive from "@/components/master/master-staff-live";
@@ -68,42 +69,42 @@ export default function MasterDashboard() {
           <h2 className="mt-2 text-2xl font-semibold">Plans & Feature Access</h2>
           <p className="mt-2 text-sm text-white/60">Live plan, ordering, and payment status from Appwrite settings.</p>
 
-          <MasterPlansLive clientId="trustfirst_demo" />
+          <MasterPlansLive clientId={defaultClientId} />
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="alerts" className="scroll-mt-28" />Error Monitoring</p>
           <h2 className="mt-2 text-2xl font-semibold">Alerts & System Health</h2>
           <p className="mt-2 text-sm text-white/60">Live alerts from Appwrite orders, print jobs, and notifications.</p>
 
-          <MasterAlertsLive clientId="trustfirst_demo" />
+          <MasterAlertsLive clientId={defaultClientId} />
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="health" className="scroll-mt-28" />Device Health</p>
           <h2 className="mt-2 text-2xl font-semibold">Printer & App Monitoring</h2>
           <p className="mt-2 text-sm text-white/60">Live status from Appwrite orders and print jobs.</p>
 
-          <MasterHealthLive clientId="trustfirst_demo" />
+          <MasterHealthLive clientId={defaultClientId} />
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="sales" className="scroll-mt-28" />Sales Analytics</p>
           <h2 className="mt-2 text-2xl font-semibold">Business Overview</h2>
           <p className="mt-2 text-sm text-white/60">Static foundation. Live sales, orders, and payment analytics will be connected later.</p>
 
-          <MasterSalesLive clientId="trustfirst_demo" />
+          <MasterSalesLive clientId={defaultClientId} />
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="staff" className="scroll-mt-28" />Staff Control</p>
           <h2 className="mt-2 text-2xl font-semibold">Roles & Permissions</h2>
           <p className="mt-2 text-sm text-white/60">Live staff roles from Appwrite users. Waiter is shown as a placeholder until added.</p>
 
-          <MasterStaffLive clientId="trustfirst_demo" />
+          <MasterStaffLive clientId={defaultClientId} />
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="feedback" className="scroll-mt-28" />Customer Voice</p>
           <h2 className="mt-2 text-2xl font-semibold">Feedback & Ratings</h2>
           <p className="mt-2 text-sm text-white/60">Live customer feedback from Appwrite notifications.</p>
 
-          <MasterFeedbackLive clientId="trustfirst_demo" />
+          <MasterFeedbackLive clientId={defaultClientId} />
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -114,14 +115,14 @@ export default function MasterDashboard() {
             </div>
           </div>
 
-          <MasterQrLive clientId="trustfirst_demo" />
+          <MasterQrLive clientId={defaultClientId} />
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="support" className="scroll-mt-28" />Support Desk</p>
           <h2 className="mt-2 text-2xl font-semibold">Client Tickets</h2>
           <p className="mt-2 text-sm text-white/60">Live support tickets from Appwrite notifications.</p>
 
-          <MasterSupportLive clientId="trustfirst_demo" />
+          <MasterSupportLive clientId={defaultClientId} />
         </section>
       </section>
     </main>

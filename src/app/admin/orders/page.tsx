@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { defaultClientId } from "@/lib/tenant";
 import clsx from "clsx";
 
 import {
@@ -70,7 +71,7 @@ type AdminBillRecord = {
   isPaid: boolean;
 };
 
-const ADMIN_CLIENT_ID = "trustfirst_demo";
+const ADMIN_CLIENT_ID = defaultClientId;
 const PAID_PAYMENT_STATUSES = new Set(["PAID", "SETTLED", "COMPLETED"]);
 
 function toSafeString(value: unknown) {

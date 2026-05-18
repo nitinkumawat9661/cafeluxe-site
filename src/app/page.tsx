@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { defaultClientId } from "@/lib/tenant";
 import { useEffect, useState } from "react";
 import { AlertCircle, Loader2, RefreshCw, Sparkles } from "lucide-react";
 
@@ -8,7 +9,7 @@ import { appwriteConfig, fetchAllDocuments, Query } from "@/lib/appwrite";
 import { WEBSITE_COLORS, WEBSITE_STYLE_CLASSES } from "@/lib/design-tokens";
 import { parseClientSettings, parseTables, type RestaurantSettings, type RestaurantTable } from "@/lib/menu";
 
-const ROOT_CLIENT_ID = "trustfirst_demo";
+const ROOT_CLIENT_ID = defaultClientId;
 
 type HomeLoadState = "loading" | "ready" | "error";
 const IS_DEV_BUILD = process.env.NODE_ENV !== "production";

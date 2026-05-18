@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { defaultClientId } from "@/lib/tenant";
 import { isMasterAuthenticated, masterUnauthorized } from "@/lib/master-auth";
 import { Client, Databases, Query } from "node-appwrite";
 import { serverAppwriteConfig } from "@/lib/server/appwrite-config";
@@ -36,7 +37,7 @@ function json(message: string, status: number) {
 export async function GET(request: NextRequest) {
   if (!isMasterAuthenticated(request)) return masterUnauthorized();
 
-  const clientId = safeString(request.nextUrl.searchParams.get("clientId")) || "trustfirst_demo";
+  const clientId = safeString(request.nextUrl.searchParams.get("clientId")) || defaultClientId;
   const databases = databasesClient();
 
   const result = await databases.listDocuments({
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
   if (!isMasterAuthenticated(request)) return masterUnauthorized();
 
   const body = await request.json().catch(() => null);
-  const clientId = safeString(body?.clientId) || "trustfirst_demo";
+  const clientId = safeString(body?.clientId) || defaultClientId;
   const ticketId = safeString(body?.ticketId);
   const action = safeString(body?.action).toLowerCase();
 
