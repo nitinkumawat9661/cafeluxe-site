@@ -300,7 +300,9 @@ export async function fetchAllDocuments(collectionId: string, options?: ListOpti
       const canUseBroadFallback =
         collectionId !== COLLECTION_IDS.orders &&
         collectionId !== COLLECTION_IDS.payments &&
-        collectionId !== COLLECTION_IDS.tableSessions;
+        collectionId !== COLLECTION_IDS.tableSessions &&
+        collectionId !== COLLECTION_IDS.printJobs &&
+        collectionId !== COLLECTION_IDS.notifications;
       if (baseQueries.length > 0 && canUseBroadFallback && isIndexOrQueryFailure(error)) {
         return fetchAllDocuments(collectionId, { ...options, queries: [] });
       }
