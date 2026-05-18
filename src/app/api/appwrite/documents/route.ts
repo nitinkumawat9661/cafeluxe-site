@@ -794,6 +794,32 @@ function getAppwriteExceptionPayload(error: unknown) {
   };
 }
 
+const READ_CACHE_TTL_MS = 2 * 60 * 1000;
+const READ_CACHEABLE_COLLECTIONS = new Set([
+  "settings",
+  "categories",
+  "menu_items",
+  "offers",
+  "addon_groups",
+  "addon_options",
+  "item_addon_map",
+]);
+
+const readCache = new Map<string, { expiresAt: number; payload: Record<string, unknown> }>();
+
+function getReadCacheKey(collectionId: string, queries: string[]) {
+  return JSON.stringify({ collectionId, queries: [...queries].sort() });
+}
+
+function cacheableJson(payload: Record<string, unknown>, status = 200) {
+  return NextResponse.json(payload, {
+    status,
+    headers: {
+      "Cache-Control": "public, max-age=30, s-maxage=120, stale-while-revalidate=300",
+    },
+  });
+}
+
 async function listDocumentsWithServerClient(
   collectionId: string,
   queries: string[],
@@ -1733,10 +1759,25 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const cacheKey = getReadCacheKey(collectionId, queries);
+    const cached = READ_CACHEABLE_COLLECTIONS.has(collectionId) ? readCache.get(cacheKey) : null;
+    if (cached && cached.expiresAt > Date.now()) {
+      return cacheableJson(cached.payload, 200);
+    }
+
     const payload = (await listReadableDocuments(collectionId, queries)) as unknown as Record<
       string,
       unknown
     >;
+
+    if (READ_CACHEABLE_COLLECTIONS.has(collectionId)) {
+      readCache.set(cacheKey, {
+        expiresAt: Date.now() + READ_CACHE_TTL_MS,
+        payload,
+      });
+      return cacheableJson(payload, 200);
+    }
+
     return noStoreJson(payload, 200);
   } catch (error) {
     const status = getAppwriteErrorCode(error) || 500;
@@ -2045,9 +2086,3 @@ export async function DELETE(request: NextRequest) {
     200,
   );
 }
-
-
-
-
-
-
