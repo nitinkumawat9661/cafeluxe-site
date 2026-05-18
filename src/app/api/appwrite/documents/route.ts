@@ -1594,11 +1594,13 @@ function sanitizePrintJobCreatePayload(documentData: Record<string, unknown>) {
   const createdAtCustom =
     sanitizeIsoTimestamp(documentData.created_at_custom) || new Date().toISOString();
 
-  if (!billId || !label || !itemsJson) {
+  if (!clientId || !tableId || !billId || !label || !itemsJson) {
     return null;
   }
 
   const payload: Record<string, unknown> = {
+    client_id: clientId,
+    table_id: tableId,
     bill_id: billId,
     label,
     items_json: itemsJson,
@@ -1609,8 +1611,6 @@ function sanitizePrintJobCreatePayload(documentData: Record<string, unknown>) {
     created_at_custom: createdAtCustom,
   };
 
-  if (clientId) payload.client_id = clientId;
-  if (tableId) payload.table_id = tableId;
   if (tableNumber) payload.table_number = tableNumber;
   if (sessionId) payload.session_id = sessionId;
   if (orderId) payload.order_id = orderId;
