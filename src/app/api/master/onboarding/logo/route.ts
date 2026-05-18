@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isMasterAuthenticated, masterUnauthorized } from "@/lib/master-auth";
 import { Client, Storage } from "node-appwrite";
+import { serverAppwriteConfig } from "@/lib/server/appwrite-config";
 import { InputFile } from "node-appwrite/file";
 import { randomBytes } from "node:crypto";
 
