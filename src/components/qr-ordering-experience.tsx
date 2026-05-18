@@ -3555,6 +3555,16 @@ type ClientScopedFetchOptions = {
   maxDocs?: number;
 };
 
+function isSensitiveScopedCollection(collectionId: string) {
+  return [
+    appwriteConfig.collections.orders,
+    appwriteConfig.collections.payments,
+    appwriteConfig.collections.tableSessions,
+    appwriteConfig.collections.printJobs,
+    appwriteConfig.collections.notifications,
+  ].includes(collectionId);
+}
+
 async function fetchClientScopedDocuments(
   collectionId: string,
   routeClient: string,
@@ -3582,6 +3592,10 @@ async function fetchClientScopedDocuments(
         throw queryError;
       }
     }
+  }
+
+  if (isSensitiveScopedCollection(collectionId)) {
+    return [];
   }
 
   return fetchAllDocuments(collectionId, {
