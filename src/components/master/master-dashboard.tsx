@@ -9,6 +9,7 @@ import MasterSalesLive from "@/components/master/master-sales-live";
 import MasterQrLive from "@/components/master/master-qr-live";
 import MasterSupportLive from "@/components/master/master-support-live";
 import MasterFeedbackLive from "@/components/master/master-feedback-live";
+import MasterMenuLive from "@/components/master/master-menu-live";
 
 
 export default function MasterDashboard() {
@@ -28,6 +29,7 @@ export default function MasterDashboard() {
             {[
               ["Restaurants", "#restaurants"],
               ["Plans", "#plans"],
+              ["Menu", "#menu"],
               ["Alerts", "#alerts"],
               ["Health", "#health"],
               ["Sales", "#sales"],
@@ -70,6 +72,13 @@ export default function MasterDashboard() {
           <p className="mt-2 text-sm text-white/60">Live plan, ordering, and payment status from Appwrite settings.</p>
 
           <MasterPlansLive clientId={defaultClientId} />
+        </section>
+        <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
+          <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="menu" className="scroll-mt-28" />Menu Control</p>
+          <h2 className="mt-2 text-2xl font-semibold">Menu Items</h2>
+          <p className="mt-2 text-sm text-white/60">Live menu item preview from Appwrite menu_items.</p>
+
+          <MasterMenuLive clientId={defaultClientId} />
         </section>
         <section className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-xl backdrop-blur">
           <p className="text-sm uppercase tracking-[0.25em] text-[#86B9B0]"><span id="alerts" className="scroll-mt-28" />Error Monitoring</p>
