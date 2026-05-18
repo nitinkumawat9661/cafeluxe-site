@@ -2,6 +2,43 @@
 
 import { useState } from "react";
 
+
+async function compressLogoFile(file: File) {
+  if (file.type === "image/svg+xml" || file.size <= 350 * 1024) return file;
+
+  const image = document.createElement("img");
+  const objectUrl = URL.createObjectURL(file);
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("Unable to read logo image."));
+      image.src = objectUrl;
+    });
+
+    const maxSize = 768;
+    const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d")?.drawImage(image, 0, 0, width, height);
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/webp", 0.82)
+    );
+
+    if (!blob || blob.size >= file.size) return file;
+
+    const baseName = file.name.replace(/\.[^.]+$/, "") || "logo";
+    return new File([blob], `${baseName}.webp`, { type: "image/webp" });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 async function readJsonSafe(response: Response) {
   const text = await response.text();
   if (!text) return {};
@@ -20,7 +57,8 @@ export default function MasterOnboardingWizard() {
   async function uploadLogoForClient(nextClientId: string) {
     if (!logo) return "Logo skipped.";
     const formData = new FormData();
-    formData.append("logo", logo);
+    const uploadLogo = await compressLogoFile(logo);
+    formData.append("logo", uploadLogo);
 
     const uploadRes = await fetch("/api/master/onboarding/logo", { method: "POST", body: formData });
     const uploadData = await readJsonSafe(uploadRes) as { message?: string; logoUrl?: string };
