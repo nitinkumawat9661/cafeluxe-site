@@ -56,12 +56,22 @@ export async function GET(request: NextRequest) {
 
   const client = new Client().setEndpoint(endpoint).setProject(projectId).setKey(apiKey);
   const databases = new Databases(client);
+  let response;
+  try {
+    response = await databases.listDocuments(databaseId, "orders", [
+      Query.equal("client_id", [clientId]),
+      Query.limit(300),
+      Query.orderDesc("$createdAt"),
+    ]);
+  } catch {
+    const payload: PopularItemsPayload = { rank: {}, degraded: true };
+    popularItemsCache.set(clientId, {
+      expiresAt: Date.now() + POPULAR_ITEMS_CACHE_TTL_MS,
+      payload,
+    });
 
-  const response = await databases.listDocuments(databaseId, "orders", [
-    Query.equal("client_id", [clientId]),
-    Query.limit(300),
-    Query.orderDesc("$createdAt"),
-  ]);
+    return jsonWithCache(payload);
+  }
 
   const rank: Record<string, number> = {};
 
