@@ -1,3 +1,5 @@
+import { Client } from "appwrite";
+
 const COLLECTION_IDS = {
   users: "users",
   tables: "tables",
@@ -202,6 +204,11 @@ function isIndexOrQueryFailure(error: unknown) {
 export type AppwriteDocument = {
   $id: string;
   [key: string]: unknown;
+};
+
+export type RealtimeDocumentMessage = {
+  events?: string[];
+  payload?: AppwriteDocument;
 };
 
 type ListOptions = {
@@ -525,6 +532,31 @@ export function resolveAssetUrl(value: unknown) {
   }
 
   return "";
+}
+
+const realtimeEndpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT?.trim() ?? "";
+const realtimeProjectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID?.trim() ?? "";
+const realtimeDatabaseId = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID?.trim() ?? "";
+
+let realtimeClient: Client | null = null;
+
+function getRealtimeClient() {
+  if (typeof window === "undefined" || !realtimeEndpoint || !realtimeProjectId) return null;
+  realtimeClient ??= new Client().setEndpoint(realtimeEndpoint).setProject(realtimeProjectId);
+  return realtimeClient;
+}
+
+export function subscribeToCollectionDocuments(
+  collectionId: string,
+  handler: (message: RealtimeDocumentMessage) => void,
+) {
+  const client = getRealtimeClient();
+  if (!client || !realtimeDatabaseId || !collectionId) return null;
+
+  return client.subscribe(
+    `databases.${realtimeDatabaseId}.collections.${collectionId}.documents`,
+    handler,
+  );
 }
 
 export const appwriteConfig = {
