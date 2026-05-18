@@ -6639,7 +6639,29 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
         orderPayloadCandidates,
       );
 
+      if (!reusableOpenOrderForSession) {
+        try {
+          const nowIsoForTableSession = new Date().toISOString();
 
+          await createDocumentWithFallback(appwriteConfig.collections.tableSessions, [
+            {
+              client_id: clientId,
+              table_id: tableInfo!.id,
+              table_number: tableInfo!.tableNo || tableLabel,
+              session_id: activeOrderSession!.sessionId,
+              bill_id: activeOrderSession!.billId,
+              locked_by: browserIdForOrder,
+              status: "active",
+              payment_status: "unpaid",
+              heartbeat_at: nowIsoForTableSession,
+              opened_at: nowIsoForTableSession,
+              total_amount: roundCurrency(computedPayableTotal),
+            },
+          ]);
+        } catch (sessionError) {
+          console.warn("TABLE_SESSION_CREATE_FAILED", sessionError);
+        }
+      }
 
       await createKotPrintJob(createdOrder);
       setOrderPlacedId(createdOrder.$id);
@@ -9804,3 +9826,4 @@ if (billPaymentMethod === "UPI") {
     </div>
   );
 }
+
