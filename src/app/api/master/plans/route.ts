@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { defaultClientId } from "@/lib/tenant";
 import { isMasterAuthenticated, masterUnauthorized } from "@/lib/master-auth";
 import { Client, Databases, ID, Query } from "node-appwrite";
 import { appwriteCollections, serverAppwriteConfig } from "@/lib/server/appwrite-config";
@@ -64,7 +65,7 @@ async function upsertSetting(databases: Databases, docs: Record<string, any>[], 
 export async function GET(request: NextRequest) {
   if (!isMasterAuthenticated(request)) return masterUnauthorized();
 
-  const clientId = safeString(request.nextUrl.searchParams.get("clientId")) || "trustfirst_demo";
+  const clientId = safeString(request.nextUrl.searchParams.get("clientId")) || defaultClientId;
   const databases = databasesClient();
   const result = await listSettings(databases, clientId);
   const docs = result.documents as Record<string, any>[];
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
   if (!endpoint || !projectId || !apiKey) return json("Server Appwrite config missing.", 500);
 
   const body = await request.json().catch(() => null);
-  const clientId = safeText(body?.clientId, 64) || "trustfirst_demo";
+  const clientId = safeText(body?.clientId, 64) || defaultClientId;
 
   const updates = {
     plan: safeText(body?.plan, 40) || "Demo",

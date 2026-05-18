@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { defaultClientId } from "@/lib/tenant";
 import { isMasterAuthenticated, masterUnauthorized } from "@/lib/master-auth";
 import { Client, Databases, Query } from "node-appwrite";
 import { serverAppwriteConfig } from "@/lib/server/appwrite-config";
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
   }
 
 
-  const clientId = safeString(request.nextUrl.searchParams.get("clientId")) || "trustfirst_demo";
+  const clientId = safeString(request.nextUrl.searchParams.get("clientId")) || defaultClientId;
   const client = new Client().setEndpoint(endpoint).setProject(projectId).setKey(apiKey);
   const databases = new Databases(client);
 
