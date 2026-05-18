@@ -1,27 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { serverAppwriteConfig } from "@/lib/server/appwrite-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function normalizeEnvValue(value: string | undefined) {
-  const trimmed = (value ?? "").trim();
-  if (!trimmed) {
-    return "";
-  }
-
-  const quoteWrapped =
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"));
-  const angleWrapped = trimmed.startsWith("<") && trimmed.endsWith(">");
-
-  return quoteWrapped || angleWrapped ? trimmed.slice(1, -1).trim() : trimmed;
-}
-
-const APPWRITE_ENDPOINT = normalizeEnvValue(process.env.APPWRITE_ENDPOINT);
-const APPWRITE_PROJECT_ID = normalizeEnvValue(process.env.APPWRITE_PROJECT_ID);
-const APPWRITE_API_KEY = normalizeEnvValue(process.env.APPWRITE_API_KEY);
-const APPWRITE_BUCKET_ID = normalizeEnvValue(process.env.APPWRITE_BUCKET_ID);
+const APPWRITE_ENDPOINT = serverAppwriteConfig.endpoint;
+const APPWRITE_PROJECT_ID = serverAppwriteConfig.projectId;
+const APPWRITE_API_KEY = serverAppwriteConfig.apiKey;
+const APPWRITE_BUCKET_ID = serverAppwriteConfig.bucketId;
 const DEFAULT_BUCKET_ID = "restaurant-assets";
 const RESPONSE_SECURITY_HEADERS: Record<string, string> = {
   "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
