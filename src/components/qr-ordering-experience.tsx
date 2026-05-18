@@ -311,7 +311,8 @@ const MAX_STORED_STATE_CHARS = 120_000;
 const ACTIVE_TABLE_STORAGE_VERSION = 1;
 const REQUEST_TIMEOUT_MS = 12000;
 const BILL_SYNC_TIMEOUT_MS = 10000;
-const ORDER_STATUS_WATCH_INTERVAL_MS = 14000;
+const ORDER_STATUS_WATCH_INTERVAL_MS = 30000;
+const ORDER_STATUS_WATCH_BACKOFF_MAX_MS = 120000;
 const MAX_TABLE_ORDER_RECORDS = 60;
 const MAX_ROUTE_CLIENT_LENGTH = 64;
 const MAX_ROUTE_TABLE_LENGTH = 32;
@@ -4557,31 +4558,38 @@ export default function QrOrderingExperience({
     }
 
     let cancelled = false;
+    let consecutiveFailures = 0;
+    let nextAllowedSyncAt = 0;
 
     const intervalId = setInterval(() => {
       void (async () => {
-        if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-          return;
-        }
-        if (typeof navigator !== "undefined" && "onLine" in navigator && !navigator.onLine) {
-          return;
-        }
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        if (typeof navigator !== "undefined" && "onLine" in navigator && !navigator.onLine) return;
+
+        const now = Date.now();
+        if (now < nextAllowedSyncAt) return;
+
         try {
           const backendRecords = await withTimeout(
             fetchTableOrderRecords(tableInfo.clientId || routeClient, tableInfo.id),
             BILL_SYNC_TIMEOUT_MS,
             "Status watch sync",
           );
-          if (cancelled || backendRecords.length === 0) {
-            return;
-          }
+          if (cancelled || backendRecords.length === 0) return;
+
+          consecutiveFailures = 0;
+          nextAllowedSyncAt = 0;
 
           const applyResult = applyBackendOrders(backendRecords);
           if (applyResult === "closed") {
             setBillSyncMessage("Bill is already settled. You can start a fresh order now.");
+            cancelled = true;
+            clearInterval(intervalId);
           }
         } catch {
-          // Keep status watcher silent in background to avoid noisy UI.
+          consecutiveFailures += 1;
+          nextAllowedSyncAt =
+            Date.now() + Math.min(ORDER_STATUS_WATCH_BACKOFF_MAX_MS, ORDER_STATUS_WATCH_INTERVAL_MS * consecutiveFailures);
         }
       })();
     }, ORDER_STATUS_WATCH_INTERVAL_MS);
