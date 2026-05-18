@@ -26,6 +26,41 @@ async function readJsonSafe(response: Response) {
   try { return JSON.parse(text); } catch { return {}; }
 }
 
+async function compressMenuImageFile(file: File) {
+  if (file.size <= 500 * 1024) return file;
+
+  const image = document.createElement("img");
+  const objectUrl = URL.createObjectURL(file);
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("Unable to read menu image."));
+      image.src = objectUrl;
+    });
+
+    const maxSize = 1280;
+    const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d")?.drawImage(image, 0, 0, width, height);
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/webp", 0.78)
+    );
+
+    if (!blob || blob.size >= file.size) return file;
+    const baseName = file.name.replace(/\.[^.]+$/, "") || "menu-image";
+    return new File([blob], `${baseName}.webp`, { type: "image/webp" });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 export default function MasterMenuLive({ clientId }: { clientId: string }) {
   const [items, setItems] = useState<MenuItem[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -64,7 +99,8 @@ export default function MasterMenuLive({ clientId }: { clientId: string }) {
       let imagePayload: Record<string, string> = {};
       if (imageFile) {
         const fd = new FormData();
-        fd.append("image", imageFile);
+        const uploadImage = await compressMenuImageFile(imageFile);
+        fd.append("image", uploadImage);
         fd.append("clientId", clientId);
         fd.append("itemId", form.documentId || form.name);
         const uploadRes = await fetch("/api/master/menu-image", { method: "POST", body: fd });
