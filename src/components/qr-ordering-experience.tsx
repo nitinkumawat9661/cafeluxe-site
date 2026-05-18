@@ -31,6 +31,7 @@ import {
   createDocumentWithFallback,
   fetchAllDocuments,
   Query,
+  subscribeToCollectionDocuments,
   updateDocumentWithFallback,
 } from "@/lib/appwrite";
 import { WEBSITE_COLORS, WEBSITE_STYLE_CLASSES } from "@/lib/design-tokens";
@@ -4559,6 +4560,36 @@ export default function QrOrderingExperience({
     routeClient,
     routeTable,
   ]);
+
+  useEffect(() => {
+    if (!tableInfo || loadState !== "ready") return;
+
+    const unsubscribe = subscribeToCollectionDocuments(
+      appwriteConfig.collections.orders,
+      (message) => {
+        const payload = message.payload;
+        if (!payload) return;
+
+        const payloadClientId = toSafeString(payload.client_id);
+        const payloadTableId = toSafeString(payload.table_id);
+        const expectedClientId = tableInfo.clientId || routeClient;
+
+        if (payloadClientId !== expectedClientId || payloadTableId !== tableInfo.id) return;
+
+        const record = parseOrderRecordFromDocument(payload);
+        if (!record) return;
+
+        const applyResult = applyBackendOrders([record]);
+        if (applyResult === "closed") {
+          setBillSyncMessage("Bill is already settled. You can start a fresh order now.");
+        }
+      },
+    );
+
+    return () => {
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
+  }, [loadState, routeClient, tableInfo]);
 
   useEffect(() => {
     if (!tableInfo || loadState !== "ready") {
