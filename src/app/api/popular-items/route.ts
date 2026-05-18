@@ -15,7 +15,7 @@ function safeString(value: unknown) {
   return String(value ?? "").trim();
 }
 
-type PopularItemsPayload = { rank: Record<string, number> };
+type PopularItemsPayload = { rank: Record<string, number>; degraded?: boolean };
 
 const POPULAR_ITEMS_CACHE_TTL_MS = 5 * 60 * 1000;
 const popularItemsCache = new Map<string, { expiresAt: number; payload: PopularItemsPayload }>();
