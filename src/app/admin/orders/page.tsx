@@ -8,6 +8,7 @@ import {
   appwriteConfig,
   fetchAllDocuments,
   Query,
+  subscribeToCollectionDocuments,
 } from "@/lib/appwrite";
 import { WEBSITE_COLORS } from "@/lib/design-tokens";
 import { formatInr, parseTables } from "@/lib/menu";
@@ -408,6 +409,36 @@ export default function AdminOrdersPage() {
 
   useEffect(() => {
     void loadPendingVerificationOrders();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToCollectionDocuments(
+      appwriteConfig.collections.orders,
+      (message) => {
+        const payload = message.payload;
+        if (!payload) return;
+
+        const order = readOrderRecord(payload);
+        if (!order || order.clientId !== ADMIN_CLIENT_ID) return;
+
+        const isDeleteEvent = message.events?.some((event) => event.includes(".delete"));
+
+        setOrders((current) => {
+          if (isDeleteEvent) {
+            return current.filter((entry) => entry.id !== order.id);
+          }
+
+          const next = current.filter((entry) => entry.id !== order.id);
+          return [order, ...next].sort(
+            (left, right) => toTimestamp(right.updatedAt) - toTimestamp(left.updatedAt),
+          );
+        });
+      },
+    );
+
+    return () => {
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
   }, []);
 
   const billRecords = useMemo(() => buildBillRecords(orders), [orders]);
