@@ -16,10 +16,10 @@ function clean(value: string | undefined) {
   return quoted ? text.slice(1, -1).trim() : text;
 }
 
-const endpoint = clean(process.env.APPWRITE_ENDPOINT);
-const projectId = clean(process.env.APPWRITE_PROJECT_ID);
-const apiKey = clean(process.env.APPWRITE_API_KEY);
-const bucketId = clean(process.env.APPWRITE_BUCKET_ID) || DEFAULT_BUCKET_ID;
+const endpoint = serverAppwriteConfig.endpoint;
+const projectId = serverAppwriteConfig.projectId;
+const apiKey = serverAppwriteConfig.apiKey;
+const bucketId = serverAppwriteConfig.bucketId || DEFAULT_BUCKET_ID;
 
 function json(message: string, status: number) {
   return NextResponse.json({ message }, { status });
