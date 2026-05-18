@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isMasterAuthenticated, masterUnauthorized } from "@/lib/master-auth";
 import { Client, Databases, Query } from "node-appwrite";
+import { serverAppwriteConfig } from "@/lib/server/appwrite-config";
 import { parseClientSettings } from "@/lib/menu";
 
 export const dynamic = "force-dynamic";
