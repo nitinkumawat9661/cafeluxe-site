@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordAppwriteRead } from "@/lib/server/read-usage-meter";
+import { serverAppwriteConfig } from "@/lib/server/appwrite-config";
 import { AppwriteException, Client, Databases, Query as ServerQuery } from "node-appwrite";
 
 export const runtime = "nodejs";
@@ -36,16 +37,11 @@ function normalizeConfiguredCollectionId(value: string, fallback: string) {
   return /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(value) ? value : fallback;
 }
 
-const RAW_APPWRITE_ENDPOINT = process.env.APPWRITE_ENDPOINT ?? "";
-const RAW_APPWRITE_PROJECT_ID = process.env.APPWRITE_PROJECT_ID ?? "";
-const RAW_APPWRITE_DATABASE_ID = process.env.APPWRITE_DATABASE_ID ?? "";
-const RAW_WEB_ADMIN_APPROVAL_PIN = process.env.WEB_ADMIN_APPROVAL_PIN ?? "";
-
-const APPWRITE_ENDPOINT = normalizeEnvValue(RAW_APPWRITE_ENDPOINT);
-const APPWRITE_PROJECT_ID = normalizeEnvValue(RAW_APPWRITE_PROJECT_ID);
-const APPWRITE_DATABASE_ID = normalizeEnvValue(RAW_APPWRITE_DATABASE_ID);
-const APPWRITE_API_KEY = normalizeEnvValue(process.env.APPWRITE_API_KEY);
-const WEB_ADMIN_APPROVAL_PIN = normalizeEnvValue(RAW_WEB_ADMIN_APPROVAL_PIN);
+const APPWRITE_ENDPOINT = serverAppwriteConfig.endpoint;
+const APPWRITE_PROJECT_ID = serverAppwriteConfig.projectId;
+const APPWRITE_DATABASE_ID = serverAppwriteConfig.databaseId;
+const APPWRITE_API_KEY = serverAppwriteConfig.apiKey;
+const WEB_ADMIN_APPROVAL_PIN = serverAppwriteConfig.adminPin;
 
 const TABLES_COLLECTION_ALIAS = "tables";
 const CATEGORIES_COLLECTION_ALIAS = "categories";
