@@ -1460,6 +1460,28 @@ function sanitizePaymentCreatePayload(documentData: Record<string, unknown>) {
     verified_at: verifiedAt,
   } satisfies Record<string, unknown>;
 }
+
+async function verifyPaymentOrderTenantScope(paymentData: Record<string, unknown>) {
+  const clientId = sanitizeIdentifier(paymentData.client_id, 100);
+  const orderId = sanitizeIdentifier(paymentData.order_id, 100);
+
+  if (!clientId || !orderId) return false;
+
+  try {
+    const databases = createServerDatabases(true);
+    const order = (await databases.getDocument({
+      databaseId: APPWRITE_DATABASE_ID,
+      collectionId: ORDERS_COLLECTION_ID,
+      documentId: orderId,
+    })) as unknown as Record<string, unknown>;
+
+    const orderClientId = sanitizeIdentifier(order.client_id, 100);
+    return orderClientId === clientId;
+  } catch {
+    return false;
+  }
+}
+
 function sanitizeTableSessionCreatePayload(documentData: Record<string, unknown>) {
   const clientId = sanitizeIdentifier(documentData.client_id, 64);
   const tableId = sanitizeIdentifier(documentData.table_id, 64);
@@ -1833,6 +1855,13 @@ export async function POST(request: NextRequest) {
   const sanitizedData = sanitizeCreatePayload(collectionId, documentData);
   if (!sanitizedData) {
     return jsonError("Invalid document payload.", 400);
+  }
+
+  if (collectionId === PAYMENTS_COLLECTION_ID) {
+    const paymentOrderMatchesTenant = await verifyPaymentOrderTenantScope(sanitizedData);
+    if (!paymentOrderMatchesTenant) {
+      return jsonError("Payment order scope mismatch.", 403);
+    }
   }
 
   const upstreamUrl = `${APPWRITE_ENDPOINT}/databases/${encodeURIComponent(
