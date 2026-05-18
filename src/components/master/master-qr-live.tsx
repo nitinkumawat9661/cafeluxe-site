@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { defaultClientId } from "@/lib/tenant";
 import BrandedQrCard from "@/components/master/branded-qr-card";
 import { buildBrandedQrDataUrl } from "@/lib/qr-branding";
 
@@ -13,7 +14,7 @@ const fallbackData: QrData = {
   tables: ["01", "02", "03", "06"].map((tableNo) => ({
     tableNo,
     tableCode: tableNo,
-    qrPath: `/c/trustfirst_demo/t/${tableNo}`,
+    qrPath: `/c/${defaultClientId}/t/${tableNo}`,
   })),
 };
 
