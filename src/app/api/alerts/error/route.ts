@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Client, Databases, ID } from "node-appwrite";
+import { appwriteCollections, serverAppwriteConfig } from "@/lib/server/appwrite-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const endpoint = process.env.APPWRITE_ENDPOINT || process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || "";
-const projectId = process.env.APPWRITE_PROJECT_ID || process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || "";
-const apiKey = process.env.APPWRITE_API_KEY || "";
-const databaseId = process.env.APPWRITE_DATABASE_ID || process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || "trustfirst-main-db";
+const endpoint = serverAppwriteConfig.endpoint;
+const projectId = serverAppwriteConfig.projectId;
+const apiKey = serverAppwriteConfig.apiKey;
+const databaseId = serverAppwriteConfig.databaseId || "trustfirst-main-db";
+const notificationsCollectionId = appwriteCollections.notifications;
 
 function clean(value: unknown, max = 600) {
   return String(value ?? "").trim().replace(/[\u0000-\u001F\u007F]/g, "").slice(0, max);
@@ -64,7 +66,7 @@ export async function POST(request: NextRequest) {
 
   const doc = await databases.createDocument({
     databaseId,
-    collectionId: "notifications",
+    collectionId: notificationsCollectionId,
     documentId: ID.unique(),
     data: {
       client_id: clientId,
