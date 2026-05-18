@@ -31,6 +31,7 @@ export default function MasterMenuLive({ clientId }: { clientId: string }) {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [message, setMessage] = useState("Loading menu...");
   const [saving, setSaving] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
 
   async function loadMenu() {
     setMessage("Loading menu...");
@@ -60,6 +61,22 @@ export default function MasterMenuLive({ clientId }: { clientId: string }) {
     setSaving(true);
     setMessage("Saving menu item...");
     try {
+      let imagePayload: Record<string, string> = {};
+      if (imageFile) {
+        const fd = new FormData();
+        fd.append("image", imageFile);
+        fd.append("clientId", clientId);
+        fd.append("itemId", form.documentId || form.name);
+        const uploadRes = await fetch("/api/master/menu-image", { method: "POST", body: fd });
+        const uploadData = await readJsonSafe(uploadRes) as Record<string, string>;
+        if (!uploadRes.ok) throw new Error(uploadData.message || "Menu image upload failed.");
+        imagePayload = {
+          imageFileId: uploadData.imageFileId || uploadData.fileId,
+          imageBucketId: uploadData.imageBucketId || uploadData.bucketId,
+          imageUrl: uploadData.imageUrl,
+        };
+      }
+
       const method = form.documentId ? "PATCH" : "POST";
       const res = await fetch("/api/master/menu-items", {
         method,
@@ -71,6 +88,7 @@ export default function MasterMenuLive({ clientId }: { clientId: string }) {
           price: Number(form.price || 0),
           description: form.description,
           categoryId: form.categoryId,
+          ...imagePayload,
         }),
       });
 
@@ -78,6 +96,7 @@ export default function MasterMenuLive({ clientId }: { clientId: string }) {
       if (!res.ok) throw new Error(data.message || "Menu save failed.");
 
       setForm(emptyForm);
+      setImageFile(null);
       await loadMenu();
       setMessage("Menu item saved.");
     } catch (error) {
@@ -104,6 +123,7 @@ export default function MasterMenuLive({ clientId }: { clientId: string }) {
         <input className="rounded-2xl bg-white/10 px-4 py-3 text-sm outline-none" placeholder="Price" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
         <input className="rounded-2xl bg-white/10 px-4 py-3 text-sm outline-none" placeholder="Category ID optional" value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })} />
         <input className="rounded-2xl bg-white/10 px-4 py-3 text-sm outline-none" placeholder="Description optional" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+        <input type="file" accept="image/png,image/jpeg,image/webp" className="rounded-2xl bg-white/10 px-4 py-3 text-sm outline-none" onChange={(e) => setImageFile(e.target.files?.[0] ?? null)} />
         <button onClick={saveItem} disabled={saving} className="rounded-2xl bg-[#86B9B0] px-4 py-3 text-sm font-semibold text-[#041421] disabled:opacity-50">{saving ? "Saving..." : form.documentId ? "Update Item" : "Add Item"}</button>
         <button onClick={() => setForm(emptyForm)} className="rounded-2xl bg-white/10 px-4 py-3 text-sm text-white/80">Clear</button>
       </div>
