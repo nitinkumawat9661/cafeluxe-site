@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isMasterAuthenticated, masterUnauthorized } from "@/lib/master-auth";
 import { Client, Databases, ID, Query } from "node-appwrite";
+import { appwriteCollections, serverAppwriteConfig } from "@/lib/server/appwrite-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
