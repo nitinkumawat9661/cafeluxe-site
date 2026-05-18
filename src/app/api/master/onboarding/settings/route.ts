@@ -13,11 +13,11 @@ function clean(value: string | undefined) {
   return quoted ? text.slice(1, -1).trim() : text;
 }
 
-const endpoint = clean(process.env.APPWRITE_ENDPOINT);
-const projectId = clean(process.env.APPWRITE_PROJECT_ID);
-const apiKey = clean(process.env.APPWRITE_API_KEY);
-const databaseId = clean(process.env.APPWRITE_DATABASE_ID) || "trustfirst-main-db";
-const settingsCollectionId = clean(process.env.APPWRITE_SETTINGS_COLLECTION_ID) || "settings";
+const endpoint = serverAppwriteConfig.endpoint;
+const projectId = serverAppwriteConfig.projectId;
+const apiKey = serverAppwriteConfig.apiKey;
+const databaseId = serverAppwriteConfig.databaseId || "trustfirst-main-db";
+const settingsCollectionId = appwriteCollections.settings;
 
 function json(message: string, status: number) {
   return NextResponse.json({ message }, { status });

@@ -6,11 +6,11 @@ import { appwriteCollections, serverAppwriteConfig } from "@/lib/server/appwrite
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const endpoint = process.env.APPWRITE_ENDPOINT || process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || "";
-const projectId = process.env.APPWRITE_PROJECT_ID || process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || "";
-const apiKey = process.env.APPWRITE_API_KEY || "";
-const databaseId = process.env.APPWRITE_DATABASE_ID || process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || "trustfirst-main-db";
-const settingsCollectionId = process.env.APPWRITE_SETTINGS_COLLECTION_ID || "settings";
+const endpoint = serverAppwriteConfig.endpoint;
+const projectId = serverAppwriteConfig.projectId;
+const apiKey = serverAppwriteConfig.apiKey;
+const databaseId = serverAppwriteConfig.databaseId || "trustfirst-main-db";
+const settingsCollectionId = appwriteCollections.settings;
 
 function safeString(value: unknown) {
   return String(value ?? "").trim();
