@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { defaultClientId } from "@/lib/tenant";
 
 type Restaurant = {
   name: string;
@@ -14,7 +15,7 @@ type Restaurant = {
 const fallbackRestaurants: Restaurant[] = [
   {
     name: "Nanu Da Dhaba",
-    clientId: "trustfirst_demo",
+    clientId: defaultClientId,
     plan: "Demo",
     status: "Active",
     tables: 12,
