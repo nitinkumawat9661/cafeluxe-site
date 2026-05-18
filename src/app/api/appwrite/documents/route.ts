@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordAppwriteRead } from "@/lib/server/read-usage-meter";
 import { AppwriteException, Client, Databases, Query as ServerQuery } from "node-appwrite";
 
 export const runtime = "nodejs";
@@ -809,6 +810,11 @@ const readCache = new Map<string, { expiresAt: number; payload: Record<string, u
 
 function getReadCacheKey(collectionId: string, queries: string[]) {
   return JSON.stringify({ collectionId, queries: [...queries].sort() });
+}
+
+function getEstimatedReadCount(payload: Record<string, unknown>) {
+  const docs = Array.isArray(payload.documents) ? payload.documents.length : 0;
+  return Math.max(1, docs);
 }
 
 function cacheableJson(payload: Record<string, unknown>, status = 200) {
@@ -1769,6 +1775,8 @@ export async function GET(request: NextRequest) {
       string,
       unknown
     >;
+
+    await recordAppwriteRead(collectionId, getEstimatedReadCount(payload));
 
     if (READ_CACHEABLE_COLLECTIONS.has(collectionId)) {
       readCache.set(cacheKey, {
