@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { Client, Databases, Query as ServerQuery } from "node-appwrite";
+import { serverAppwriteConfig } from "@/lib/server/appwrite-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const APPWRITE_ENDPOINT = process.env.APPWRITE_ENDPOINT?.trim() ?? "";
-const APPWRITE_PROJECT_ID = process.env.APPWRITE_PROJECT_ID?.trim() ?? "";
-const APPWRITE_DATABASE_ID = process.env.APPWRITE_DATABASE_ID?.trim() ?? "";
-const APPWRITE_API_KEY = process.env.APPWRITE_API_KEY?.trim() ?? "";
+const APPWRITE_ENDPOINT = serverAppwriteConfig.endpoint;
+const APPWRITE_PROJECT_ID = serverAppwriteConfig.projectId;
+const APPWRITE_DATABASE_ID = serverAppwriteConfig.databaseId;
+const APPWRITE_API_KEY = serverAppwriteConfig.apiKey;
 const TABLES_COLLECTION_ID = "tables";
 const TABLE_SESSIONS_COLLECTION_ID = "table_sessions";
 const ACTIVE_SESSION_STATUSES = ["active", "payment_pending"];
