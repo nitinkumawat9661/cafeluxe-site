@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Client, Databases, Query } from "node-appwrite";
+import { serverAppwriteConfig } from "@/lib/server/appwrite-config";
 
-const endpoint =
-  process.env.APPWRITE_ENDPOINT || process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || "";
-const projectId =
-  process.env.APPWRITE_PROJECT_ID || process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || "";
-const apiKey = process.env.APPWRITE_API_KEY || "";
-const databaseId =
-  process.env.APPWRITE_DATABASE_ID ||
-  process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID ||
-  "trustfirst-main-db";
+const endpoint = serverAppwriteConfig.endpoint;
+const projectId = serverAppwriteConfig.projectId;
+const apiKey = serverAppwriteConfig.apiKey;
+const databaseId = serverAppwriteConfig.databaseId || "trustfirst-main-db";
 
 function safeString(value: unknown) {
   return String(value ?? "").trim();
