@@ -15,6 +15,19 @@ function safeString(value: unknown) {
   return String(value ?? "").trim();
 }
 
+type PopularItemsPayload = { rank: Record<string, number> };
+
+const POPULAR_ITEMS_CACHE_TTL_MS = 5 * 60 * 1000;
+const popularItemsCache = new Map<string, { expiresAt: number; payload: PopularItemsPayload }>();
+
+function jsonWithCache(payload: PopularItemsPayload) {
+  return NextResponse.json(payload, {
+    headers: {
+      "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600",
+    },
+  });
+}
+
 function parseItems(raw: unknown) {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw;
@@ -33,6 +46,12 @@ export async function GET(request: NextRequest) {
   const clientId = safeString(request.nextUrl.searchParams.get("clientId"));
   if (!clientId) {
     return NextResponse.json({ message: "clientId is required" }, { status: 400 });
+  }
+
+  const now = Date.now();
+  const cached = popularItemsCache.get(clientId);
+  if (cached && cached.expiresAt > now) {
+    return jsonWithCache(cached.payload);
   }
 
   const client = new Client().setEndpoint(endpoint).setProject(projectId).setKey(apiKey);
@@ -59,5 +78,11 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ rank });
+  const payload = { rank };
+  popularItemsCache.set(clientId, {
+    expiresAt: Date.now() + POPULAR_ITEMS_CACHE_TTL_MS,
+    payload,
+  });
+
+  return jsonWithCache(payload);
 }

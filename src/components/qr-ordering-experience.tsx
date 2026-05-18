@@ -3505,7 +3505,6 @@ async function fetchClientSalesRank(clientId: string) {
   try {
     const response = await fetch(`/api/popular-items?clientId=${encodeURIComponent(clientId)}`, {
       method: "GET",
-      cache: "no-store",
     });
 
     if (!response.ok) {
