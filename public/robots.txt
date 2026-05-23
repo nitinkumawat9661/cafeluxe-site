@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+
+Disallow: /api/
+Disallow: /admin/
+Disallow: /master/
+Disallow: /c/
+Disallow: /app/releases/
+
+Sitemap: https://cafeluxesite.in/sitemap.xml

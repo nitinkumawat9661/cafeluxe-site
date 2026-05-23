@@ -6,6 +6,10 @@ import MasterLogin from "@/components/master/master-login";
 export const metadata = {
   title: "CafeLuxe Master Dashboard",
   description: "Master admin dashboard for CafeLuxe restaurant management.",
+  robots: {
+    index: false,
+    follow: false,
+  },
 };
 
 export default async function MasterPage() {
