@@ -46,6 +46,10 @@ export async function generateMetadata({
   return {
     title: `${prettyClient} - Table ${safeTable} Cart`,
     description: "Review cart and place your order instantly.",
+    robots: {
+      index: false,
+      follow: false,
+    },
   };
 }
 
