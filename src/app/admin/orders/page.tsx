@@ -446,6 +446,10 @@ export default function AdminOrdersPage() {
     () => billRecords.filter((bill) => bill.needsApproval),
     [billRecords],
   );
+  const unpaidBills = useMemo(
+    () => billRecords.filter((bill) => !bill.isPaid && !bill.needsApproval),
+    [billRecords],
+  );
   const completedBills = useMemo(
     () => billRecords.filter((bill) => bill.isPaid).slice(0, 30),
     [billRecords],
@@ -833,6 +837,17 @@ export default function AdminOrdersPage() {
                 ))}
               </section>
             )}
+
+            <section className="rounded-3xl border p-4 shadow-[0_18px_40px_rgba(46,42,38,0.06)]" style={{ borderColor: `${palette.accent}45`, backgroundColor: "#fffdf9" }}>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.16em]" style={{ color: palette.secondaryText }}>Live Orders</p>
+                  <h2 className="text-xl font-semibold">Unpaid Bills</h2>
+                </div>
+                <span className="rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em]" style={{ borderColor: `${palette.accent}55`, backgroundColor: `${palette.accent}22`, color: palette.text }}>{unpaidBills.length} shown</span>
+              </div>
+              {unpaidBills.length === 0 ? <p className="rounded-2xl border p-4 text-sm" style={{ borderColor: `${palette.accent}35`, backgroundColor: palette.background, color: palette.secondaryText }}>No unpaid bills are currently active.</p> : <div className="space-y-3">{unpaidBills.map((bill) => renderBillCard(bill, "record"))}</div>}
+            </section>
 
             <section
               className="rounded-3xl border p-4 shadow-[0_18px_40px_rgba(46,42,38,0.06)]"
