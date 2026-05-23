@@ -372,7 +372,7 @@ export default function AdminOrdersPage() {
         maxDocs: 100,
         queries: [
           Query.equal("client_id", [ADMIN_CLIENT_ID]),
-          Query.equal("active", [true]),
+          Query.equal("is_active", [true]),
           Query.orderDesc("$createdAt"),
         ],
       });
