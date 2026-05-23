@@ -5,6 +5,9 @@ export const metadata: Metadata = {
   title: "Features",
   description:
     "CafeLuxe features include QR ordering, digital menu, restaurant POS, KOT billing, staff app, table ordering, and admin order management.",
+  alternates: {
+    canonical: "/features",
+  },
 };
 
 const features = [
