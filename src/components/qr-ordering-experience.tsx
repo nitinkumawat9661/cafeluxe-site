@@ -3770,6 +3770,7 @@ export default function QrOrderingExperience({
   const [addonPickerMode, setAddonPickerMode] = useState<"add" | "edit">("add");
   const [isOffersExpanded, setIsOffersExpanded] = useState(false);
   const [kitchenInstructions, setKitchenInstructions] = useState("");
+  const [takeawayCustomerName, setTakeawayCustomerName] = useState("");
   const [isCartHydrated, setIsCartHydrated] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [billOpen, setBillOpen] = useState(false);
@@ -4066,11 +4067,23 @@ export default function QrOrderingExperience({
         }
 
         setLoadingMessage("Verifying table QR...");
-        const matchedTable = await withTimeout(
-          resolveRouteTable(routeClient, routeTable),
-          REQUEST_TIMEOUT_MS,
-          "Table verification",
-        );
+        const isTakeawayRoute = normalizeRouteToken(routeTable) === "takeaway";
+        const matchedTable = isTakeawayRoute
+          ? ({
+              id: "takeaway",
+              clientId: routeClient,
+              tableNo: "TAKEAWAY",
+              tableCode: "takeaway",
+              displayLabel: "TAKEAWAY",
+              sortOrder: 9999,
+              isActive: true,
+              raw: {} as any,
+            } as RestaurantTable)
+          : await withTimeout(
+              resolveRouteTable(routeClient, routeTable),
+              REQUEST_TIMEOUT_MS,
+              "Table verification",
+            );
 
         if (cancelled) {
           return;
@@ -6404,9 +6417,25 @@ export default function QrOrderingExperience({
       return;
     }
 
+    const isTakeawayOrder = normalizeRouteToken(routeTable) === "takeaway" || normalizeRouteToken(tableInfo.tableNo) === "takeaway";
+    let finalTakeawayCustomerName = takeawayCustomerName.trim();
+
+    if (isTakeawayOrder && !finalTakeawayCustomerName && typeof window !== "undefined") {
+      finalTakeawayCustomerName = window.prompt("Enter customer name for TAKEAWAY order")?.trim() || "";
+      setTakeawayCustomerName(finalTakeawayCustomerName);
+    }
+
+    if (isTakeawayOrder && !finalTakeawayCustomerName) {
+      setErrorMessage("Customer name is required for takeaway order.");
+      setPlacingOrder(false);
+      placeOrderLockRef.current = false;
+      return;
+    }
+
     const nowIso = new Date().toISOString();
     const clientId = tableInfo.clientId || routeClient;
-    const orderNumber = generateOrderNumber(clientId, tableInfo.tableNo);
+    const orderTableLabel = isTakeawayOrder ? `TAKEAWAY - ${finalTakeawayCustomerName.toUpperCase()}` : tableInfo.tableNo;
+    const orderNumber = generateOrderNumber(clientId, orderTableLabel);
     const browserIdForOrder =
       customerBrowserId || (typeof window !== "undefined" ? ensureBrowserCustomerId() : "");
     if (!customerBrowserId && browserIdForOrder) {
@@ -6547,7 +6576,7 @@ const kotOrderBasePayload: Record<string, unknown> = {
   order_number: orderNumber,
   session_id: activeOrderSession!.sessionId,
   bill_id: activeOrderSession!.billId,
-  table_number: tableInfo!.tableNo || tableLabel,
+  table_number: orderTableLabel || tableInfo!.tableNo || tableLabel,
   order_round: orderRound,
   is_add_more: !!reusableOpenOrderForSession,
   kot_status: "pending",
@@ -6615,13 +6644,13 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
         {
           client_id: clientId,
           table_id: tableInfo!.id,
-          table_number: tableInfo!.tableNo || tableLabel,
+          table_number: orderTableLabel || tableInfo!.tableNo || tableLabel,
           session_id: activeOrderSession!.sessionId,
           bill_id: activeOrderSession!.billId,
           order_id: createdOrder.$id,
           order_number: orderNumber,
           type: "KOT",
-          label: `${reusableOpenOrderForSession ? "RUNNING ORDER" : "NEW ORDER"} TABLE ${tableInfo!.tableNo || tableLabel}`,
+          label: isTakeawayOrder ? `TAKEAWAY - ${finalTakeawayCustomerName.toUpperCase()}` : `${reusableOpenOrderForSession ? "RUNNING ORDER" : "NEW ORDER"} TABLE ${tableInfo!.tableNo || tableLabel}`,
           items_json: kitchenItemsJson,
           total_amount: roundCurrency(computedPayableTotal),
           status: "pending",
@@ -6647,7 +6676,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
             {
               client_id: clientId,
               table_id: tableInfo!.id,
-              table_number: tableInfo!.tableNo || tableLabel,
+              table_number: orderTableLabel || tableInfo!.tableNo || tableLabel,
               session_id: activeOrderSession!.sessionId,
               bill_id: activeOrderSession!.billId,
               locked_by: browserIdForOrder,
