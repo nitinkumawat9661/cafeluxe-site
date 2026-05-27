@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
@@ -5276,7 +5276,7 @@ export default function QrOrderingExperience({
   const formatMoney = (value: number) => formatInr(value, normalizedCurrency);
   const formatTaxMoney = (value: number) =>
     normalizedCurrency === "INR"
-      ? `₹${Number(value || 0).toFixed(2)}`
+      ? `â‚¹${Number(value || 0).toFixed(2)}`
       : `${normalizedCurrency} ${Number(value || 0).toFixed(2)}`;
 
   const offerCategoryRefsByItemId = useMemo(() => {
@@ -6892,90 +6892,72 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
 
   async function handleBillPaymentConfirm() {
     setBillPaymentModalOpen(false);
-    
-    const paymentRequestFingerprint = [
-      billActionOrderId ||
-        latestBillOrder?.orderId ||
-        aggregatedUnpaidOrder?.orderId ||
-        unpaidOrders.map((order) => order.orderId).join("_") ||
-        tableOrders.map((order) => order.orderId).join("_") ||
-        "no_order",
-      Math.round(billPayableTotal * 100),
-    ].join("_");
 
-    const activeBillPaymentKey = `cafeluxe_payment_request_${routeClient}_${routeTable}_${activeBillStorageKey}_${paymentRequestFingerprint}`;
-    if (typeof window !== "undefined" && window.localStorage.getItem(activeBillPaymentKey) === "pending") {
-      setNoticeMessage("Payment request already sent. Please wait for cashier confirmation.");
-      if (!feedbackAlreadySubmitted) setFeedbackPromptOpen(true);
-      return;
-    }
-    const paymentTargetOrder =
-      (billActionOrderId ? tableOrders.find((order) => order.orderId === billActionOrderId) : null) ||
-      latestBillOrder ||
-      aggregatedUnpaidOrder ||
-      unpaidOrders[0] ||
-      tableOrders[0] ||
-      null;
+    const targetOrders = billActionOrderId
+      ? tableOrders.filter((order) => order.orderId === billActionOrderId)
+      : unpaidOrders.length > 0
+        ? unpaidOrders
+        : tableOrders;
 
+    const paymentTargetOrder = targetOrders[0] || latestBillOrder || aggregatedUnpaidOrder || null;
     const paymentSessionId = paymentTargetOrder?.sessionId || activeSessionStorageKey;
     const paymentBillId = paymentTargetOrder?.billId || activeBillStorageKey;
-    const paymentPayloadCandidates: Record<string, unknown>[] = [
-      {
-        client_id: routeClient,
-        order_id: (billActionOrderId || latestBillOrder?.orderId || aggregatedUnpaidOrder?.orderId || unpaidOrders[0]?.orderId || tableOrders[0]?.orderId || ""),
-        session_id: paymentSessionId,
-        bill_id: paymentBillId,
-        table_number: tableInfo?.tableNo || tableLabel,
-        amount: billPayableTotal,
-        payment_method: billPaymentMethod,
-        payment_mode: billPaymentMethod,
-        payment_status: "PENDING",
-        customer_marked_paid: false,
-        verified_by: "PENDING_CASHIER_CONFIRMATION",
-        verified_at: new Date().toISOString(),
-      },
-      {
-        client_id: routeClient,
-        order_id: (billActionOrderId || latestBillOrder?.orderId || aggregatedUnpaidOrder?.orderId || unpaidOrders[0]?.orderId || tableOrders[0]?.orderId || ""),
-        session_id: paymentSessionId,
-        bill_id: paymentBillId,
-        table_number: tableInfo?.tableNo || tableLabel,
-        amount: billPayableTotal,
-        payment_method: billPaymentMethod,
-        payment_mode: billPaymentMethod,
-        payment_status: "PENDING",
-      },
-      {
-        client_id: routeClient,
-        order_id: (billActionOrderId || latestBillOrder?.orderId || aggregatedUnpaidOrder?.orderId || unpaidOrders[0]?.orderId || tableOrders[0]?.orderId || ""),
-        session_id: paymentSessionId,
-        bill_id: paymentBillId,
-        table_number: tableInfo?.tableNo || tableLabel,
-        amount: billPayableTotal,
-      },
-    ];
-    try {
-      await createDocumentWithFallback(
-        appwriteConfig.collections.payments,
-        paymentPayloadCandidates,
-      );
-      
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(activeBillPaymentKey, "pending");
-      }
-      if (!feedbackAlreadySubmitted) setFeedbackPromptOpen(true);
-if (billPaymentMethod === "UPI") {
-        // Show UPI QR
-        const billUpiLink = buildUpiPaymentLink({
-          upiId: configuredUpiId,
-          upiName: configuredUpiName,
-          amount: billPayableTotal,
+    const orderIds = targetOrders.map((order) => order.orderId).filter(Boolean);
+
+    if (!paymentTargetOrder || orderIds.length === 0 || billPayableTotal <= 0) {
+      setNoticeMessage("No payable bill found.");
+      return;
+    }
+
+    if (billPaymentMethod === "UPI") {
+      try {
+        const res = await fetch("/api/payments/table-bill/initiate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            client_id: routeClient,
+            bill_id: paymentBillId,
+            session_id: paymentSessionId,
+            table_id: tableInfo?.id || routeTable,
+            table_number: tableInfo?.tableNo || tableLabel,
+            amount: billPayableTotal,
+            order_ids: orderIds,
+          }),
         });
-        handleShowUpiQr(billUpiLink, billPayableTotal);
-      } else {
-        setNoticeMessage("Payment marked as pending. Please pay at the counter.");
+
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.ok) throw new Error(json?.message || "Payment request failed");
+
+        if (typeof window !== "undefined") {
+          const key = `cafeluxe_table_bill_payment_${routeClient}_${routeTable}_${paymentBillId}`;
+          window.localStorage.setItem(key, json.requestId);
+        }
+
+        if (!feedbackAlreadySubmitted) setFeedbackPromptOpen(true);
+        handleShowUpiQr(json.upi_intent_url, billPayableTotal);
+        setNoticeMessage(`Payment request created: ${json.requestId}`);
+      } catch (error) {
+        setNoticeMessage(error instanceof Error ? error.message : "Failed to initiate online payment.");
       }
-    } catch (error) {
+      return;
+    }
+
+    try {
+      await createDocumentWithFallback(appwriteConfig.collections.payments, [{
+        client_id: routeClient,
+        order_id: orderIds[0] || "",
+        session_id: paymentSessionId,
+        bill_id: paymentBillId,
+        table_number: tableInfo?.tableNo || tableLabel,
+        amount: billPayableTotal,
+        payment_method: billPaymentMethod,
+        payment_mode: billPaymentMethod,
+        payment_status: "PENDING",
+      }]);
+
+      if (!feedbackAlreadySubmitted) setFeedbackPromptOpen(true);
+      setNoticeMessage("Payment marked as pending. Please pay at the counter.");
+    } catch {
       setNoticeMessage("Failed to initiate payment. Please try again.");
     }
   }
@@ -7370,14 +7352,14 @@ if (billPaymentMethod === "UPI") {
             <div className="relative w-full max-w-[390px] overflow-hidden rounded-[1.7rem] border border-amber-300/55 bg-[#15110b] text-white shadow-[0_30px_100px_-18px_rgba(245,158,11,0.95)]">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(251,191,36,0.34),transparent_46%)]" />
               <div className="relative p-5">
-                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400 text-2xl shadow-lg shadow-amber-500/30">★</div>
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400 text-2xl shadow-lg shadow-amber-500/30">â˜…</div>
                 <p className="text-center text-[11px] font-bold uppercase tracking-[0.22em] text-amber-100/75">Quick Review</p>
                 <h3 className="mt-1 text-center text-xl font-black">Rate your experience</h3>
                 <p className="mt-1 text-center text-xs text-white/60">Help us improve your table ordering experience.</p>
 
                 <div className="mt-4 flex justify-center gap-2">
                   {[1, 2, 3, 4, 5].map((star) => (
-                    <button key={star} type="button" onClick={() => { setFeedbackRating(star); refreshGeneratedFeedback(star); }} className={clsx("h-10 w-10 rounded-2xl text-base font-black transition active:scale-95", star <= feedbackRating ? "bg-amber-400 text-black shadow-lg shadow-amber-500/30" : "bg-white/10 text-white/50")}>★</button>
+                    <button key={star} type="button" onClick={() => { setFeedbackRating(star); refreshGeneratedFeedback(star); }} className={clsx("h-10 w-10 rounded-2xl text-base font-black transition active:scale-95", star <= feedbackRating ? "bg-amber-400 text-black shadow-lg shadow-amber-500/30" : "bg-white/10 text-white/50")}>â˜…</button>
                   ))}
                 </div>
 
@@ -9414,7 +9396,7 @@ if (billPaymentMethod === "UPI") {
                   ) : null}
                   <div className="flex justify-between w-full">
                     <span>Discount Applied</span>
-                    <span className="text-green-600">-₹{totalDiscountAmount.toFixed(2)}</span>
+                    <span className="text-green-600">-â‚¹{totalDiscountAmount.toFixed(2)}</span>
                   </div>
                   {applicableCartOffers.length > 0 || resolvedCartCoupon ? (
                     <div className="flex items-center justify-between">
@@ -9424,7 +9406,7 @@ if (billPaymentMethod === "UPI") {
                   ) : null}
                   <div className="flex justify-between w-full font-bold text-lg">
                     <span>Final Payable</span>
-                    <span>₹{finalTotal.toFixed(2)}</span>
+                    <span>â‚¹{finalTotal.toFixed(2)}</span>
                   </div>
                 </section>
 
@@ -9855,4 +9837,5 @@ if (billPaymentMethod === "UPI") {
     </div>
   );
 }
+
 

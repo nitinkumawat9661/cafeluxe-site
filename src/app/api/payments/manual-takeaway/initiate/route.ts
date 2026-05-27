@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
     const requestId = `PAYREQ-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
     const qrUrl = `https://cafeluxesite.in/mock-pay/${requestId}`;
-    const upiIntentUrl = `upi://pay?pa=mock@upi&pn=CafeLuxe&am=${amount}&cu=INR&tn=${requestId}`;
+    const upiIntentUrl = `upi://pay?pa=7665853321@superyes&pn=Nitin%20Kumawat&am=${amount}&cu=INR&tn=${requestId}`;
 
     const client = new Client().setEndpoint(serverAppwriteConfig.endpoint).setProject(serverAppwriteConfig.projectId).setKey(serverAppwriteConfig.apiKey);
     const databases = new Databases(client);
