@@ -3793,6 +3793,7 @@ export default function QrOrderingExperience({
   const [feedbackError, setFeedbackError] = useState("");
   const [feedbackAlreadySubmitted, setFeedbackAlreadySubmitted] = useState(false);
   const [feedbackPromptOpen, setFeedbackPromptOpen] = useState(false);
+  const [billPaymentThanksOpen, setBillPaymentThanksOpen] = useState(false);
   const [billActionOrderId, setBillActionOrderId] = useState("");
   const [billPaymentModalOpen, setBillPaymentModalOpen] = useState(false);
   const [billPaymentMethod, setBillPaymentMethod] = useState<PaymentMethod>("COUNTER");
@@ -5277,7 +5278,7 @@ export default function QrOrderingExperience({
   const formatMoney = (value: number) => formatInr(value, normalizedCurrency);
   const formatTaxMoney = (value: number) =>
     normalizedCurrency === "INR"
-      ? `ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¹${Number(value || 0).toFixed(2)}`
+      ? `ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¹${Number(value || 0).toFixed(2)}`
       : `${normalizedCurrency} ${Number(value || 0).toFixed(2)}`;
 
   const offerCategoryRefsByItemId = useMemo(() => {
@@ -6892,23 +6893,24 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
     if (!upiQrPaymentRequestId) return;
 
     try {
-      const res = await fetch("/api/payments/table-bill/mock-success", {
+      const res = await fetch("/api/payments/table-bill/mark-paid", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request_id: upiQrPaymentRequestId, secret: "local_test_123" }),
+        body: JSON.stringify({ request_id: upiQrPaymentRequestId }),
       });
 
       const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.ok) throw new Error(json?.message || "Payment confirmation failed");
+      if (!res.ok || !json?.ok) throw new Error(json?.message || "Failed to send payment request to staff.");
 
-      setNoticeMessage("Payment confirmed. Bill marked as paid.");
-      closeUpiQrSheet();
-
-      if (typeof window !== "undefined") {
-        window.setTimeout(() => window.location.reload(), 700);
+      setUpiQrOpen(false);
+      setUpiQrPaymentRequestId("");
+      setBillPaymentThanksOpen(true);
+      setNoticeMessage("Payment sent for staff verification. Please take your bill from the counter.");
+      if (!feedbackAlreadySubmitted && typeof window !== "undefined") {
+        window.setTimeout(() => setFeedbackPromptOpen(true), 900);
       }
     } catch (error) {
-      setNoticeMessage(error instanceof Error ? error.message : "Payment confirmation failed.");
+      setNoticeMessage(error instanceof Error ? error.message : "Failed to send payment request to staff.");
     }
   }
 
@@ -6923,7 +6925,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
       ? tableOrders.filter((order) => order.orderId === billActionOrderId)
       : unpaidOrders.length > 0
         ? unpaidOrders
-        : tableOrders;
+        : [];
 
     const paymentTargetOrder = targetOrders[0] || latestBillOrder || aggregatedUnpaidOrder || null;
     const paymentSessionId = paymentTargetOrder?.sessionId || activeSessionStorageKey;
@@ -6959,7 +6961,6 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
           window.localStorage.setItem(key, json.requestId);
         }
 
-        if (!feedbackAlreadySubmitted) setFeedbackPromptOpen(true);
         handleShowUpiQr(json.upi_intent_url, billPayableTotal);
         setUpiQrPaymentRequestId(json.requestId);
         setNoticeMessage(`Payment request created: ${json.requestId}. Please wait for staff verification after payment.`);
@@ -7373,20 +7374,35 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
         ) : null}
 
 
+        {billPaymentThanksOpen && !feedbackPromptOpen ? (
+          <div className="fixed inset-0 z-[998] flex items-center justify-center px-4 py-6">
+            <div className="absolute inset-0 bg-black/65 backdrop-blur-md" />
+            <div className="relative w-full max-w-[390px] rounded-[1.7rem] border border-amber-300/60 bg-[#15110b] p-6 text-center text-white shadow-[0_30px_100px_-18px_rgba(245,158,11,0.95)]">
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-400 text-2xl text-black">✓</div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-amber-100/75">Payment request sent</p>
+              <h3 className="mt-2 text-xl font-black">Thanks for visiting CafeLuxe</h3>
+              <p className="mt-2 text-sm text-white/70">Please take your bill from the counter.</p>
+              <button type="button" className="mt-5 w-full rounded-xl bg-amber-400 px-4 py-3 text-sm font-black text-black" onClick={() => { setBillPaymentThanksOpen(false); setFeedbackPromptOpen(true); }}>
+                Submit Review
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {feedbackPromptOpen && !feedbackAlreadySubmitted ? (
           <div className="fixed inset-0 z-[999] flex items-center justify-center px-4 py-6">
             <div className="absolute inset-0 bg-black/60 backdrop-blur-md" />
             <div className="relative w-full max-w-[390px] overflow-hidden rounded-[1.7rem] border border-amber-300/55 bg-[#15110b] text-white shadow-[0_30px_100px_-18px_rgba(245,158,11,0.95)]">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(251,191,36,0.34),transparent_46%)]" />
               <div className="relative p-5">
-                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400 text-2xl shadow-lg shadow-amber-500/30">ÃƒÂ¢Ã‹Å“Ã¢â‚¬Â¦</div>
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400 text-2xl shadow-lg shadow-amber-500/30">ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦</div>
                 <p className="text-center text-[11px] font-bold uppercase tracking-[0.22em] text-amber-100/75">Quick Review</p>
                 <h3 className="mt-1 text-center text-xl font-black">Rate your experience</h3>
                 <p className="mt-1 text-center text-xs text-white/60">Help us improve your table ordering experience.</p>
 
                 <div className="mt-4 flex justify-center gap-2">
                   {[1, 2, 3, 4, 5].map((star) => (
-                    <button key={star} type="button" onClick={() => { setFeedbackRating(star); refreshGeneratedFeedback(star); }} className={clsx("h-10 w-10 rounded-2xl text-base font-black transition active:scale-95", star <= feedbackRating ? "bg-amber-400 text-black shadow-lg shadow-amber-500/30" : "bg-white/10 text-white/50")}>ÃƒÂ¢Ã‹Å“Ã¢â‚¬Â¦</button>
+                    <button key={star} type="button" onClick={() => { setFeedbackRating(star); refreshGeneratedFeedback(star); }} className={clsx("h-10 w-10 rounded-2xl text-base font-black transition active:scale-95", star <= feedbackRating ? "bg-amber-400 text-black shadow-lg shadow-amber-500/30" : "bg-white/10 text-white/50")}>ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦</button>
                   ))}
                 </div>
 
@@ -9423,7 +9439,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
                   ) : null}
                   <div className="flex justify-between w-full">
                     <span>Discount Applied</span>
-                    <span className="text-green-600">-ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¹{totalDiscountAmount.toFixed(2)}</span>
+                    <span className="text-green-600">-ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¹{totalDiscountAmount.toFixed(2)}</span>
                   </div>
                   {applicableCartOffers.length > 0 || resolvedCartCoupon ? (
                     <div className="flex items-center justify-between">
@@ -9433,7 +9449,7 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
                   ) : null}
                   <div className="flex justify-between w-full font-bold text-lg">
                     <span>Final Payable</span>
-                    <span>ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¹{finalTotal.toFixed(2)}</span>
+                    <span>ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¹{finalTotal.toFixed(2)}</span>
                   </div>
                 </section>
 
@@ -9737,6 +9753,12 @@ const orderPayloadCandidates: Record<string, unknown>[] = [
                 Amount: <span className={clsx("font-semibold", isLightTheme ? "text-brand-dark" : "text-zinc-100")}>{formatMoney(upiQrAmountNumber)}</span>
               </p>
             </div>
+
+            {upiQrPaymentRequestId ? (
+              <button type="button" className="mt-3 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white" onClick={handleConfirmUpiQrPayment}>
+                I Have Paid - Send To Staff
+              </button>
+            ) : null}
 
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button

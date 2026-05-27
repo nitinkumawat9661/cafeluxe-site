@@ -8,7 +8,6 @@ export const dynamic = "force-dynamic";
 function clean(v: unknown, max = 500) {
   return String(v ?? "").trim().replace(/[\u0000-\u001F\u007F]/g, "").slice(0, max);
 }
-
 function amount(v: unknown) {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
@@ -17,7 +16,6 @@ function amount(v: unknown) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => null);
-
     const clientId = clean(body?.client_id || body?.clientId, 64);
     const billId = clean(body?.bill_id || body?.billId, 96);
     const sessionId = clean(body?.session_id || body?.sessionId, 96);
@@ -29,17 +27,28 @@ export async function POST(request: NextRequest) {
       : [];
 
     if (!clientId || !billId || !sessionId || !tableId || !tableNumber || !total || orderIds.length === 0) {
-      return NextResponse.json({ ok: false, message: "Invalid table bill payment payload." }, { status: 400 });
+      return NextResponse.json({ ok: false, message: "No payable bill found." }, { status: 400 });
+    }
+
+    const db = new Databases(new Client().setEndpoint(serverAppwriteConfig.endpoint).setProject(serverAppwriteConfig.projectId).setKey(serverAppwriteConfig.apiKey));
+
+    const existing = await db.listDocuments({
+      databaseId: serverAppwriteConfig.databaseId,
+      collectionId: appwriteCollections.payments,
+      queries: [
+        Query.equal("bill_id", [billId]),
+        Query.equal("payment_status", ["COMPLETED", "PENDING_VERIFICATION"]),
+        Query.limit(1),
+      ],
+    });
+
+    if (existing.documents.length) {
+      return NextResponse.json({ ok: false, message: "This bill is already paid or waiting for staff verification." }, { status: 409 });
     }
 
     const requestId = `TBILLPAY-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
     const qrUrl = `https://cafeluxesite.in/mock-pay/${requestId}`;
-    const upiIntentUrl = `upi://pay?pa=7665853321@superyes&pn=Nitin%20Kumawat&am=${total}&cu=INR&tn=${requestId}`;
-
-    const client = new Client().setEndpoint(serverAppwriteConfig.endpoint).setProject(serverAppwriteConfig.projectId).setKey(serverAppwriteConfig.apiKey);
-    const db = new Databases(client);
-
-    const metadata = JSON.stringify({ kind: "table_bill", clientId, billId, sessionId, tableId, tableNumber, orderIds });
+    const upiIntentUrl = `upi://pay?pa=7665853321@superyes&pn=Nitin%20Kumawat&am=${total.toFixed(2)}&cu=INR&tn=${requestId}`;
 
     const doc = await db.createDocument({
       databaseId: serverAppwriteConfig.databaseId,
@@ -52,7 +61,7 @@ export async function POST(request: NextRequest) {
         customer_name: tableNumber,
         amount: total,
         status: "PAYMENT_PENDING",
-        items_json: metadata,
+        items_json: JSON.stringify({ kind: "table_bill", clientId, billId, sessionId, tableId, tableNumber, orderIds }),
         gateway: "MOCK",
         qr_url: qrUrl,
         upi_intent_url: upiIntentUrl,
@@ -60,54 +69,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
-
-    await db.createDocument({
-      databaseId: serverAppwriteConfig.databaseId,
-      collectionId: appwriteCollections.payments,
-      documentId: ID.unique(),
-      data: {
-        client_id: clientId,
-        order_id: orderIds[0] || "",
-        bill_id: billId,
-        session_id: sessionId,
-        table_number: tableNumber,
-        amount: total,
-        payment_method: "UPI",
-        payment_mode: "ONLINE_UPI",
-        payment_status: "PENDING_VERIFICATION",
-        customer_marked_paid: false,
-        verified_by: "PENDING_STAFF_CONFIRMATION",
-        verified_at: new Date().toISOString(),
-      },
-    });
-
-    const sessions = await db.listDocuments({
-      databaseId: serverAppwriteConfig.databaseId,
-      collectionId: appwriteCollections.tableSessions,
-      queries: [
-        Query.equal("bill_id", [billId]),
-        Query.equal("session_id", [sessionId]),
-        Query.limit(1),
-      ],
-    });
-
-    const sessionDoc = sessions.documents[0];
-    if (sessionDoc) {
-      await db.updateDocument({
-        databaseId: serverAppwriteConfig.databaseId,
-        collectionId: appwriteCollections.tableSessions,
-        documentId: sessionDoc.$id,
-        data: {
-          status: "payment_pending",
-          payment_status: "pending",
-          total_amount: total,
-        },
-      });
-    }
     return NextResponse.json({ ok: true, requestId, documentId: doc.$id, status: "PAYMENT_PENDING", gateway: "MOCK", qr_url: qrUrl, upi_intent_url: upiIntentUrl });
   } catch (e) {
     return NextResponse.json({ ok: false, message: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }
-
-
