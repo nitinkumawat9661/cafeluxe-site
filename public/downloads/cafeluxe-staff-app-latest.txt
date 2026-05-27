@@ -1,0 +1,5 @@
+﻿CafeLuxe Staff App
+Build: trustfirstDemo debug APK
+Updated: 2026-05-28 01:22:03
+Staff App Commit: 478e043
+Download: /downloads/cafeluxe-staff-app-latest.apk
