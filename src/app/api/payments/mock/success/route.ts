@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { Client, Databases, ID, Query } from "node-appwrite";
 import { appwriteCollections, serverAppwriteConfig } from "@/lib/server/appwrite-config";
 
@@ -45,13 +45,35 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({
-      ok: true,
-      requestId,
-      status: "PAYMENT_SUCCESS",
-      next: "order_creation_next_step",
+    const r=req as any;
+    const now=new Date().toISOString();
+    const clientId=clean(r.client_id,64);
+    const customerName=clean(r.customer_name,80)||"Takeaway";
+    const amount=Number(r.amount||0);
+    const itemsJson=clean(r.items_json,24000);
+    const billId=`TAKEAWAY-${Date.now()}`;
+    const sessionId=`TAKEAWAY-SESSION-${Date.now()}`;
+    const tableId="takeaway";
+    const tableNumber=`TAKEAWAY - ${customerName.toUpperCase()}`;
+
+    const orderDoc=await db.createDocument({
+      databaseId:serverAppwriteConfig.databaseId,
+      collectionId:appwriteCollections.orders,
+      documentId:ID.unique(),
+      data:{client_id:clientId,table_id:tableId,table_number:tableNumber,order_number:billId,session_id:sessionId,bill_id:billId,order_round:1,is_add_more:false,status:"PLACED",payment_status:"COMPLETED",payment_method:"UPI",kot_status:"pending",subtotal:amount,total_amount:amount,items_json:itemsJson,created_at_custom:now}
     });
+
+    await db.createDocument({
+      databaseId:serverAppwriteConfig.databaseId,
+      collectionId:appwriteCollections.printJobs,
+      documentId:ID.unique(),
+      data:{client_id:clientId,table_id:tableId,table_number:tableNumber,session_id:sessionId,bill_id:billId,order_id:orderDoc.$id,order_number:billId,label:`TAKEAWAY KOT ${customerName.toUpperCase()}`,job_type:"KOT",printer_type:"KITCHEN",status:"pending",items_json:itemsJson,total_amount:amount,created_at_custom:now}
+    });
+
+    return NextResponse.json({ok:true,requestId,status:"ORDER_CREATED",orderId:orderDoc.$id,billId});
   } catch (e) {
     return NextResponse.json({ ok: false, message: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }
+
+
