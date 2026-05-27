@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-import { Client, Databases, ID } from "node-appwrite";
-import { serverAppwriteConfig } from "@/lib/server/appwrite-config";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { Client, Databases, ID, Query } from "node-appwrite";
+import { appwriteCollections, serverAppwriteConfig } from "@/lib/server/appwrite-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,8 +60,54 @@ export async function POST(request: NextRequest) {
       },
     });
 
+
+    await db.createDocument({
+      databaseId: serverAppwriteConfig.databaseId,
+      collectionId: appwriteCollections.payments,
+      documentId: ID.unique(),
+      data: {
+        client_id: clientId,
+        order_id: orderIds[0] || "",
+        bill_id: billId,
+        session_id: sessionId,
+        table_number: tableNumber,
+        amount: total,
+        payment_method: "UPI",
+        payment_mode: "ONLINE_UPI",
+        payment_status: "PENDING_VERIFICATION",
+        customer_marked_paid: false,
+        verified_by: "PENDING_STAFF_CONFIRMATION",
+        verified_at: new Date().toISOString(),
+      },
+    });
+
+    const sessions = await db.listDocuments({
+      databaseId: serverAppwriteConfig.databaseId,
+      collectionId: appwriteCollections.tableSessions,
+      queries: [
+        Query.equal("bill_id", [billId]),
+        Query.equal("session_id", [sessionId]),
+        Query.limit(1),
+      ],
+    });
+
+    const sessionDoc = sessions.documents[0];
+    if (sessionDoc) {
+      await db.updateDocument({
+        databaseId: serverAppwriteConfig.databaseId,
+        collectionId: appwriteCollections.tableSessions,
+        documentId: sessionDoc.$id,
+        data: {
+          status: "payment_pending",
+          payment_status: "pending",
+          total_amount: total,
+        },
+      });
+    }
     return NextResponse.json({ ok: true, requestId, documentId: doc.$id, status: "PAYMENT_PENDING", gateway: "MOCK", qr_url: qrUrl, upi_intent_url: upiIntentUrl });
   } catch (e) {
     return NextResponse.json({ ok: false, message: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }
+
+
