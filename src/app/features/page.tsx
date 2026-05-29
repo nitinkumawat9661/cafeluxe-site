@@ -56,6 +56,26 @@ export default function FeaturesPage() {
               </article>
             ))}
           </div>
+
+          <section className="mt-8 rounded-[2.4rem] border border-[#D9B86A]/22 bg-black/72 p-6 backdrop-blur-xl lg:p-8">
+            <p className="text-xs font-black uppercase tracking-[.34em] text-[#D9B86A]">Use Cases</p>
+            <h2 className="mt-3 max-w-4xl font-serif text-4xl italic leading-tight text-[#E7D3A1]">
+              Built Around Actual Restaurant Operations
+            </h2>
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              {[
+                ["For dine-in restaurants", "Use QR table ordering to reduce waiting time and send orders into a cleaner staff-side workflow."],
+                ["For cafes and quick service outlets", "Handle fast billing, payment status, digital menu access and repeated customer ordering flow."],
+                ["For cloud kitchens", "Manage menu visibility, order records and staff coordination without depending on a heavy counter setup."],
+                ["For growing food businesses", "CafeLuxe gives a premium restaurant-tech base that can support website, QR ordering, POS and staff operations."]
+              ].map(([title, text]) => (
+                <article key={title} className="rounded-2xl border border-[#D9B86A]/18 bg-[#080604]/80 p-5">
+                  <h3 className="font-serif text-xl text-[#E7D3A1]">{title}</h3>
+                  <p className="mt-3 text-sm leading-7 text-[#D8CFBE]">{text}</p>
+                </article>
+              ))}
+            </div>
+          </section>
         </div>
       </section>
     </main>
