@@ -1,10 +1,16 @@
 User-agent: *
 Allow: /
 
-Disallow: /api/
-Disallow: /admin/
-Disallow: /master/
-Disallow: /c/
-Disallow: /app/releases/
-
 Sitemap: https://cafeluxesite.in/sitemap.xml
+
+# Main public pages
+# https://cafeluxesite.in/
+# https://cafeluxesite.in/features
+# https://cafeluxesite.in/app
+# https://cafeluxesite.in/about
+# https://cafeluxesite.in/contact
+# https://cafeluxesite.in/terms
+# https://cafeluxesite.in/privacy
+
+# LLM summary
+# https://cafeluxesite.in/llms.txt

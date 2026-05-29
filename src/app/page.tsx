@@ -4,6 +4,24 @@ import TypewriterHeading from "@/components/TypewriterHeading";
 
 const features = ["QR Table Ordering", "Live Digital Menu", "KOT Billing", "Staff App", "Records", "Data Security"];
 
+const faqs = [
+  ["What is CafeLuxe?", "CafeLuxe is restaurant software for QR ordering, digital menu, POS workflow, KOT billing, staff app and business records."],
+  ["Who can use CafeLuxe?", "CafeLuxe is built for cafes, restaurants, cloud kitchens, food courts and food businesses that need faster ordering and billing."],
+  ["Does CafeLuxe support QR table ordering?", "Yes. Customers can scan a table QR, open the digital menu and place orders from their phone."],
+  ["Does CafeLuxe include KOT billing?", "Yes. CafeLuxe supports kitchen order ticket workflows for clearer staff and kitchen coordination."],
+  ["How can I request a demo?", "You can use the Book Demo button on the website and submit your restaurant details."]
+];
+
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map(([q, a]) => ({
+    "@type": "Question",
+    name: q,
+    acceptedAnswer: { "@type": "Answer", text: a },
+  })),
+};
+
 export default function Home() {
   return (
     <main className="min-h-screen overflow-hidden bg-[#030201] text-[#F7EFE0]">
@@ -61,6 +79,18 @@ export default function Home() {
             <div className="relative min-h-[320px] overflow-hidden rounded-[2rem] border border-[#D9B86A]/18 bg-[#090604]">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_55%_40%,rgba(217,184,106,.18),transparent_42%)]" />
               <img src="/luxury/apk-phone-mockup.png?v=1" alt="CafeLuxe staff app phone mockup" className="absolute left-1/2 top-1/2 w-[72%] max-w-none -translate-x-1/2 -translate-y-1/2 object-contain drop-shadow-[0_40px_95px_rgba(0,0,0,.95)]" />
+            </div>
+          </section>
+          <section className="relative z-30 mt-8 rounded-[2.4rem] border border-[#D9B86A]/22 bg-black/72 p-6 backdrop-blur-xl lg:p-8">
+            <p className="text-xs font-black uppercase tracking-[.34em] text-[#D9B86A]">FAQ</p>
+            <h2 className="mt-3 font-serif text-4xl italic text-[#E7D3A1]">Common Questions</h2>
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              {faqs.map(([q, a]) => (
+                <article key={q} className="rounded-2xl border border-[#D9B86A]/18 bg-[#080604]/80 p-5">
+                  <h3 className="font-serif text-xl text-[#E7D3A1]">{q}</h3>
+                  <p className="mt-3 text-sm leading-7 text-[#D8CFBE]">{a}</p>
+                </article>
+              ))}
             </div>
           </section>
         </div>

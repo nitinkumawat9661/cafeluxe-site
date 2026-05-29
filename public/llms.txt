@@ -1,0 +1,23 @@
+# CafeLuxe
+
+CafeLuxe is a restaurant technology platform for QR ordering, digital menu, POS workflow, KOT billing, staff Android app, payment status, and business records.
+
+Website: https://cafeluxesite.in/
+Contact: nitinkumawat985@gmail.com
+Phone: +91 7414853321
+Managed by: Nitin Kumawat
+
+## Core Pages
+- Home: https://cafeluxesite.in/
+- Features: https://cafeluxesite.in/features
+- App Download: https://cafeluxesite.in/app
+- About: https://cafeluxesite.in/about
+- Contact: https://cafeluxesite.in/contact
+- Terms: https://cafeluxesite.in/terms
+- Privacy: https://cafeluxesite.in/privacy
+
+## Product Summary
+CafeLuxe helps restaurants, cafes, cloud kitchens and food businesses manage QR table ordering, digital menu access, kitchen order ticket workflows, staff-side operations and business records.
+
+## Main Keywords
+QR ordering software, restaurant POS software, KOT billing software, digital menu software, restaurant staff app, cafe billing software, QR menu for restaurants.

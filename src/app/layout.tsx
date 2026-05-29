@@ -19,9 +19,7 @@ export const metadata: Metadata = {
     "cafe billing software",
     "QR menu for restaurants",
   ],
-  alternates: {
-    canonical: "/",
-  },
+  alternates: { canonical: "/" },
   openGraph: {
     title: "CafeLuxe | QR Ordering & Restaurant POS Software",
     description:
@@ -30,20 +28,51 @@ export const metadata: Metadata = {
     siteName: "CafeLuxe",
     type: "website",
   },
-  robots: {
-    index: true,
-    follow: true,
-  },
+  robots: { index: true, follow: true },
 };
+
+const structuredData = [
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "CafeLuxe",
+    url: "https://cafeluxesite.in",
+    email: "nitinkumawat985@gmail.com",
+    telephone: "+91-7414853321",
+    founder: { "@type": "Person", name: "Nitin Kumawat" },
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "CafeLuxe",
+    url: "https://cafeluxesite.in",
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "CafeLuxe",
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web, Android",
+    description:
+      "Restaurant QR ordering, digital menu, POS workflow, KOT billing, staff app and business records software.",
+    offers: {
+      "@type": "Offer",
+      priceCurrency: "INR",
+      availability: "https://schema.org/InStock",
+    },
+  },
+];
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className="h-full bg-brand-bg antialiased">
       <body className="min-h-full bg-brand-bg text-brand-dark flex flex-col">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        />
         {children}
       </body>
     </html>
