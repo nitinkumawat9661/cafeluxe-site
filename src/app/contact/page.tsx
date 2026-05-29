@@ -50,6 +50,19 @@ export default function ContactPage() {
             </p>
             <div className="mt-6"><BookDemoForm /></div>
           </div>
+
+          <section className="mt-8 rounded-[2rem] border border-[#D9B86A]/22 bg-black/68 p-8 backdrop-blur-xl">
+            <p className="text-xs font-black uppercase tracking-[.34em] text-[#D9B86A]">Business Inquiry</p>
+            <h2 className="mt-3 max-w-4xl font-serif text-4xl italic leading-tight text-[#E7D3A1]">
+              Contact CafeLuxe for Restaurant Software Demo
+            </h2>
+            <p className="mt-5 max-w-4xl text-sm leading-8 text-[#D8CFBE]">
+              Restaurants, cafes, cloud kitchens and food businesses can contact CafeLuxe for QR ordering software, digital menu setup, KOT billing workflow, POS operations, staff app usage and custom restaurant technology requirements.
+            </p>
+            <p className="mt-4 max-w-4xl text-sm leading-8 text-[#D8CFBE]">
+              Use the demo request form to share your business name, city, phone number and requirement. The inquiry is sent directly to the CafeLuxe team for follow-up.
+            </p>
+          </section>
         </div>
       </section>
     </main>
