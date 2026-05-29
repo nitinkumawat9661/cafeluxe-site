@@ -80,38 +80,27 @@ export default function Home() {
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_55%_40%,rgba(217,184,106,.18),transparent_42%)]" />
               <img src="/luxury/apk-phone-mockup.png?v=1" alt="CafeLuxe staff app phone mockup" className="absolute left-1/2 top-1/2 w-[72%] max-w-none -translate-x-1/2 -translate-y-1/2 object-contain drop-shadow-[0_40px_95px_rgba(0,0,0,.95)]" />
             </div>
-          </section>
-          <section className="relative z-30 mt-8 rounded-[2.4rem] border border-[#D9B86A]/22 bg-black/72 p-6 backdrop-blur-xl lg:p-8">
-            
-          <section className="relative z-30 mt-8 rounded-[2.4rem] border border-[#D9B86A]/22 bg-black/72 p-6 backdrop-blur-xl lg:p-8">
+          </section>          <section className="relative z-30 mt-8 rounded-[2.4rem] border border-[#D9B86A]/22 bg-black/72 p-6 backdrop-blur-xl lg:p-8">
             <p className="text-xs font-black uppercase tracking-[.34em] text-[#D9B86A]">Restaurant Software</p>
-            <h2 className="mt-3 max-w-4xl font-serif text-4xl italic leading-tight text-[#E7D3A1]">
-              Why Restaurants Use CafeLuxe for QR Ordering, POS Workflow and KOT Billing
-            </h2>
+            <h2 className="mt-3 max-w-4xl font-serif text-4xl italic leading-tight text-[#E7D3A1]">Why Restaurants Use CafeLuxe for QR Ordering, POS Workflow and KOT Billing</h2>
             <div className="mt-6 grid gap-4 md:grid-cols-2">
-              {[
-                ["QR Ordering Software", "CafeLuxe lets customers scan a table QR code, view the digital menu and place orders directly from their phone."],
-                ["Restaurant POS Workflow", "Manage order flow, billing, payment status, table activity and daily restaurant operations from one connected system."],
-                ["KOT Billing Software", "Kitchen order ticket workflows help restaurants reduce confusion between staff, billing counter and kitchen team."],
-                ["Staff Android App", "The CafeLuxe staff app supports restaurant-side operations, order handling and live workflow control."]
-              ].map(([title, text]) => (
-                <article key={title} className="rounded-2xl border border-[#D9B86A]/18 bg-[#080604]/80 p-5">
-                  <h3 className="font-serif text-xl text-[#E7D3A1]">{title}</h3>
-                  <p className="mt-3 text-sm leading-7 text-[#D8CFBE]">{text}</p>
-                </article>
-              ))}
+              {[["QR Ordering Software","Customers scan table QR, view menu and place orders from their phone."],["Restaurant POS Workflow","Manage orders, billing, payment status and table activity."],["KOT Billing Software","Kitchen order tickets reduce staff and kitchen confusion."],["Staff Android App","Staff can handle orders and live workflow from Android devices."]].map(([title,text])=>(<article key={title} className="rounded-2xl border border-[#D9B86A]/18 bg-[#080604]/80 p-5"><h3 className="font-serif text-xl text-[#E7D3A1]">{title}</h3><p className="mt-3 text-sm leading-7 text-[#D8CFBE]">{text}</p></article>))}
             </div>
           </section>
 
+          <section className="relative z-30 mt-8 rounded-[2.4rem] border border-[#D9B86A]/22 bg-black/72 p-6 backdrop-blur-xl lg:p-8">
+            <p className="text-xs font-black uppercase tracking-[.34em] text-[#D9B86A]">Explore</p>
+            <h2 className="mt-3 font-serif text-4xl italic text-[#E7D3A1]">Explore CafeLuxe Restaurant Software</h2>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {[["/features","QR Ordering & POS Features"],["/app","Download Staff App"],["/about","About CafeLuxe"],["/contact","Request Restaurant Demo"]].map(([href,label])=>(<Link key={href} href={href} className="rounded-2xl border border-[#D9B86A]/18 bg-[#080604]/80 p-5 font-serif text-lg text-[#E7D3A1]">{label}</Link>))}
+            </div>
+          </section>
+
+          <section className="relative z-30 mt-8 rounded-[2.4rem] border border-[#D9B86A]/22 bg-black/72 p-6 backdrop-blur-xl lg:p-8">
             <p className="text-xs font-black uppercase tracking-[.34em] text-[#D9B86A]">FAQ</p>
             <h2 className="mt-3 font-serif text-4xl italic text-[#E7D3A1]">Common Questions</h2>
             <div className="mt-6 grid gap-4 md:grid-cols-2">
-              {faqs.map(([q, a]) => (
-                <article key={q} className="rounded-2xl border border-[#D9B86A]/18 bg-[#080604]/80 p-5">
-                  <h3 className="font-serif text-xl text-[#E7D3A1]">{q}</h3>
-                  <p className="mt-3 text-sm leading-7 text-[#D8CFBE]">{a}</p>
-                </article>
-              ))}
+              {faqs.map(([q,a])=>(<article key={q} className="rounded-2xl border border-[#D9B86A]/18 bg-[#080604]/80 p-5"><h3 className="font-serif text-xl text-[#E7D3A1]">{q}</h3><p className="mt-3 text-sm leading-7 text-[#D8CFBE]">{a}</p></article>))}
             </div>
           </section>
         </div>
