@@ -54,6 +54,19 @@ export default function StaffAppPage() {
               </article>
             ))}
           </div>
+
+          <section className="mt-8 rounded-[2.4rem] border border-[#D9B86A]/22 bg-black/72 p-6 backdrop-blur-xl lg:p-8">
+            <p className="text-xs font-black uppercase tracking-[.34em] text-[#D9B86A]">Android Staff App</p>
+            <h2 className="mt-3 max-w-4xl font-serif text-4xl italic leading-tight text-[#E7D3A1]">
+              CafeLuxe Staff App for Restaurant Teams
+            </h2>
+            <p className="mt-5 max-w-4xl text-sm leading-8 text-[#D8CFBE]">
+              The CafeLuxe Staff App helps restaurant teams manage QR orders, KOT billing workflow, payment status, table activity and staff-side order handling from Android devices.
+            </p>
+            <p className="mt-4 max-w-4xl text-sm leading-8 text-[#D8CFBE]">
+              It is useful for restaurants, cafes and cloud kitchens that need a lightweight Android POS app experience without depending only on a billing counter.
+            </p>
+          </section>
         </div>
       </section>
     </main>
