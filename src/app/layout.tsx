@@ -27,6 +27,21 @@ export const metadata: Metadata = {
     url: "https://cafeluxesite.in",
     siteName: "CafeLuxe",
     type: "website",
+    images: [
+      {
+        url: "/luxury/hero-product-scene-hd.png?v=22",
+        width: 1200,
+        height: 630,
+        alt: "CafeLuxe restaurant QR ordering and POS software preview",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "CafeLuxe | QR Ordering & Restaurant POS Software",
+    description:
+      "QR ordering, digital menu, KOT billing, staff app and restaurant POS workflows with CafeLuxe.",
+    images: ["/luxury/hero-product-scene-hd.png?v=22"],
   },
   robots: { index: true, follow: true },
 };
