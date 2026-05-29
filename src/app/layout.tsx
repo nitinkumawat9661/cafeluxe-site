@@ -34,6 +34,28 @@ export const metadata: Metadata = {
 const structuredData = [
   {
     "@context": "https://schema.org",
+    "@type": "ProfessionalService",
+    name: "CafeLuxe",
+    url: "https://cafeluxesite.in",
+    email: "nitinkumawat985@gmail.com",
+    telephone: "+91-7414853321",
+    founder: { "@type": "Person", name: "Nitin Kumawat" },
+    areaServed: {
+      "@type": "Country",
+      name: "India"
+    },
+    serviceType: [
+      "Restaurant QR Ordering Software",
+      "Restaurant POS Software",
+      "KOT Billing Software",
+      "Digital Menu Software",
+      "Restaurant Staff App"
+    ],
+    description:
+      "CafeLuxe provides QR ordering, digital menu, POS workflow, KOT billing and staff app solutions for restaurants, cafes and cloud kitchens."
+  },
+  {
+    "@context": "https://schema.org",
     "@type": "Organization",
     name: "CafeLuxe",
     url: "https://cafeluxesite.in",
