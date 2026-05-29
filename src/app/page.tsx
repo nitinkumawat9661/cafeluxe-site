@@ -22,12 +22,29 @@ const faqJsonLd = {
   })),
 };
 
+const breadcrumbJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    {
+      "@type": "ListItem",
+      position: 1,
+      name: "Home",
+      item: "https://cafeluxesite.in/"
+    }
+  ]
+};
+
 export default function Home() {
   return (
     <main className="min-h-screen overflow-hidden bg-[#030201] text-[#F7EFE0]">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
       />
       <section className="relative min-h-screen overflow-hidden px-5 py-5 sm:px-8 lg:px-[5vw]">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_78%_28%,rgba(217,184,106,.30),transparent_27%),linear-gradient(115deg,#030201,#080604_48%,#171007)]" />
