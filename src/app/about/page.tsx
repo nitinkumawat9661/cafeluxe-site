@@ -35,6 +35,19 @@ export default function AboutPage() {
               </div>
             ))}
           </div>
+
+          <section className="mt-8 rounded-[2rem] border border-[#D9B86A]/22 bg-black/68 p-8 backdrop-blur-xl">
+            <p className="text-xs font-black uppercase tracking-[.34em] text-[#D9B86A]">Who We Serve</p>
+            <h2 className="mt-3 max-w-4xl font-serif text-4xl italic leading-tight text-[#E7D3A1]">
+              Who We Build CafeLuxe For
+            </h2>
+            <p className="mt-5 max-w-4xl text-sm leading-8 text-[#D8CFBE]">
+              CafeLuxe is built for restaurants, cafes, cloud kitchens and food businesses that want QR ordering, digital menu access, KOT billing, POS workflow, staff-side order handling and clean business records without a confusing technology setup.
+            </p>
+            <p className="mt-4 max-w-4xl text-sm leading-8 text-[#D8CFBE]">
+              The platform is managed by Nitin Kumawat and focuses on practical restaurant operations: faster table ordering, better kitchen coordination, clearer payment status and premium customer experience.
+            </p>
+          </section>
         </div>
       </section>
     </main>
