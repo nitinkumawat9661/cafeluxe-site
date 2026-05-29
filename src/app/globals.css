@@ -945,3 +945,113 @@ body {
     transform: none !important;
   }
 }
+
+/* CafeLuxe coded Rolls-Royce luxury scene */
+.cafeluxe-luxury-live {
+  background:
+    radial-gradient(circle at 78% 18%, rgba(214, 174, 91, .28), transparent 23%),
+    radial-gradient(circle at 55% 55%, rgba(214, 174, 91, .12), transparent 30%),
+    linear-gradient(115deg, #030201 0%, #080604 48%, #181108 100%);
+}
+
+.cafeluxe-gold-sweep {
+  position: absolute;
+  inset: -30%;
+  background: linear-gradient(115deg, transparent 35%, rgba(214,174,91,.16), transparent 60%);
+  animation: cafeluxeSweep 8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes cafeluxeSweep {
+  0%, 100% { transform: translateX(-18%) rotate(0deg); opacity: .35; }
+  50% { transform: translateX(18%) rotate(2deg); opacity: .8; }
+}
+
+.cafeluxe-lamp {
+  width: 110px;
+  height: 330px;
+  background: linear-gradient(90deg, #4a3212, #d8b96f, #7a5724);
+  clip-path: polygon(30% 0, 70% 0, 58% 100%, 42% 100%);
+  filter: drop-shadow(0 0 55px rgba(216,185,111,.45));
+}
+
+.cafeluxe-pos {
+  transform: perspective(900px) rotateY(-15deg) rotateX(3deg);
+  box-shadow: 0 50px 100px rgba(0,0,0,.8), inset 0 0 0 1px rgba(216,185,111,.28);
+}
+
+.cafeluxe-qr-stand {
+  transform: perspective(700px) rotateY(12deg) rotateZ(2deg);
+  box-shadow: 0 40px 70px rgba(0,0,0,.75);
+}
+
+.cafeluxe-marble {
+  background:
+    radial-gradient(circle at 30% 40%, rgba(216,185,111,.15), transparent 25%),
+    linear-gradient(135deg, rgba(255,255,255,.04), transparent 35%),
+    #070504;
+}
+
+/* CafeLuxe luxury hero motion */
+.cafeluxe-type {
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(18px);
+  animation: cafeluxeReveal 1.05s ease-out forwards;
+}
+
+.cafeluxe-gold-italic {
+  display: inline-block;
+  font-style: italic;
+  letter-spacing: -0.035em;
+  text-shadow: 0 0 26px rgba(217, 184, 106, 0.22);
+}
+
+@keyframes cafeluxeReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(18px);
+    filter: blur(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+/* CafeLuxe typewriter heading */
+.cafeluxe-typewriter {
+  width: fit-content;
+  max-width: 720px;
+  overflow: hidden;
+  border-right: 2px solid rgba(217,184,106,.9);
+  animation:
+    cafeluxeTyping 2.8s steps(42,end) both,
+    cafeluxeCaret .75s step-end infinite;
+}
+
+@keyframes cafeluxeTyping {
+  from { max-width: 0; opacity: .35; }
+  to { max-width: 720px; opacity: 1; }
+}
+
+@keyframes cafeluxeCaret {
+  0%,100% { border-color: transparent; }
+  50% { border-color: rgba(217,184,106,.9); }
+}
+
+/* Floating Book Demo CTA */
+.cafeluxe-floating-cta {
+  animation: cafeluxeFloat 3.2s ease-in-out infinite, cafeluxeGlow 2.4s ease-in-out infinite;
+}
+
+@keyframes cafeluxeFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+
+@keyframes cafeluxeGlow {
+  0%, 100% { box-shadow: 0 20px 70px rgba(217,184,106,.22); }
+  50% { box-shadow: 0 26px 95px rgba(217,184,106,.42); }
+}
