@@ -29,7 +29,7 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/luxury/cafeluxe-og-banner.png?v=1",
+        url: "/luxury/cafeluxe-og-final.png?v=3",
         width: 1200,
         height: 630,
         alt: "CafeLuxe QR ordering and restaurant POS software preview",
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
     title: "CafeLuxe | QR Ordering & Restaurant POS Software",
     description:
       "QR ordering, digital menu, KOT billing, staff app and restaurant POS workflows with CafeLuxe.",
-    images: ["/luxury/cafeluxe-og-banner.png?v=1"],
+    images: ["/luxury/cafeluxe-og-final.png?v=3"],
   },
   robots: { index: true, follow: true },
 };
