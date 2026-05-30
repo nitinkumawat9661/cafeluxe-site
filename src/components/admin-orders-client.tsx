@@ -1,7 +1,6 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { defaultClientId } from "@/lib/tenant";
 import clsx from "clsx";
 
 import {
@@ -72,7 +71,6 @@ type AdminBillRecord = {
   isPaid: boolean;
 };
 
-const ADMIN_CLIENT_ID = defaultClientId;
 const PAID_PAYMENT_STATUSES = new Set(["PAID", "SETTLED", "COMPLETED"]);
 
 function toSafeString(value: unknown) {
@@ -353,7 +351,12 @@ async function readRouteError(response: Response) {
   }
 }
 
-export default function AdminOrdersPage() {
+type AdminOrdersPageProps = {
+  initialClientId: string;
+};
+
+export default function AdminOrdersPage({ initialClientId }: AdminOrdersPageProps) {
+  const adminClientId = initialClientId;
   const [approvalPin, setApprovalPin] = useState("");
   const [orders, setOrders] = useState<AdminOrderRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -371,12 +374,12 @@ export default function AdminOrdersPage() {
         pageSize: 50,
         maxDocs: 100,
         queries: [
-          Query.equal("client_id", [ADMIN_CLIENT_ID]),
+          Query.equal("client_id", [adminClientId]),
           Query.equal("is_active", [true]),
           Query.orderDesc("$createdAt"),
         ],
       });
-      const tables = parseTables(tableDocs, ADMIN_CLIENT_ID);
+      const tables = parseTables(tableDocs, adminClientId);
 
       const orderDocsByTable = await Promise.all(
         tables.map((table) =>
@@ -384,7 +387,7 @@ export default function AdminOrdersPage() {
             pageSize: 100,
             maxDocs: 250,
             queries: [
-              Query.equal("client_id", [ADMIN_CLIENT_ID]),
+              Query.equal("client_id", [adminClientId]),
               Query.equal("table_id", [table.id]),
               Query.orderDesc("$createdAt"),
             ],
@@ -419,7 +422,7 @@ export default function AdminOrdersPage() {
         if (!payload) return;
 
         const order = readOrderRecord(payload);
-        if (!order || order.clientId !== ADMIN_CLIENT_ID) return;
+        if (!order || order.clientId !== adminClientId) return;
 
         const isDeleteEvent = message.events?.some((event) => event.includes(".delete"));
 
@@ -884,3 +887,4 @@ export default function AdminOrdersPage() {
     </main>
   );
 }
+
