@@ -50,6 +50,8 @@ export default function MasterOnboardingWizard() {
   const [clientId, setClientId] = useState("");
   const [tableCount, setTableCount] = useState("5");
   const [plan, setPlan] = useState("Demo");
+  const [ownerEmail, setOwnerEmail] = useState("");
+  const [ownerPassword, setOwnerPassword] = useState("");
   const [logo, setLogo] = useState<File | null>(null);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
@@ -81,7 +83,7 @@ export default function MasterOnboardingWizard() {
       const res = await fetch("/api/master/onboarding/restaurant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ restaurantName, clientId, tableCount: Number(tableCount), plan }),
+        body: JSON.stringify({ restaurantName, clientId, tableCount: Number(tableCount), plan, ownerEmail, ownerPassword }),
       });
 
       const data = await readJsonSafe(res) as { message?: string; clientId?: string; tableCount?: number };
