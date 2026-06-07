@@ -24,11 +24,19 @@ function loadImage(src: string) {
   });
 }
 
-export async function buildBrandedQrDataUrl(qrPath: string, logoUrl = "") {
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const url = `${origin}${qrPath}`;
-  const canvas = document.createElement("canvas");
+export async function buildBrandedQrDataUrl(qrPath: string, logoUrl = "/logo/cafe_luxe_logo.png") {
+  const fallbackOrigin = typeof window !== "undefined" ? window.location.origin : "";
+  const configuredOrigin =
+    process.env.NEXT_PUBLIC_ORDER_BASE_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    fallbackOrigin;
 
+  const cleanOrigin = configuredOrigin.replace(/\/$/, "");
+  const url = qrPath.startsWith("http")
+    ? qrPath
+    : `${cleanOrigin}${qrPath.startsWith("/") ? qrPath : `/${qrPath}`}`;
+
+  const canvas = document.createElement("canvas");
   await QRCode.toCanvas(canvas, url, { width: 520, margin: 2, errorCorrectionLevel: "H" });
 
   const ctx = canvas.getContext("2d");
@@ -42,26 +50,23 @@ export async function buildBrandedQrDataUrl(qrPath: string, logoUrl = "") {
   drawRoundRect(ctx, x, y, box, box, 26);
   ctx.fill();
 
-  if (logoUrl) {
-    try {
-      const logo = await loadImage(logoUrl);
-      ctx.save();
-      drawRoundRect(ctx, x + 7, y + 7, box - 14, box - 14, 22);
-      ctx.clip();
-      ctx.drawImage(logo, x + 7, y + 7, box - 14, box - 14);
-      ctx.restore();
-      return canvas.toDataURL("image/png");
-    } catch {}
+  try {
+    const logo = await loadImage(logoUrl || "/logo/cafe_luxe_logo.png");
+    ctx.save();
+    drawRoundRect(ctx, x + 7, y + 7, box - 14, box - 14, 22);
+    ctx.clip();
+    ctx.drawImage(logo, x + 7, y + 7, box - 14, box - 14);
+    ctx.restore();
+  } catch {
+    ctx.fillStyle = "#86B9B0";
+    drawRoundRect(ctx, x + 7, y + 7, box - 14, box - 14, 22);
+    ctx.fill();
+    ctx.fillStyle = "#041421";
+    ctx.font = "bold 34px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("CL", canvas.width / 2, canvas.height / 2);
   }
-
-  ctx.fillStyle = "#86B9B0";
-  drawRoundRect(ctx, x + 7, y + 7, box - 14, box - 14, 22);
-  ctx.fill();
-  ctx.fillStyle = "#041421";
-  ctx.font = "bold 34px sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("CL", canvas.width / 2, canvas.height / 2);
 
   return canvas.toDataURL("image/png");
 }
