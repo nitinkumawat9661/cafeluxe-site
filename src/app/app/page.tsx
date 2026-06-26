@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import SiteNav from "@/components/SiteNav";
 
@@ -41,7 +42,7 @@ export default function StaffAppPage() {
 
             <div className="relative min-h-[470px] overflow-hidden rounded-[2.4rem] border border-[#D9B86A]/22 bg-black/68 p-6">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(217,184,106,.20),transparent_42%)]" />
-              <img src="/luxury/apk-phone-mockup.png?v=2" alt="CafeLuxe Staff App Android phone mockup" className="absolute left-1/2 top-1/2 w-[78%] max-w-none -translate-x-1/2 -translate-y-1/2 object-contain drop-shadow-[0_45px_110px_rgba(0,0,0,.98)]" />
+              <Image src="/luxury/apk-phone-mockup.png" alt="CafeLuxe Staff App Android phone mockup" width={1000} height={1000} priority sizes="(max-width: 1024px) 78vw, 35vw" className="absolute left-1/2 top-1/2 w-[78%] max-w-none -translate-x-1/2 -translate-y-1/2 object-contain drop-shadow-[0_45px_110px_rgba(0,0,0,.98)]" />
             </div>
           </div>
 

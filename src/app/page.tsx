@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import SiteNav from "@/components/SiteNav";
 import TypewriterHeading from "@/components/TypewriterHeading";
@@ -67,7 +68,7 @@ export default function Home() {
 
             <div className="relative z-10 min-h-[455px] overflow-visible">
               <div className="absolute right-[10%] top-[10%] h-80 w-80 rounded-full bg-[#D9B86A]/20 blur-3xl" />
-              <img src="/luxury/hero-product-scene-hd.png?v=22" alt="CafeLuxe premium POS, QR stand and lamp product scene" className="pointer-events-none absolute left-[-7%] top-[48%] z-10 w-[116%] max-w-none -translate-y-1/2 object-contain drop-shadow-[0_60px_145px_rgba(0,0,0,.98)]" />
+              <Image src="/luxury/hero-product-scene-hd.png" alt="CafeLuxe premium POS, QR stand and lamp product scene" width={1600} height={1000} priority sizes="(max-width: 1024px) 100vw, 58vw" className="pointer-events-none absolute left-[-7%] top-[48%] z-10 w-[116%] max-w-none -translate-y-1/2 object-contain drop-shadow-[0_60px_145px_rgba(0,0,0,.98)]" />
             </div>
           </div>
 
@@ -99,9 +100,10 @@ export default function Home() {
 
             <div className="relative min-h-[320px] overflow-hidden rounded-[2rem] border border-[#D9B86A]/18 bg-[#090604]">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_55%_40%,rgba(217,184,106,.18),transparent_42%)]" />
-              <img src="/luxury/apk-phone-mockup.png?v=1" alt="CafeLuxe staff app phone mockup" className="absolute left-1/2 top-1/2 w-[72%] max-w-none -translate-x-1/2 -translate-y-1/2 object-contain drop-shadow-[0_40px_95px_rgba(0,0,0,.95)]" />
+              <Image src="/luxury/apk-phone-mockup.png" alt="CafeLuxe staff app phone mockup" width={900} height={900} sizes="(max-width: 1024px) 70vw, 32vw" className="absolute left-1/2 top-1/2 w-[72%] max-w-none -translate-x-1/2 -translate-y-1/2 object-contain drop-shadow-[0_40px_95px_rgba(0,0,0,.95)]" />
             </div>
-          </section>          <section className="relative z-30 mt-8 rounded-[2.4rem] border border-[#D9B86A]/22 bg-black/72 p-6 backdrop-blur-xl lg:p-8">
+          </section>
+          <section className="relative z-30 mt-8 rounded-[2.4rem] border border-[#D9B86A]/22 bg-black/72 p-6 backdrop-blur-xl lg:p-8">
             <p className="text-xs font-black uppercase tracking-[.34em] text-[#D9B86A]">Restaurant Software</p>
             <h2 className="mt-3 max-w-4xl font-serif text-4xl italic leading-tight text-[#E7D3A1]">Why Restaurants Use CafeLuxe for QR Ordering, POS Workflow and KOT Billing</h2>
             <div className="mt-6 grid gap-4 md:grid-cols-2">
