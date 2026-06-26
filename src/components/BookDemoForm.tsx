@@ -2,16 +2,19 @@
 
 import { FormEvent, useState } from "react";
 
+const NAME_CITY_PATTERN = /^[\p{L}\p{M} .'-]{2,40}$/u;
+
 export default function BookDemoForm() {
   const [open, setOpen] = useState(false);
   const [requirement, setRequirement] = useState("QR Ordering + POS Demo");
   const [status, setStatus] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const form = e.currentTarget;
-    setStatus("Sending...");
+    if (submitting) return;
 
+    const form = e.currentTarget;
     const data = new FormData(form);
 
     const name = String(data.get("name") || "").trim();
@@ -21,8 +24,8 @@ export default function BookDemoForm() {
     const customRequirement = String(data.get("customRequirement") || "").trim();
     const message = String(data.get("message") || "").trim();
 
-    if (!/^[A-Za-z ]{2,40}$/.test(name)) {
-      setStatus("Name must contain only letters and spaces, 2-40 characters.");
+    if (!NAME_CITY_PATTERN.test(name)) {
+      setStatus("Name must be 2-40 characters. Hindi and regional letters are allowed.");
       return;
     }
 
@@ -36,8 +39,8 @@ export default function BookDemoForm() {
       return;
     }
 
-    if (!/^[A-Za-z ]{2,40}$/.test(city)) {
-      setStatus("City must contain only letters and spaces, 2-40 characters.");
+    if (!NAME_CITY_PATTERN.test(city)) {
+      setStatus("City must be 2-40 characters. Hindi and regional letters are allowed.");
       return;
     }
 
@@ -51,33 +54,43 @@ export default function BookDemoForm() {
       return;
     }
 
-    const res = await fetch("/api/demo-inquiry", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        business,
-        phone,
-        city,
-        requirement,
-        customRequirement,
-        message,
-        consent: data.get("consent") === "yes",
-      }),
-    });
+    setSubmitting(true);
+    setStatus("Sending...");
 
-    if (!res.ok) {
+    try {
+      const res = await fetch("/api/demo-inquiry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          business,
+          phone,
+          city,
+          requirement,
+          customRequirement,
+          message,
+          consent: data.get("consent") === "yes",
+        }),
+      });
+
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+        setStatus(payload?.error || "Could not send inquiry. Please try again.");
+        return;
+      }
+
+      setStatus("Inquiry sent successfully.");
+      form.reset();
+      setRequirement("QR Ordering + POS Demo");
+      setTimeout(() => {
+        setStatus("");
+        setOpen(false);
+      }, 900);
+    } catch {
       setStatus("Could not send inquiry. Please try again.");
-      return;
+    } finally {
+      setSubmitting(false);
     }
-
-    setStatus("Inquiry sent successfully.");
-    form.reset();
-    setRequirement("QR Ordering + POS Demo");
-    setTimeout(() => {
-      setStatus("");
-      setOpen(false);
-    }, 900);
   }
 
   return (
@@ -94,10 +107,10 @@ export default function BookDemoForm() {
               </div>
 
               <div className="mt-6 grid gap-4">
-                <input name="name" required minLength={2} maxLength={40} pattern="[A-Za-z ]+" placeholder="Your name" className="rounded-xl border border-[#D9B86A]/20 bg-black/40 px-4 py-3 outline-none" />
+                <input name="name" required minLength={2} maxLength={40} placeholder="Your name" className="rounded-xl border border-[#D9B86A]/20 bg-black/40 px-4 py-3 outline-none" />
                 <input name="business" required minLength={2} maxLength={80} placeholder="Restaurant / business name" className="rounded-xl border border-[#D9B86A]/20 bg-black/40 px-4 py-3 outline-none" />
                 <input name="phone" required inputMode="numeric" minLength={10} maxLength={10} pattern="[6-9][0-9]{9}" placeholder="10 digit mobile number" className="rounded-xl border border-[#D9B86A]/20 bg-black/40 px-4 py-3 outline-none" />
-                <input name="city" required minLength={2} maxLength={40} pattern="[A-Za-z ]+" placeholder="City" className="rounded-xl border border-[#D9B86A]/20 bg-black/40 px-4 py-3 outline-none" />
+                <input name="city" required minLength={2} maxLength={40} placeholder="City" className="rounded-xl border border-[#D9B86A]/20 bg-black/40 px-4 py-3 outline-none" />
                 <select value={requirement} onChange={(e) => setRequirement(e.target.value)} className="rounded-xl border border-[#D9B86A]/20 bg-black/40 px-4 py-3 outline-none">
                   <option>QR Ordering + POS Demo</option><option>Staff App Demo</option><option>Restaurant Website + QR System</option><option>Custom Requirement</option>
                 </select>
@@ -107,7 +120,9 @@ export default function BookDemoForm() {
               </div>
 
               {status && <p className="mt-4 text-sm text-[#D9B86A]">{status}</p>}
-              <button type="submit" className="mt-6 w-full rounded-xl bg-[#D9B86A] px-6 py-4 font-black text-black">Submit Demo Request</button>
+              <button type="submit" disabled={submitting} className="mt-6 w-full rounded-xl bg-[#D9B86A] px-6 py-4 font-black text-black disabled:cursor-not-allowed disabled:opacity-60">
+                {submitting ? "Sending..." : "Submit Demo Request"}
+              </button>
             </form>
           </div>
         </div>
