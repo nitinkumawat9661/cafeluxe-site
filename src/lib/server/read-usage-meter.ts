@@ -44,7 +44,7 @@ function freshState(): ReadState {
 }
 
 function createReadUsageStore(): ReadUsageStore {
-  // Vercel: memory mode. VPS future: replace this adapter with file/Redis/DB store.
+  // Best-effort memory store for serverless/runtime alerts. Use Redis, Appwrite, or another persistent store when exact monthly counts are required.
   return {
     async read() {
       g.__cafeReadMeter ||= freshState();
