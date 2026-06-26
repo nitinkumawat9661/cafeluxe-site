@@ -5,13 +5,37 @@ const scriptSrc = isDev
   ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
   : "script-src 'self' 'unsafe-inline'";
 
+function getConnectSources() {
+  const sources = new Set(["'self'", "https://api.telegram.org"]);
+  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || process.env.APPWRITE_ENDPOINT;
+
+  if (endpoint) {
+    try {
+      const url = new URL(endpoint);
+      sources.add(url.origin);
+      if (url.protocol === "https:") {
+        sources.add(`wss://${url.host}`);
+      }
+      if (url.protocol === "http:") {
+        sources.add(`ws://${url.host}`);
+      }
+    } catch {
+      // Ignore malformed Appwrite endpoint at build time.
+    }
+  }
+
+  sources.add("https://cloud.appwrite.io");
+  sources.add("wss://cloud.appwrite.io");
+  return `connect-src ${Array.from(sources).join(" ")}`;
+}
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'self'",
   "frame-ancestors 'none'",
   "object-src 'none'",
   "form-action 'self'",
-  "connect-src 'self'",
+  getConnectSources(),
   "img-src 'self' https: data: blob:",
   "font-src 'self' data:",
   scriptSrc,
