@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import BookDemoForm from "@/components/BookDemoForm";
 
 const links = [
@@ -16,10 +16,34 @@ const links = [
 
 export default function SiteNav() {
   const [open, setOpen] = useState(false);
+  const navRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!navRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
 
   return (
     <>
-      <nav className="relative z-50 flex h-14 items-center justify-between gap-4">
+      <nav ref={navRef} className="relative z-50 flex h-14 items-center justify-between gap-4">
         <Link href="/" className="shrink-0 font-serif text-3xl text-[#D9B86A]">
           CafeLuxe
         </Link>
@@ -33,6 +57,9 @@ export default function SiteNav() {
         </div>
 
         <button
+          type="button"
+          aria-expanded={open}
+          aria-controls="mobile-site-nav"
           onClick={() => setOpen((v) => !v)}
           className="rounded-xl border border-[#D9B86A]/45 px-4 py-2 text-sm font-bold text-[#E7D3A1] xl:hidden"
         >
@@ -40,7 +67,7 @@ export default function SiteNav() {
         </button>
 
         {open && (
-          <div className="absolute left-0 right-0 top-16 rounded-[1.5rem] border border-[#D9B86A]/25 bg-black/95 p-4 shadow-2xl backdrop-blur-xl xl:hidden">
+          <div id="mobile-site-nav" className="absolute left-0 right-0 top-16 rounded-[1.5rem] border border-[#D9B86A]/25 bg-black/95 p-4 shadow-2xl backdrop-blur-xl xl:hidden">
             <div className="grid gap-3">
               {links.map(([label, href]) => (
                 <Link key={href} href={href} onClick={() => setOpen(false)} className="rounded-xl border border-[#D9B86A]/15 px-4 py-3 text-[#D8CFBE]">
