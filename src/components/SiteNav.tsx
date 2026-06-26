@@ -8,6 +8,7 @@ const links = [
   ["Home", "/"],
   ["Features", "/features"],
   ["Download", "/app"],
+  ["FAQ", "/faq"],
   ["About", "/about"],
   ["Contact", "/contact"],
   ["Terms", "/terms"],
