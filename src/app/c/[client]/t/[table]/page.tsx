@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import QrOrderingExperience from "@/components/qr-ordering-experience";
+import CustomerMenuFlow from "@/components/customer-menu-flow";
 
 type RouteParams = Promise<{
   client: string;
@@ -35,7 +35,7 @@ export async function generateMetadata({
   params: RouteParams;
 }): Promise<Metadata> {
   const { client, table } = await params;
-  const safeClient = sanitizeRouteParam(client, 64) || "Nanu Da Dhaba";
+  const safeClient = sanitizeRouteParam(client, 64) || "Restaurant";
   const safeTable = sanitizeRouteParam(table, 32) || "Table";
   const prettyClient = safeClient
     .split(/[-_\s]+/)
@@ -63,7 +63,7 @@ export default async function TableOrderingPage({
   const safeTable = sanitizeRouteParam(table, 32) || safeDecodeParam(table);
 
   return (
-    <QrOrderingExperience
+    <CustomerMenuFlow
       key={`${safeClient}__${safeTable}`}
       client={safeClient}
       table={safeTable}
